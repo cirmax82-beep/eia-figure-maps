@@ -994,7 +994,7 @@
         pen.path([head], { closed: true, fill: "#1f1f1f", stroke: "#ffffff", width: 0.2 * e });
         pen.path([Array.from({ length: 17 }, (_, k) => [a[0] + 0.7 * e * Math.cos((k / 16) * 2 * Math.PI), a[1] + 0.7 * e * Math.sin((k / 16) * 2 * Math.PI)])], { closed: true, fill: "#1f1f1f", stroke: "#ffffff", width: 0.2 * e });
         // 글자: 치수선 방향으로 돌려(거꾸로 서지 않게) 선 바로 위에
-        const t = `1등급 권역까지 약 ${distText(dist1.m)}`, fs = 8 * e, mxp = (a[0] + b[0]) / 2, myp = (a[1] + b[1]) / 2;
+        const t = distText(dist1.m), fs = 8 * e, mxp = (a[0] + b[0]) / 2, myp = (a[1] + b[1]) / 2;
         let deg = (ang * 180) / Math.PI;
         if (deg > 90) deg -= 180; else if (deg <= -90) deg += 180;
         const off = fs * PT * 0.85, nx = Math.sin(deg * RAD), ny = -Math.cos(deg * RAD);
