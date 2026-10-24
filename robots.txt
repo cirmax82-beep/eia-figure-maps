@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://map.biogrideia.com/sitemap.xml

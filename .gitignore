@@ -1,0 +1,5 @@
+# 받은 원본(용량이 큼)과 시험 파일
+work/
+__pycache__/
+*.pyc
+.claude/
