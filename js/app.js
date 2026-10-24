@@ -135,7 +135,7 @@
       // 1등급 이격거리 결과(생태·자연도, 켰을 때)
       const dt = $("#n-dist-text"), d = out.dist1;
       dt.hidden = !(f.kind === "nat" && f.nat.dist1);
-      dt.textContent = !d ? "" : d.inside ? "사업지구가 1등급 권역과 겹칩니다." : d.none ? "도면에 보이는 범위 안에 1등급 권역이 없습니다." : `1등급 권역까지 약 ${fmt(d.m >= 1000 ? d.m / 1000 : Math.round(d.m / 10) * 10, d.m >= 1000 ? 2 : 0)} ${d.m >= 1000 ? "km" : "m"}(도면에 보이는 범위 안)`;
+      dt.textContent = !d ? "" : d.inside ? "사업지구가 1등급 권역과 겹칩니다." : d.none ? "도면에 보이는 범위 안에 1등급 권역이 없습니다." : `1등급 권역까지 ${d.m < 1 ? `${Math.round(d.m * 100)} cm` : `${fmt(Math.round(d.m))} m`}(도면에 보이는 범위 안)`;
       status(out.warn.length ? out.warn.join(" ") : `축척 1:${fmt(f.scale)} · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`);
     } catch (err) {
       console.error(err);

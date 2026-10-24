@@ -983,9 +983,16 @@
             ]) if (!best || d < best.d) best = { d, a: [ax, ay], b: [bx, by] };
           }
         }
-        if (best) dist1 = { m: (Math.sqrt(best.d) * v.scale) / 1000 };
+        // 거리는 두 점의 경위도로 다시 계산(그 자리 위도의 1도 길이, 타원체 급수) — 지도 투영 오차를 없앰
+        if (best) {
+          const [lo1, la1] = v.toLL(...best.a), [lo2, la2] = v.toLL(...best.b), f0 = ((la1 + la2) / 2) * RAD;
+          const kx = 111412.84 * Math.cos(f0) - 93.5 * Math.cos(3 * f0) + 0.118 * Math.cos(5 * f0);
+          const ky = 111132.92 - 559.82 * Math.cos(2 * f0) + 1.175 * Math.cos(4 * f0) - 0.0023 * Math.cos(6 * f0);
+          dist1 = { m: Math.hypot((lo2 - lo1) * kx, (la2 - la1) * ky) };
+        }
       } else dist1 = { none: true };
-      const distText = (m) => (m >= 1000 ? `${fmtNum(Math.round(m / 10) / 100)} km` : `${fmtNum(Math.round(m / 10) * 10)} m`);
+      // 1 m 단위(1 m 미만은 cm)
+      const distText = (m) => (m < 1 ? `${Math.round(m * 100)} cm` : `${Math.round(m).toLocaleString("ko-KR")} m`);
       if (best) {
         const [a, b] = [best.a, best.b], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), hl = 1.8 * e;
         const head = [b, [b[0] - hl * Math.cos(ang - 0.38), b[1] - hl * Math.sin(ang - 0.38)], [b[0] - hl * Math.cos(ang + 0.38), b[1] - hl * Math.sin(ang + 0.38)]];
