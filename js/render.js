@@ -262,7 +262,8 @@
     }
     return LC.tiles.get(key);
   };
-  const FOREST = ["broad", "conifer", "mixed"], WATER = ["river", "lake"];
+  // 수계: 하천(711)·호소(712)·내륙습지(511, 하안습지 등). 갯벌·염전(521·522)은 따로(해안 사업지에서 켬)
+  const FOREST = ["broad", "conifer", "mixed"], WATER = ["river", "lake", "wetland"], TIDAL = ["tidal"];
   // 틀(조금 넉넉하게)의 10 m 화소를 0/1 격자로 → 살짝 흐리게 → 0.5 등치선(d3.contours) → 메르카토르 좌표 고리
   const landcover = async (v) => {
     await lcIndex();
@@ -286,8 +287,8 @@
     const W = px1 - px0 + 1, H = py1 - py0 + 1;
     if (W * H > 16e6) throw new Error("범위가 너무 넓어 토지피복을 그리지 않았습니다. 축척을 키워 주세요.");
     const lut = new Uint8Array(256);
-    LC.groups.forEach((g, i) => { if (FOREST.includes(g)) lut[i + 1] = 1; if (WATER.includes(g)) lut[i + 1] = 2; });
-    const forest = new Float32Array(W * H), water = new Float32Array(W * H);
+    LC.groups.forEach((g, i) => { if (FOREST.includes(g)) lut[i + 1] = 1; if (WATER.includes(g)) lut[i + 1] = 2; if (TIDAL.includes(g)) lut[i + 1] = 3; });
+    const forest = new Float32Array(W * H), water = new Float32Array(W * H), tidal = new Float32Array(W * H);
     const jobs = [];
     let gotAny = false;
     for (let ty = Math.floor(py0 / N); ty <= Math.floor(py1 / N); ty++) {
@@ -301,7 +302,7 @@
             const src = (py - oy) * N - ox, dst = (py - py0) * W - px0;
             for (let px = ax; px <= bx; px++) {
               const c = lut[d[src + px]];
-              if (c === 1) forest[dst + px] = 1; else if (c === 2) water[dst + px] = 1;
+              if (c === 1) forest[dst + px] = 1; else if (c === 2) water[dst + px] = 1; else if (c === 3) tidal[dst + px] = 1;
             }
           }
         }));
@@ -311,6 +312,7 @@
     if (!gotAny) throw new Error("이 범위의 토지피복 자료가 없습니다.");
     d3.blur2({ data: forest, width: W, height: H }, 1);
     d3.blur2({ data: water, width: W, height: H }, 0.6);
+    d3.blur2({ data: tidal, width: W, height: H }, 1);
     // d3.contours 좌표는 화소 가장자리 기준(화소 i가 [i, i+1])
     const toMerc = (ring) => {
       const out = new Float64Array(ring.length * 2);
@@ -321,7 +323,7 @@
       return out;
     };
     const vec = (grid, thr) => d3.contours().size([W, H]).thresholds([thr])(grid)[0].coordinates.map((poly) => poly.map(toMerc));
-    const val = { forest: vec(forest, 0.5), water: vec(water, 0.42) };
+    const val = { forest: vec(forest, 0.5), water: vec(water, 0.42), tidal: vec(tidal, 0.5) };
     LC.cache = { box, val, res: v.res };
     return val;
   };
@@ -539,7 +541,7 @@
     const wantRings = fig.kind === "sat" || fig.eco.rings;
     const jobs = {
       base: fig.base < 1 ? basemap(v, k, ctl.onTiles, alive).catch((err) => { console.warn(err); warn.push("위성영상을 받지 못했습니다."); return null; }) : null,
-      lc: eco && (fig.eco.forest || fig.eco.water) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
+      lc: eco && (fig.eco.forest || fig.eco.water || fig.eco.tidal) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
       osm: eco && (fig.eco.peaks || fig.eco.wnames || fig.eco.flow || fig.eco.streams) ? osm(v).catch((err) => { console.warn(err); warn.push("이름·하천 자료를 받지 못했습니다."); return null; }) : null,
       rings: wantRings && fig.rings.length ? ringGeoms(site, fig.rings).catch((err) => { console.warn(err); warn.push("주변 범위를 계산하지 못했습니다."); return null; }) : null,
     };
@@ -601,7 +603,7 @@
     const legend = [];
     legend.push({ type: site.features.some((f) => U.kindOf(f.geometry) === "polygon") ? "outline" : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: "사업지구" });
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
-    if (eco && (lc && fig.eco.water || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone))) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
+    if (eco && (lc && (fig.eco.water || fig.eco.tidal) || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone))) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "forest")) legend.push({ type: "arrow", color: COLOR.arrowForest, label: "산림축" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "water")) legend.push({ type: "arrow", color: COLOR.arrowWater, label: "수계축" });
     if (eco && os && fig.eco.flow && os.ways.length) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
@@ -652,6 +654,7 @@
     // 수계는 출처 셋(토지피복 하천·호소, 하천구역, 소하천구역)이 겹치므로 불투명하게 칠해 겹친 곳이 진해지지 않게 함
     if (eco && lc && fig.eco.forest) pen.path(polyParts(lc.forest, 2.5), { closed: true, fill: COLOR.forest, fillOpacity: 0.5 });
     if (eco && lc && fig.eco.water) pen.path(polyParts(lc.water, 0.6), { closed: true, fill: COLOR.water });
+    if (eco && lc && fig.eco.tidal) pen.path(polyParts(lc.tidal, 1), { closed: true, fill: COLOR.water });
     if (eco && wz && fig.eco.rzone) pen.path(polyParts(wz.river, 0), { closed: true, fill: COLOR.water });
     // 소하천구역은 폭이 몇 m뿐이라 작은 축척에서도 보이게 같은 색 테두리를 얇게 두름
     if (eco && wz && fig.eco.szone) pen.path(polyParts(wz.small, 0), { closed: true, fill: COLOR.water, stroke: COLOR.water, width: 0.18 * e });

@@ -20,7 +20,7 @@
 | 자료 | 출처 | 쓰는 방법 |
 |---|---|---|
 | 위성영상 | Esri World Imagery (Esri, Maxar, Earthstar Geographics) | 타일을 그때그때 받음, 도면에 출처 표기 |
-| 토지피복 | 환경부 세분류 토지피복지도(2025) | [habitat.biogrideia.com](https://habitat.biogrideia.com/)에 공개한 10 m 묶음 그림(`data/lc10`)을 읽어 산림(활엽·침엽·혼효)·수계(하천·호소)를 면으로 바꿈 |
+| 토지피복 | 환경부 세분류 토지피복지도(2025) | [habitat.biogrideia.com](https://habitat.biogrideia.com/)에 공개한 10 m 묶음 그림(`data/lc10`)을 읽어 산림(활엽·침엽·혼효)·수계(하천·호소·내륙습지, 갯벌·염전은 선택)를 면으로 바꿈 |
 | 하천구역(국가·지방하천) | 국토교통부 브이월드 하천망(LT_C_WKMSTRM) | `tools/fetch_rivers.py`로 받아 `tools/build_water.py`로 0.5 m로 줄여 `data/water` 조각에 담음 |
 | 소하천구역 | 국토교통부 (연속주제)_소하천/소하천구역(브이월드 데이터마켓, 공공누리 제4유형: 출처표시·상업적 이용금지·변경금지) | 시도별 SHP를 모양 그대로(1 cm 안 겹친 꼭짓점만 뺌, 자르지 않음) `data/water` 조각에 담음 |
 | 산·저수지·하천 이름, 하천 선 | © OpenStreetMap 기여자 (ODbL) | Geofabrik 한국 추출본에서 뽑아 둔 `data/osm` 조각. 하천 선의 점 순서가 흐르는 방향 |
