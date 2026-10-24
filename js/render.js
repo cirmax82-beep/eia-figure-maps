@@ -1239,5 +1239,40 @@
     return { ...out, view: D.v, layout: D.L, warn: D.warn };
   };
 
-  window.Carto = { render, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
+  // 사업지구 안 생태·자연도 등급별 면적(㎡): 사업지구 면과 등급 면(조각, 5 m로 줄인 것)을 겹쳐 계산.
+  // 3등급은 ‘1·2등급과 별도관리지역 외의 지역’이므로 사업지구에서 1·2등급을 뺀 나머지, 별도관리지역은 등급과 겹칠 수 있어 따로 셈
+  const natAreas = async (site) => {
+    await U.loadScript(U.LIB.turf, "turf");
+    const polys = site.features.filter((f) => /Polygon/.test(f.geometry.type));
+    if (!polys.length) throw new Error("면적은 면(구역) 경계일 때만 계산합니다.");
+    const sitePoly = polys.length === 1 ? turf.feature(polys[0].geometry) : turf.union(turf.featureCollection(polys.map((f) => turf.feature(f.geometry))));
+    const b = turf.bbox(sitePoly);
+    const nd = await natLayer({ llBox: [b[0] - 0.002, b[1] - 0.002, b[2] + 0.002, b[3] + 0.002] });
+    // 넓이: 사업지 가운데 위도의 1도 길이(타원체 급수)로 경위도를 m로 바꿔 계산
+    const f0 = ((b[1] + b[3]) / 2) * RAD;
+    const kx = 111412.84 * Math.cos(f0) - 93.5 * Math.cos(3 * f0) + 0.118 * Math.cos(5 * f0);
+    const ky = 111132.92 - 559.82 * Math.cos(2 * f0) + 1.175 * Math.cos(4 * f0) - 0.0023 * Math.cos(6 * f0);
+    const ringA = (r) => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return Math.abs(a / 2) * kx * ky; };
+    const areaOf = (g) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [])
+      .reduce((s, p) => s + p.reduce((t, r, i) => t + (i ? -1 : 1) * ringA(r), 0), 0);
+    const toFeat = (rings) => {
+      const rs = rings.map((r) => { const o = []; for (let i = 0; i < r.length; i += 2) o.push([ilon(r[i]), ilat(r[i + 1])]); if (o.length) o.push(o[0].slice()); return o; }).filter((r) => r.length >= 4);
+      return rs.length ? turf.polygon(rs) : null;
+    };
+    const sum = (code) => {
+      let a = 0;
+      for (const p of nd[code] || []) {
+        const f = toFeat(p);
+        if (!f) continue;
+        const fb = turf.bbox(f);
+        if (fb[0] > b[2] || fb[2] < b[0] || fb[1] > b[3] || fb[3] < b[1]) continue;
+        try { const x = turf.intersect(turf.featureCollection([sitePoly, f])); if (x) a += areaOf(x.geometry); } catch (err) { console.warn(err); }
+      }
+      return a;
+    };
+    const total = areaOf(sitePoly.geometry), g1 = sum(1), g2 = sum(2), sep = sum(9);
+    return { total, g1, g2, g3: Math.max(0, total - g1 - g2), sep, source: nd.source };
+  };
+
+  window.Carto = { render, natAreas, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
 })();

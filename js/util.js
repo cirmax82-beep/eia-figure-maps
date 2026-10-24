@@ -20,6 +20,7 @@
     shp: "https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js",
     jszip: "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
     jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+    xlsx: "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
   };
   const scripts = new Map();
   const loadScript = (url, global) => {

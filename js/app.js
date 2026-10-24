@@ -329,6 +329,48 @@
     });
   };
 
+  // ---------- 생태·자연도 등급별 면적표(엑셀) ----------
+  const natAreaExcel = async () => {
+    if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
+    const btn = $("#n-area"), box = $("#n-area-text");
+    btn.disabled = true;
+    box.hidden = false;
+    box.textContent = "면적을 계산하는 중…";
+    try {
+      const [a] = await Promise.all([Carto.natAreas(site()), loadScript(LIB.xlsx, "XLSX")]);
+      const name = $("#site-name").value.trim(), label = siteText();
+      const pct = (v) => (a.total ? Math.round((v / a.total) * 10000) / 100 : 0);
+      const r1 = (v) => Math.round(v * 10) / 10;
+      const rows = [
+        ["생태·자연도 등급별 면적표"], [],
+        ["사업명", name || "-"], ["경계", label], ["자료", a.source || "생태·자연도 정기고시"],
+        ["계산", "사업지구 경계와 생태·자연도 등급 면을 겹쳐 계산(등급 면은 도면용으로 5 m 안에서 단순화)"], [],
+        ["구분", "면적(㎡)", "비율(%)"],
+        ["1등급", r1(a.g1), pct(a.g1)], ["2등급", r1(a.g2), pct(a.g2)], ["3등급", r1(a.g3), pct(a.g3)], ["계", r1(a.total), a.total ? 100 : 0], [],
+        ["별도관리지역", r1(a.sep), pct(a.sep)], [],
+        ["주) 3등급은 ‘1·2등급과 별도관리지역 외의 지역’으로 보아 사업지구에서 1·2등급을 뺀 나머지 면적입니다."],
+        ["주) 별도관리지역은 등급 면과 겹칠 수 있어 위 등급 합계와 따로 적었습니다."],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      for (let r = 9; r <= 14; r++) {
+        if (ws[`B${r}`] && typeof ws[`B${r}`].v === "number") ws[`B${r}`].z = "#,##0.0";
+        if (ws[`C${r}`] && typeof ws[`C${r}`].v === "number") ws[`C${r}`].z = "0.00";
+      }
+      ws["!cols"] = [{ wch: 16 }, { wch: 16 }, { wch: 10 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "생태자연도 면적");
+      const out = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+      saveBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${safeName([name, label, "생태자연도_등급별면적"].filter(Boolean).join("_"))}.xlsx`);
+      const f = (v) => fmt(r1(v), 1);
+      box.innerHTML = `1등급 ${f(a.g1)} ㎡(${pct(a.g1)}%) · 2등급 ${f(a.g2)} ㎡(${pct(a.g2)}%) · 3등급 ${f(a.g3)} ㎡(${pct(a.g3)}%)<br>계 ${f(a.total)} ㎡ · 별도관리지역 ${f(a.sep)} ㎡`;
+    } catch (err) {
+      console.error(err);
+      box.textContent = err.message || "면적을 계산하지 못했습니다.";
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
   // ---------- 받기 ----------
   // PNG에 해상도(pHYs) 정보를 넣어 문서에 넣을 때 실제 용지 크기로 들어가게 함
   const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -443,6 +485,7 @@
   $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
   ["o-title", "o-rings", "o-forest-name", "o-water-name"].forEach((id) => $(`#${id}`).addEventListener("input", () => { readControls(); rerender(); }));
   $$("[data-dl]").forEach((b) => b.addEventListener("click", () => exportFig(b.dataset.dl)));
+  $("#n-area").addEventListener("click", natAreaExcel);
   initPan();
   initWheel();
   initArrow();
