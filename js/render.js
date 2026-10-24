@@ -262,7 +262,7 @@
     }
     return LC.tiles.get(key);
   };
-  // 수계: 하천(711)·호소(712)·내륙습지(511, 하안습지 등). 갯벌·염전(521·522)은 따로(해안 사업지에서 켬)
+  // 수계: 하천(711)·호소(712)·내륙습지(511, 하안습지 등). 갯벌·염전(521·522)은 따로 켜고 끔(바다는 해안선 밖으로 칠함)
   const FOREST = ["broad", "conifer", "mixed"], WATER = ["river", "lake", "wetland"], TIDAL = ["tidal"];
   // 틀(조금 넉넉하게)의 10 m 화소를 0/1 격자로 → 살짝 흐리게 → 0.5 등치선(d3.contours) → 메르카토르 좌표 고리
   const landcover = async (v) => {
@@ -290,7 +290,7 @@
     LC.groups.forEach((g, i) => { if (FOREST.includes(g)) lut[i + 1] = 1; if (WATER.includes(g)) lut[i + 1] = 2; if (TIDAL.includes(g)) lut[i + 1] = 3; });
     const forest = new Float32Array(W * H), water = new Float32Array(W * H), tidal = new Float32Array(W * H);
     const jobs = [];
-    let gotAny = false;
+    let gotAny = false, zeros = 0, seen = 0;
     for (let ty = Math.floor(py0 / N); ty <= Math.floor(py1 / N); ty++) {
       for (let tx = Math.floor(px0 / N); tx <= Math.floor(px1 / N); tx++) {
         jobs.push(lcTile(`${tx}_${ty}`).then((d) => {
@@ -300,7 +300,9 @@
           const ax = Math.max(px0, ox), bx = Math.min(px1, ox + N - 1), ay = Math.max(py0, oy), by = Math.min(py1, oy + N - 1);
           for (let py = ay; py <= by; py++) {
             const src = (py - oy) * N - ox, dst = (py - py0) * W - px0;
+            seen += bx - ax + 1;
             for (let px = ax; px <= bx; px++) {
+              if (!d[src + px]) zeros++;
               const c = lut[d[src + px]];
               if (c === 1) forest[dst + px] = 1; else if (c === 2) water[dst + px] = 1; else if (c === 3) tidal[dst + px] = 1;
             }
@@ -323,7 +325,8 @@
       return out;
     };
     const vec = (grid, thr) => d3.contours().size([W, H]).thresholds([thr])(grid)[0].coordinates.map((poly) => poly.map(toMerc));
-    const val = { forest: vec(forest, 0.5), water: vec(water, 0.42), tidal: vec(tidal, 0.5) };
+    // 분류 없음(접경지역 등) 비율: 바다 밖인데 값이 없으면 산림·수계가 빠짐
+    const val = { forest: vec(forest, 0.5), water: vec(water, 0.42), tidal: vec(tidal, 0.5), nodata: seen ? zeros / seen : 1 };
     LC.cache = { box, val, res: v.res };
     return val;
   };
@@ -369,18 +372,15 @@
     return OSM.val;
   };
 
-  // ---------- 하천구역(브이월드 하천망)·소하천구역(국토교통부 연속주제도) ----------
-  // 0.1도 조각 이진 파일(data/water, tools/build_water.py): 경위도 1e-7도 정수를 조각 모서리 기준 zigzag varint 차이로 적음
-  const WT = { idx: null, tiles: new Map(), key: "", val: null };
-  const wtIndex = () => WT.idx || (WT.idx = fetch("data/water/index.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then((d) => { WT.T = d.tile; WT.Q = d.q; WT.set = new Set(d.tiles); return d; })
-    .catch((err) => { WT.idx = null; throw err; }));
-  const decodeWater = (buf, tx, ty) => {
-    const b = new Uint8Array(buf), Q = WT.Q;
+  // ---------- 하천구역·소하천구역(data/water)과 바다를 가를 육지(data/land) ----------
+  // 0.1도 조각 이진 파일(tools/build_water.py·build_land.py): 경위도 1e-7도 정수를 조각 모서리 기준 zigzag varint 차이로 적음
+  // 파일 구조: [판] [면 수] {면} … [묶음 수] {번호, 면 수, {면} …} …  (육지는 앞의 면만 씀)
+  const decodeBin = (buf, tx, ty, T, Q) => {
+    const b = new Uint8Array(buf);
     let i = 1;
     const rv = () => { let u = 0, s = 1, c; do { c = b[i++]; u += (c & 0x7f) * s; s *= 128; } while (c & 0x80); return u; };
     const zd = (u) => (u % 2 ? -(u + 1) / 2 : u / 2);
-    const ox = Math.round(tx * WT.T * Q), oy = Math.round(ty * WT.T * Q);
+    const ox = Math.round(tx * T * Q), oy = Math.round(ty * T * Q);
     const poly = () => {
       const rings = [];
       for (let r = rv(); r > 0; r--) {
@@ -391,42 +391,52 @@
       }
       return rings;
     };
-    const river = [], small = [];
-    for (let k = rv(); k > 0; k--) river.push(poly());
+    const polys = [], groups = [];
+    for (let k = rv(); k > 0; k--) polys.push(poly());
     for (let k = rv(); k > 0; k--) {
       const id = rv(), ps = [];
       for (let j = rv(); j > 0; j--) ps.push(poly());
-      small.push({ id, ps });
+      groups.push({ id, ps });
     }
-    return { river, small };
+    return { polys, groups };
   };
-  const wtTile = (key) => {
-    if (!WT.set.has(key)) return Promise.resolve(null);
-    if (!WT.tiles.has(key)) {
-      const [tx, ty] = key.split("_").map(Number);
-      WT.tiles.set(key, fetch(`data/water/${key}.bin`).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
-        .then((buf) => decodeWater(buf, tx, ty)).catch(() => { WT.tiles.delete(key); return null; }));
-      while (WT.tiles.size > 60) WT.tiles.delete(WT.tiles.keys().next().value);
-    }
-    return WT.tiles.get(key);
+  // base 폴더의 조각을 틀 범위만큼 받아 합침(묶음은 번호로 한 번만). 목록에 있는 조각을 못 받으면 실패로 봄(바다를 잘못 칠하지 않게)
+  const binLayer = (base) => {
+    const S = { idx: null, tiles: new Map(), key: "", val: null };
+    const index = () => S.idx || (S.idx = fetch(`${base}/index.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then((d) => { S.T = d.tile; S.Q = d.q; S.set = new Set(d.tiles); return d; })
+      .catch((err) => { S.idx = null; throw err; }));
+    const tile = (key) => {
+      if (!S.set.has(key)) return Promise.resolve(null);
+      if (!S.tiles.has(key)) {
+        const [tx, ty] = key.split("_").map(Number);
+        S.tiles.set(key, fetch(`${base}/${key}.bin`).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+          .then((buf) => decodeBin(buf, tx, ty, S.T, S.Q)).catch((err) => { S.tiles.delete(key); throw err; }));
+        while (S.tiles.size > 60) S.tiles.delete(S.tiles.keys().next().value);
+      }
+      return S.tiles.get(key);
+    };
+    return async (v) => {
+      await index();
+      const [w, s, e, n] = v.llBox, T = S.T;
+      const keys = [];
+      for (let tx = Math.floor(w / T); tx <= Math.floor(e / T); tx++) for (let ty = Math.floor(s / T); ty <= Math.floor(n / T); ty++) keys.push(`${tx}_${ty}`);
+      const key = keys.join(",");
+      if (S.key === key) return S.val;
+      const got = (await Promise.all(keys.map(tile))).filter(Boolean);
+      const seen = new Set(), polys = [], grouped = [];
+      got.forEach((d) => {
+        polys.push(...d.polys);
+        d.groups.forEach((f) => { if (!seen.has(f.id)) { seen.add(f.id); grouped.push(...f.ps); } });
+      });
+      S.key = key;
+      S.val = { polys, grouped };
+      return S.val;
+    };
   };
-  const waterZones = async (v) => {
-    await wtIndex();
-    const [w, s, e, n] = v.llBox, T = WT.T;
-    const keys = [];
-    for (let tx = Math.floor(w / T); tx <= Math.floor(e / T); tx++) for (let ty = Math.floor(s / T); ty <= Math.floor(n / T); ty++) keys.push(`${tx}_${ty}`);
-    const key = keys.join(",");
-    if (WT.key === key) return WT.val;
-    const got = (await Promise.all(keys.map(wtTile))).filter(Boolean);
-    const seen = new Set(), river = [], small = [];
-    got.forEach((d) => {
-      river.push(...d.river);
-      d.small.forEach((f) => { if (!seen.has(f.id)) { seen.add(f.id); small.push(...f.ps); } });
-    });
-    WT.key = key;
-    WT.val = { river, small };
-    return WT.val;
-  };
+  const waterLayer = binLayer("data/water"), landLayer = binLayer("data/land");
+  const waterZones = async (v) => { const d = await waterLayer(v); return { river: d.polys, small: d.grouped }; };
+  const landPolys = async (v) => (await landLayer(v)).polys;
 
   // ---------- 주변 범위(turf.buffer) ----------
   const RINGS = { key: "", val: null };
@@ -557,13 +567,15 @@
       });
     }
     const wzJob = eco && (fig.eco.rzone || fig.eco.szone) ? waterZones(v).catch((err) => { console.warn(err); warn.push("하천구역 자료를 받지 못했습니다."); return null; }) : null;
-    const [base, lc, os, rings, wz] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob]);
-    return { L: L0, v, base, lc, osm: os, rings, wz, warn };
+    const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
+    const [base, lc, os, rings, wz, land] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob]);
+    if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
+    return { L: L0, v, base, lc, osm: os, rings, wz, land, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
-    const { L: Lo, v, base, lc, osm: os, rings, wz } = D;
+    const { L: Lo, v, base, lc, osm: os, rings, wz, land } = D;
     const { W, H, e, frame: F } = Lo;
     const eco = fig.kind === "eco";
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -603,7 +615,7 @@
     const legend = [];
     legend.push({ type: site.features.some((f) => U.kindOf(f.geometry) === "polygon") ? "outline" : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: "사업지구" });
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
-    if (eco && (lc && (fig.eco.water || fig.eco.tidal) || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone))) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
+    if (eco && (lc && (fig.eco.water || fig.eco.tidal) || land && fig.eco.sea || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone))) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "forest")) legend.push({ type: "arrow", color: COLOR.arrowForest, label: "산림축" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "water")) legend.push({ type: "arrow", color: COLOR.arrowWater, label: "수계축" });
     if (eco && os && fig.eco.flow && os.ways.length) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
@@ -651,7 +663,12 @@
       }
       return out;
     };
-    // 수계는 출처 셋(토지피복 하천·호소, 하천구역, 소하천구역)이 겹치므로 불투명하게 칠해 겹친 곳이 진해지지 않게 함
+    // 바다: 틀 사각형과 육지(시군구 경계, 해안선을 따름) 고리를 짝홀 규칙으로 한 번에 칠해 육지 밖만 칠함
+    if (eco && land && fig.eco.sea) {
+      const p = 5, rect = [[F.x - p, F.y - p], [F.x + F.w + p, F.y - p], [F.x + F.w + p, F.y + F.h + p], [F.x - p, F.y + F.h + p]];
+      pen.path([rect, ...polyParts(land, 0)], { closed: true, fill: COLOR.water });
+    }
+    // 수계는 출처 여럿(토지피복 하천·호소·습지, 하천구역, 소하천구역, 하천 선)이 겹치므로 불투명하게 칠해 겹친 곳이 진해지지 않게 함
     if (eco && lc && fig.eco.forest) pen.path(polyParts(lc.forest, 2.5), { closed: true, fill: COLOR.forest, fillOpacity: 0.5 });
     if (eco && lc && fig.eco.water) pen.path(polyParts(lc.water, 0.6), { closed: true, fill: COLOR.water });
     if (eco && lc && fig.eco.tidal) pen.path(polyParts(lc.tidal, 1), { closed: true, fill: COLOR.water });
@@ -920,6 +937,7 @@
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
       if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
       if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
+      if (eco && land && fig.eco.sea) src.push("해안선: 국토교통부 브이월드 시군구 경계");
       if (eco && os) src.push("이름·하천: © OpenStreetMap 기여자");
       if (fig.base >= 1) src.shift();
       // 축척 글자와 겹치지 않게, 길면 ‘·’ 사이에서 줄을 나눔
