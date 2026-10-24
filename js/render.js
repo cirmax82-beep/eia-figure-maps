@@ -367,6 +367,65 @@
     return OSM.val;
   };
 
+  // ---------- 하천구역(브이월드 하천망)·소하천구역(국토교통부 연속주제도) ----------
+  // 0.1도 조각 이진 파일(data/water, tools/build_water.py): 경위도 1e-7도 정수를 조각 모서리 기준 zigzag varint 차이로 적음
+  const WT = { idx: null, tiles: new Map(), key: "", val: null };
+  const wtIndex = () => WT.idx || (WT.idx = fetch("data/water/index.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then((d) => { WT.T = d.tile; WT.Q = d.q; WT.set = new Set(d.tiles); return d; })
+    .catch((err) => { WT.idx = null; throw err; }));
+  const decodeWater = (buf, tx, ty) => {
+    const b = new Uint8Array(buf), Q = WT.Q;
+    let i = 1;
+    const rv = () => { let u = 0, s = 1, c; do { c = b[i++]; u += (c & 0x7f) * s; s *= 128; } while (c & 0x80); return u; };
+    const zd = (u) => (u % 2 ? -(u + 1) / 2 : u / 2);
+    const ox = Math.round(tx * WT.T * Q), oy = Math.round(ty * WT.T * Q);
+    const poly = () => {
+      const rings = [];
+      for (let r = rv(); r > 0; r--) {
+        const n = rv(), a = new Float64Array(n * 2);
+        let x = ox, y = oy;
+        for (let k = 0; k < n; k++) { x += zd(rv()); y += zd(rv()); a[2 * k] = mx(x / Q); a[2 * k + 1] = my(y / Q); }
+        rings.push(a);
+      }
+      return rings;
+    };
+    const river = [], small = [];
+    for (let k = rv(); k > 0; k--) river.push(poly());
+    for (let k = rv(); k > 0; k--) {
+      const id = rv(), ps = [];
+      for (let j = rv(); j > 0; j--) ps.push(poly());
+      small.push({ id, ps });
+    }
+    return { river, small };
+  };
+  const wtTile = (key) => {
+    if (!WT.set.has(key)) return Promise.resolve(null);
+    if (!WT.tiles.has(key)) {
+      const [tx, ty] = key.split("_").map(Number);
+      WT.tiles.set(key, fetch(`data/water/${key}.bin`).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+        .then((buf) => decodeWater(buf, tx, ty)).catch(() => { WT.tiles.delete(key); return null; }));
+      while (WT.tiles.size > 60) WT.tiles.delete(WT.tiles.keys().next().value);
+    }
+    return WT.tiles.get(key);
+  };
+  const waterZones = async (v) => {
+    await wtIndex();
+    const [w, s, e, n] = v.llBox, T = WT.T;
+    const keys = [];
+    for (let tx = Math.floor(w / T); tx <= Math.floor(e / T); tx++) for (let ty = Math.floor(s / T); ty <= Math.floor(n / T); ty++) keys.push(`${tx}_${ty}`);
+    const key = keys.join(",");
+    if (WT.key === key) return WT.val;
+    const got = (await Promise.all(keys.map(wtTile))).filter(Boolean);
+    const seen = new Set(), river = [], small = [];
+    got.forEach((d) => {
+      river.push(...d.river);
+      d.small.forEach((f) => { if (!seen.has(f.id)) { seen.add(f.id); small.push(...f.ps); } });
+    });
+    WT.key = key;
+    WT.val = { river, small };
+    return WT.val;
+  };
+
   // ---------- 주변 범위(turf.buffer) ----------
   const RINGS = { key: "", val: null };
   const ringGeoms = async (site, kms) => {
@@ -495,13 +554,14 @@
         return null;
       });
     }
-    const [base, lc, os, rings] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings]);
-    return { L: L0, v, base, lc, osm: os, rings, warn };
+    const wzJob = eco && (fig.eco.rzone || fig.eco.szone) ? waterZones(v).catch((err) => { console.warn(err); warn.push("하천구역 자료를 받지 못했습니다."); return null; }) : null;
+    const [base, lc, os, rings, wz] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob]);
+    return { L: L0, v, base, lc, osm: os, rings, wz, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
-    const { L: Lo, v, base, lc, osm: os, rings } = D;
+    const { L: Lo, v, base, lc, osm: os, rings, wz } = D;
     const { W, H, e, frame: F } = Lo;
     const eco = fig.kind === "eco";
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -541,7 +601,7 @@
     const legend = [];
     legend.push({ type: site.features.some((f) => U.kindOf(f.geometry) === "polygon") ? "outline" : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: "사업지구" });
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
-    if (eco && (lc && fig.eco.water || os && fig.eco.streams)) legend.push({ type: "fill", color: COLOR.water, opacity: 0.85, label: fig.eco.waterName || "수생태계" });
+    if (eco && (lc && fig.eco.water || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone))) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "forest")) legend.push({ type: "arrow", color: COLOR.arrowForest, label: "산림축" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "water")) legend.push({ type: "arrow", color: COLOR.arrowWater, label: "수계축" });
     if (eco && os && fig.eco.flow && os.ways.length) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
@@ -589,10 +649,12 @@
       }
       return out;
     };
-    if (eco && lc) {
-      if (fig.eco.forest) pen.path(polyParts(lc.forest, 2.5), { closed: true, fill: COLOR.forest, fillOpacity: 0.5 });
-      if (fig.eco.water) pen.path(polyParts(lc.water, 0.6), { closed: true, fill: COLOR.water, fillOpacity: 0.85 });
-    }
+    // 수계는 출처 셋(토지피복 하천·호소, 하천구역, 소하천구역)이 겹치므로 불투명하게 칠해 겹친 곳이 진해지지 않게 함
+    if (eco && lc && fig.eco.forest) pen.path(polyParts(lc.forest, 2.5), { closed: true, fill: COLOR.forest, fillOpacity: 0.5 });
+    if (eco && lc && fig.eco.water) pen.path(polyParts(lc.water, 0.6), { closed: true, fill: COLOR.water });
+    if (eco && wz && fig.eco.rzone) pen.path(polyParts(wz.river, 0), { closed: true, fill: COLOR.water });
+    // 소하천구역은 폭이 몇 m뿐이라 작은 축척에서도 보이게 같은 색 테두리를 얇게 두름
+    if (eco && wz && fig.eco.szone) pen.path(polyParts(wz.small, 0), { closed: true, fill: COLOR.water, stroke: COLOR.water, width: 0.18 * e });
     // 작은 하천 선(오픈스트리트맵)
     const wayPage = os ? os.ways.map((w) => ({ ...w, pp: w.pts.map(([X, Y]) => PM(X, Y)) })) : [];
     if (eco && os && fig.eco.streams) {
@@ -853,9 +915,19 @@
     if (fig.el.source) {
       const src = ["영상: Esri World Imagery(Esri, Maxar, Earthstar Geographics)"];
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
+      if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
+      if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
       if (eco && os) src.push("이름·하천: © OpenStreetMap 기여자");
       if (fig.base >= 1) src.shift();
-      pen.text(`자료: ${src.join(" · ")}`, F.x, fy, { size: 6.2 * e, align: "left", base: "middle", color: "#555555" });
+      // 축척 글자와 겹치지 않게, 길면 ‘·’ 사이에서 줄을 나눔
+      const fs = 6.2 * e, maxW = F.w - textW("축척 1:100,000 (A3 세로)", fs) - 6 * e;
+      const lines = [];
+      src.forEach((s, i) => {
+        const piece = i ? s : `자료: ${s}`;
+        const cur = lines.length ? `${lines[lines.length - 1]} · ${piece}` : piece;
+        if (lines.length && textW(cur, fs) <= maxW) lines[lines.length - 1] = cur; else lines.push(piece);
+      });
+      lines.forEach((t, i) => pen.text(t, F.x, fy + (i - (lines.length - 1) / 2) * 2.7 * e, { size: fs, align: "left", base: "middle", color: "#555555" }));
     }
     pen.text(`축척 1:${fmtNum(v.scale)} (${fig.paper} ${fig.orient === "port" ? "세로" : "가로"})`, F.x + F.w, fy, { size: 6.2 * e, align: "right", base: "middle", color: "#555555" });
     return { labels: labelsOut };
