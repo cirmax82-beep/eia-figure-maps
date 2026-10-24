@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261025j">
+<link rel="stylesheet" href="css/style.css?v=20261026d">
 </head>
 <body>
 <header class="top">
@@ -70,22 +70,44 @@
 
     <section class="card">
       <h2><span class="num">2</span>도면</h2>
-      <div class="seg" id="fig-tabs">
-        <button data-fig="sat" class="on">위성사진 현황도</button><button data-fig="eco">생태축 현황도</button>
+      <div class="seg wrap" id="fig-tabs">
+        <button data-fig="sat" class="on">위성사진 현황도</button><button data-fig="eco">생태축 현황도</button><button data-fig="nat">생태·자연도</button>
+        <button data-fig="veg">식생기후대</button><button data-fig="flo">식물상 지역</button>
       </div>
 
       <div class="grid2">
         <label>용지 <select id="o-paper" class="input"><option value="A4">A4</option><option value="A3">A3</option></select></label>
         <label>방향 <select id="o-orient" class="input"><option value="land">가로</option><option value="port">세로</option></select></label>
         <label>축척 <select id="o-scale" class="input"></select></label>
-        <label>바탕 <select id="o-base" class="input">
+        <label id="o-base-row">바탕 <select id="o-base" class="input">
           <option value="0">위성 그대로</option><option value="0.2">위성 조금 밝게</option><option value="0.4">위성 밝게</option><option value="1">흰 바탕</option>
+        </select></label>
+        <label id="n-base-row" hidden>바탕 <select id="n-base" class="input">
+          <option value="white">브이월드 백지도</option><option value="sat">위성</option><option value="none">흰 바탕</option>
         </select></label>
       </div>
       <label class="row">제목 <input id="o-title" class="input"></label>
 
       <div data-figpane="sat">
         <label class="row">주변 범위(km, 쉼표로) <input id="o-rings" class="input" value="1, 2"></label>
+      </div>
+
+      <div data-figpane="nat" hidden>
+        <div class="checks">
+          <label><input type="checkbox" id="n-g1" checked> 1등급</label>
+          <label><input type="checkbox" id="n-g2" checked> 2등급</label>
+          <label><input type="checkbox" id="n-sep" checked> 별도관리지역</label>
+          <label><input type="checkbox" id="n-rings"> 주변 범위</label>
+        </div>
+        <p class="hint">2026년 생태·자연도 정기고시(기후에너지환경부고시 제2026-128호). 3등급은 흰색입니다.</p>
+      </div>
+
+      <div data-figpane="veg flo" hidden>
+        <div class="checks">
+          <label><input type="checkbox" id="v-inset" checked> 사업지 확대 그림</label>
+        </div>
+        <p class="hint" data-figpane="veg" hidden>CHELSA 월평균기온(1981–2010)으로 계산한 온량지수(WI)·한랭지수(CI)로 나눕니다.</p>
+        <p class="hint" data-figpane="flo" hidden>Jung &amp; Cho(2020) 식물상 지역(약 12 km 격자).</p>
       </div>
 
       <div data-figpane="eco" hidden>
@@ -183,9 +205,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script src="js/util.js?v=20261025j"></script>
-<script src="js/input.js?v=20261025j"></script>
-<script src="js/render.js?v=20261025j"></script>
-<script src="js/app.js?v=20261025j"></script>
+<script src="js/config.js"></script>
+<script src="js/util.js?v=20261026d"></script>
+<script src="js/input.js?v=20261026d"></script>
+<script src="js/render.js?v=20261026d"></script>
+<script src="js/app.js?v=20261026d"></script>
 </body>
 </html>

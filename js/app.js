@@ -3,15 +3,18 @@
   const { $, $$, esc, fmt, debounce, toast, LIB, loadScript, saveBlob, safeName } = U;
   const { IN } = Input;
 
+  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역" };
   const newFig = (kind) => ({
-    kind, paper: "A4", orient: "land", scaleMode: "auto", scale: 5000, offset: [0, 0], base: 0,
-    title: kind === "sat" ? "위성사진 현황도" : "생태축 현황도",
+    kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0], base: 0,
+    title: TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat", grid: "none" },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
+    nat: { base: "white", g1: true, g2: true, sep: true, rings: false },
+    natl: { inset: kind === "veg" },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
-  const S = { cur: "sat", figs: { sat: newFig("sat"), eco: newFig("eco") }, view: "map", last: null, busy: false };
+  const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false };
   const fig = () => S.figs[S.cur];
   const site = () => IN.site;
   const resolveScale = (f) => { if (f.scaleMode === "auto") f.scale = Carto.autoScale(f, site()); return f.scale; };
@@ -19,11 +22,12 @@
   // ---------- 설정 칸 ↔ 도면 ----------
   const CHECKS = { "o-forest": ["eco", "forest"], "o-water": ["eco", "water"], "o-tidal": ["eco", "tidal"], "o-sea": ["eco", "sea"], "o-rzone": ["eco", "rzone"], "o-szone": ["eco", "szone"],"o-peaks": ["eco", "peaks"], "o-wnames": ["eco", "wnames"], "o-flow": ["eco", "flow"],
     "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
-    "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"] };
+    "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
+    "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "v-inset": ["natl", "inset"] };
   const scaleOptions = () => {
     const f = fig();
     const auto = site() ? ` (1:${fmt(Carto.autoScale(f, site()))})` : "";
-    $("#o-scale").innerHTML = `<option value="auto">자동${auto}</option>` + Carto.SCALES.map((s) => `<option value="${s}">1:${fmt(s)}</option>`).join("");
+    $("#o-scale").innerHTML = `<option value="auto">자동${auto}</option>` + Carto.scalesFor(f).map((s) => `<option value="${s}">1:${fmt(s)}</option>`).join("");
     $("#o-scale").value = f.scaleMode === "auto" ? "auto" : String(f.scale);
   };
   const syncControls = () => {
@@ -31,6 +35,9 @@
     $("#o-paper").value = f.paper;
     $("#o-orient").value = f.orient;
     $("#o-base").value = String(f.base);
+    $("#n-base").value = f.nat.base;
+    $("#o-base-row").hidden = f.kind === "nat";
+    $("#n-base-row").hidden = f.kind !== "nat";
     $("#o-title").value = f.title;
     $("#o-rings").value = f.rings.join(", ");
     $("#o-forest-name").value = f.eco.forestName;
@@ -38,7 +45,7 @@
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { $(`#${id}`).checked = !!f[g][k]; });
     $("#e-grid").value = f.el.grid;
     scaleOptions();
-    $$("[data-figpane]").forEach((p) => { p.hidden = p.dataset.figpane !== f.kind; });
+    $$("[data-figpane]").forEach((p) => { p.hidden = !p.dataset.figpane.split(" ").includes(f.kind); });
     $$("#fig-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.fig === S.cur));
     renderArrowList();
   };
@@ -48,6 +55,7 @@
     f.paper = $("#o-paper").value;
     f.orient = $("#o-orient").value;
     f.base = parseFloat($("#o-base").value);
+    f.nat.base = $("#n-base").value;
     f.title = $("#o-title").value.trim();
     f.rings = parseRings($("#o-rings").value);
     f.eco.forestName = $("#o-forest-name").value.trim() || "산림생태계";

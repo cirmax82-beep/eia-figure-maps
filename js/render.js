@@ -14,7 +14,14 @@
     flow: "#1864ab", arrowForest: "#1f8a37", arrowWater: "#1c7ed6",
     rings: ["#ffe14d", "#ffffff", "#7fd3ff", "#ff9f40", "#d0bfff"],
   };
+  // 생태·자연도 색(1·2등급·별도관리지역)과 투명도
+  const NAT = { g1: "#2f9a41", g2: "#9fd58f", sep: "#f2bfa6", op: 0.62 };
   const SCALES = [1000, 2000, 2500, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000];
+  // 전국 도면(식생기후대·식물상 지역): 남한 본토·제주가 틀에 드는 축척
+  const NATIONAL = ["veg", "flo"];
+  const NATIONAL_SCALES = [500000, 750000, 1000000, 1500000, 2000000, 2500000, 3000000, 3500000, 4000000, 5000000];
+  const KOREA_BOX = [124.55, 33.05, 130.0, 38.65];
+  const scalesFor = (fig) => (NATIONAL.includes(fig.kind) ? NATIONAL_SCALES : SCALES);
   const PAPER = { A4: [210, 297], A3: [297, 420] };
 
   // ---------- 글자 ----------
@@ -71,7 +78,12 @@
       c.fillText(str, 0, yb);
       c.restore();
     }
-    image(img, x, y, w, h) { this.c.drawImage(img, x, y, w, h); }
+    // opt.pixel: 구분도처럼 칸 경계를 또렷하게(늘릴 때 흐리게 섞지 않음). opt.png는 SVG에서만 씀
+    image(img, x, y, w, h, opt = {}) {
+      if (opt.pixel) this.c.imageSmoothingEnabled = false;
+      this.c.drawImage(img, x, y, w, h);
+      this.c.imageSmoothingEnabled = true;
+    }
     clip(x, y, w, h) { this.c.save(); this.c.beginPath(); this.c.rect(x, y, w, h); this.c.clip(); }
     unclip() { this.c.restore(); }
   }
@@ -103,9 +115,9 @@
       g += `<text ${common} fill="${s.color || "#000"}">${ex(str)}</text></g>`;
       this.o.push(g);
     }
-    image(img, x, y, w, h) {
-      const url = img.toDataURL ? img.toDataURL("image/jpeg", 0.9) : img.src;
-      this.o.push(`<image x="${n2(x)}" y="${n2(y)}" width="${n2(w)}" height="${n2(h)}" preserveAspectRatio="none" xlink:href="${url}"/>`);
+    image(img, x, y, w, h, opt = {}) {
+      const url = img.toDataURL ? (opt.png ? img.toDataURL("image/png") : img.toDataURL("image/jpeg", 0.9)) : img.src;
+      this.o.push(`<image x="${n2(x)}" y="${n2(y)}" width="${n2(w)}" height="${n2(h)}" preserveAspectRatio="none"${opt.pixel ? ' style="image-rendering:pixelated"' : ""} xlink:href="${url}"/>`);
     }
     clip(x, y, w, h) {
       const id = `clip${++this.nClip}`;
@@ -151,17 +163,24 @@
     return v;
   };
   const centerOf = (fig, site) => {
-    const b = U.bboxOf(site.features);
+    const b = NATIONAL.includes(fig.kind) ? KOREA_BOX : U.bboxOf(site.features);
     const X = (mx(b[0]) + mx(b[2])) / 2 + (fig.offset ? fig.offset[0] : 0);
     const Y = (my(b[1]) + my(b[3])) / 2 + (fig.offset ? fig.offset[1] : 0);
     return [ilon(X), ilat(Y)];
   };
-  // 자동 축척: 위성 현황도는 가장 큰 주변 범위, 생태축 현황도는 사업지구 둘레 1 km(주변 범위를 켜면 그 범위)가 틀에 들도록
+  // 주변 범위를 그리는지: 위성 현황도는 늘, 생태축·생태·자연도는 켰을 때
+  const ringsOn = (fig) => fig.kind === "sat" || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
+  // 자동 축척: 위성 현황도는 가장 큰 주변 범위, 생태축·생태·자연도는 사업지구 둘레 1 km(주변 범위를 켜면 그 범위)가 틀에 들도록
   const autoScale = (fig, site) => {
     const { frame } = layout(fig);
     const b = U.bboxOf(site.features);
     const lat0 = (b[1] + b[3]) / 2;
-    const rings = fig.kind === "sat" || fig.eco.rings ? fig.rings : [];
+    if (NATIONAL.includes(fig.kind)) {
+      const k = KOREA_BOX, lat = (k[1] + k[3]) / 2;
+      const need = Math.max(((mx(k[2]) - mx(k[0])) * Math.cos(lat * RAD)) / (frame.w * 0.96), ((my(k[3]) - my(k[1])) * Math.cos(lat * RAD)) / (frame.h * 0.96)) * 1000;
+      return NATIONAL_SCALES.find((v) => v >= need) || NATIONAL_SCALES[NATIONAL_SCALES.length - 1];
+    }
+    const rings = ringsOn(fig) ? fig.rings : [];
     const padKm = rings.length ? Math.max(...rings) : fig.kind === "sat" ? 0.5 : 1;
     const wM = (mx(b[2]) - mx(b[0])) * Math.cos(lat0 * RAD) + 2 * padKm * 1000;
     const hM = (my(b[3]) - my(b[1])) * Math.cos(lat0 * RAD) + 2 * padKm * 1000;
@@ -169,8 +188,15 @@
     return SCALES.find((s) => s >= need) || SCALES[SCALES.length - 1];
   };
 
-  // ---------- 바탕 위성영상(Esri World Imagery) ----------
+  // ---------- 바탕지도: 위성영상(Esri World Imagery)·브이월드 백지도 ----------
   const ESRI = (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  // 브이월드 인증키는 저장소에 넣지 않고 배포할 때 js/config.js로 넣음(로컬 시험은 인증키 저장.bat)
+  const VW_KEY = (window.FIG_CONFIG || {}).vworldKey || "";
+  // 백지도는 선이 아주 옅어 보고서용으로 진하게(흰색과의 차이를 darken배) 바꿈. 18단계까지 있음
+  const BASES = {
+    sat: { url: ESRI, max: 19, bg: "#d9dee2" },
+    white: { url: (z, x, y) => `https://api.vworld.kr/req/wmts/1.0.0/${VW_KEY}/white/${z}/${y}/${x}.png`, max: 18, bg: "#ffffff", darken: 2.6 },
+  };
   const imgCache = new Map();
   const loadImg = (url) => {
     if (!imgCache.has(url)) {
@@ -190,10 +216,10 @@
     await Promise.all(Array.from({ length: Math.min(n, jobs.length) }, async () => { while (i < jobs.length) await jobs[i++](); }));
   };
   // 틀 범위를 출력 해상도(k 화소/mm)에 맞는 확대 단계 타일로 이어 붙여 캔버스 하나로
-  const basemap = async (v, k, onProgress, alive) => {
+  const basemap = async (v, k, onProgress, alive, src = BASES.sat) => {
     const pxW = Math.max(1, Math.round(v.frame.w * k)), pxH = Math.max(1, Math.round(v.frame.h * k));
     const mPerPx = (v.mBox[2] - v.mBox[0]) / pxW;
-    let z = Math.max(6, Math.min(19, Math.ceil(Math.log2(WORLD / 256 / mPerPx) - 0.25)));
+    let z = Math.max(6, Math.min(src.max, Math.ceil(Math.log2(WORLD / 256 / mPerPx) - 0.25)));
     const [X0, Y0, X1, Y1] = v.mBox;
     let ts, tx0, tx1, ty0, ty1;
     for (;; z--) {
@@ -205,7 +231,7 @@
     const cv = document.createElement("canvas");
     cv.width = pxW; cv.height = pxH;
     const c = cv.getContext("2d");
-    c.fillStyle = "#d9dee2";
+    c.fillStyle = src.bg;
     c.fillRect(0, 0, pxW, pxH);
     c.imageSmoothingQuality = "high";
     const jobs = [];
@@ -215,7 +241,7 @@
       for (let tx = tx0; tx <= tx1; tx++) {
         jobs.push(async () => {
           if (!alive()) return;
-          const im = await loadImg(ESRI(z, tx, ty));
+          const im = await loadImg(src.url(z, tx, ty));
           done++;
           onProgress && onProgress(done / total);
           if (!im) { missing++; return; }
@@ -227,6 +253,13 @@
       }
     }
     await pool(jobs, 12);
+    if (src.darken && alive()) {
+      const img = c.getImageData(0, 0, pxW, pxH), d = img.data, f = src.darken;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = Math.max(0, 255 - (255 - d[i]) * f); d[i + 1] = Math.max(0, 255 - (255 - d[i + 1]) * f); d[i + 2] = Math.max(0, 255 - (255 - d[i + 2]) * f);
+      }
+      c.putImageData(img, 0, 0);
+    }
     return { canvas: cv, z, missing, total };
   };
 
@@ -401,7 +434,7 @@
     return { polys, groups };
   };
   // base 폴더의 조각을 틀 범위만큼 받아 합침(묶음은 번호로 한 번만). 목록에 있는 조각을 못 받으면 실패로 봄(바다를 잘못 칠하지 않게)
-  const binLayer = (base) => {
+  const binLayer = (base, decode = decodeBin, merge = null) => {
     const S = { idx: null, tiles: new Map(), key: "", val: null };
     const index = () => S.idx || (S.idx = fetch(`${base}/index.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then((d) => { S.T = d.tile; S.Q = d.q; S.set = new Set(d.tiles); return d; })
@@ -411,7 +444,7 @@
       if (!S.tiles.has(key)) {
         const [tx, ty] = key.split("_").map(Number);
         S.tiles.set(key, fetch(`${base}/${key}.bin`).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
-          .then((buf) => decodeBin(buf, tx, ty, S.T, S.Q)).catch((err) => { S.tiles.delete(key); throw err; }));
+          .then((buf) => decode(buf, tx, ty, S.T, S.Q)).catch((err) => { S.tiles.delete(key); throw err; }));
         while (S.tiles.size > 60) S.tiles.delete(S.tiles.keys().next().value);
       }
       return S.tiles.get(key);
@@ -424,6 +457,7 @@
       const key = keys.join(",");
       if (S.key === key) return S.val;
       const got = (await Promise.all(keys.map(tile))).filter(Boolean);
+      if (merge) { S.key = key; S.val = merge(got, await S.idx); return S.val; }
       const seen = new Set(), polys = [], grouped = [];
       got.forEach((d) => {
         polys.push(...d.polys);
@@ -434,7 +468,66 @@
       return S.val;
     };
   };
-  const waterLayer = binLayer("data/water"), landLayer = binLayer("data/land");
+  // 생태·자연도(data/ecnat, tools/build_ecnat.py): 판 2 = [층 수] {[층 번호] [면 수] {면} …} — 1·2등급, 9 별도관리지역
+  const decodeLayers = (buf, tx, ty, T, Q) => {
+    const b = new Uint8Array(buf);
+    let i = 1;
+    const rv = () => { let u = 0, s = 1, c; do { c = b[i++]; u += (c & 0x7f) * s; s *= 128; } while (c & 0x80); return u; };
+    const zd = (u) => (u % 2 ? -(u + 1) / 2 : u / 2);
+    const ox = Math.round(tx * T * Q), oy = Math.round(ty * T * Q);
+    const out = {};
+    for (let l = rv(); l > 0; l--) {
+      const code = rv(), polys = [];
+      for (let k = rv(); k > 0; k--) {
+        const rings = [];
+        for (let r = rv(); r > 0; r--) {
+          const n = rv(), a = new Float64Array(n * 2);
+          let x = ox, y = oy;
+          for (let j = 0; j < n; j++) { x += zd(rv()); y += zd(rv()); a[2 * j] = mx(x / Q); a[2 * j + 1] = my(y / Q); }
+          rings.push(a);
+        }
+        polys.push(rings);
+      }
+      out[code] = polys;
+    }
+    return out;
+  };
+  const mergeLayers = (got, idx) => {
+    const out = { 1: [], 2: [], 9: [], source: idx && idx.source };
+    got.forEach((d) => Object.keys(d).forEach((c) => { (out[c] || (out[c] = [])).push(...d[c]); }));
+    return out;
+  };
+  // 식생기후대(data/vegclim, tools/build_vegclim.py): 회색조 그림 값 = 구분 번호 → 색 그림 → 메르카토르 세로로 펴 둠(어느 축척에서도 그대로 씀)
+  let VEG = null;
+  const vegLayer = () => VEG || (VEG = (async () => {
+    const idx = await fetch("data/vegclim/index.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const vals = await decodeGray("data/vegclim/classes.png");
+    const { width: w, height: h } = idx;
+    const src = document.createElement("canvas");
+    src.width = w; src.height = h;
+    const sc = src.getContext("2d"), img = sc.createImageData(w, h);
+    const rgb = {};
+    idx.classes.forEach((c) => { rgb[c.v] = [1, 3, 5].map((i) => parseInt(c.color.slice(i, i + 2), 16)); });
+    for (let i = 0; i < vals.length; i++) {
+      const c = rgb[vals[i]];
+      if (c) { img.data[4 * i] = c[0]; img.data[4 * i + 1] = c[1]; img.data[4 * i + 2] = c[2]; img.data[4 * i + 3] = 255; }
+    }
+    sc.putImageData(img, 0, 0);
+    const [w0, s0, e0, n0] = idx.bounds, YT = my(n0), YB = my(s0), H2 = Math.round(h * 1.35);
+    const warped = document.createElement("canvas");
+    warped.width = w; warped.height = H2;
+    const wc = warped.getContext("2d");
+    for (let j = 0; j < H2; j++) {
+      const lat = ilat(YT - ((j + 0.5) / H2) * (YT - YB)), i = Math.min(h - 1, Math.max(0, Math.floor(((n0 - lat) / (n0 - s0)) * h)));
+      wc.drawImage(src, 0, i, w, 1, 0, j, w, 1);
+    }
+    return { idx, warped, classes: idx.classes, source: idx.source };
+  })().catch((err) => { VEG = null; throw err; }));
+  let FLO = null;
+  const floLayer = () => FLO || (FLO = fetch("data/flora/zones.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then((d) => ({ classes: d.zones, cells: d.cells.map(([v, ring]) => [v, ring.map(([lon, lat]) => [mx(lon), my(lat)])]), source: d.source }))
+    .catch((err) => { FLO = null; throw err; }));
+  const waterLayer = binLayer("data/water"), landLayer = binLayer("data/land"), natLayer = binLayer("data/ecnat", decodeLayers, mergeLayers);
   const waterZones = async (v) => { const d = await waterLayer(v); return { river: d.polys, small: d.grouped }; };
   const landPolys = async (v) => (await landLayer(v)).polys;
 
@@ -545,12 +638,19 @@
     const L0 = layout(fig);
     const [lon0, lat0] = centerOf(fig, site);
     const v = makeView(L0.frame, lon0, lat0, fig.scale);
-    v.res = fig.kind === "eco" ? "eco" : "sat";
+    v.res = fig.kind;
+    const natl = NATIONAL.includes(fig.kind);
     const warn = [];
-    const eco = fig.kind === "eco";
-    const wantRings = fig.kind === "sat" || fig.eco.rings;
+    const eco = fig.kind === "eco", nat = fig.kind === "nat";
+    const wantRings = ringsOn(fig);
+    // 바탕: 생태·자연도는 브이월드 백지도(키가 없으면 흰 바탕)·위성·흰 바탕, 나머지는 위성(밝기 조절)
+    let baseSrc = fig.base < 1 ? BASES.sat : null;
+    if (nat) {
+      baseSrc = fig.nat.base === "sat" ? BASES.sat : fig.nat.base === "white" ? BASES.white : null;
+      if (baseSrc === BASES.white && !VW_KEY) { warn.push("브이월드 인증키가 없어 바탕지도 없이 그렸습니다(인증키 저장.bat)."); baseSrc = null; }
+    }
     const jobs = {
-      base: fig.base < 1 ? basemap(v, k, ctl.onTiles, alive).catch((err) => { console.warn(err); warn.push("위성영상을 받지 못했습니다."); return null; }) : null,
+      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
       lc: eco && (fig.eco.forest || fig.eco.water || fig.eco.tidal) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
       osm: eco && (fig.eco.peaks || fig.eco.wnames || fig.eco.flow || fig.eco.streams) ? osm(v).catch((err) => { console.warn(err); warn.push("이름·하천 자료를 받지 못했습니다."); return null; }) : null,
       rings: wantRings && fig.rings.length ? ringGeoms(site, fig.rings).catch((err) => { console.warn(err); warn.push("주변 범위를 계산하지 못했습니다."); return null; }) : null,
@@ -567,17 +667,20 @@
       });
     }
     const wzJob = eco && (fig.eco.rzone || fig.eco.szone) ? waterZones(v).catch((err) => { console.warn(err); warn.push("하천구역 자료를 받지 못했습니다."); return null; }) : null;
+    const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
+    const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
+    const natJob = nat ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
-    const [base, lc, os, rings, wz, land] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob]);
+    const [base, lc, os, rings, wz, land, nd, cls] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe]);
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, lc, osm: os, rings, wz, land, warn };
+    return { L: L0, v, base, lc, osm: os, rings, wz, land, nd, cls, natl, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
-    const { L: Lo, v, base, lc, osm: os, rings, wz, land } = D;
+    const { L: Lo, v, base, lc, osm: os, rings, wz, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
-    const eco = fig.kind === "eco";
+    const eco = fig.kind === "eco", nat = fig.kind === "nat";
     const P = (lon, lat) => v.fromLL(lon, lat);
     const PM = (X, Y) => v.fromM(X, Y);
     const inF = (x, y, pad = 0) => x >= F.x + pad && x <= F.x + F.w - pad && y >= F.y + pad && y <= F.y + F.h - pad;
@@ -596,7 +699,8 @@
     let sb = null;
     if (fig.el.scalebar) {
       const target = (F.w * 0.24 * v.scale) / 1000;   // m
-      const NICE = [[50, 5], [100, 4], [200, 4], [250, 5], [400, 4], [500, 5], [1000, 4], [1500, 3], [2000, 4], [2500, 5], [3000, 3], [4000, 4], [5000, 5], [10000, 4], [20000, 4]];
+      const NICE = [[50, 5], [100, 4], [200, 4], [250, 5], [400, 4], [500, 5], [1000, 4], [1500, 3], [2000, 4], [2500, 5], [3000, 3], [4000, 4], [5000, 5], [10000, 4], [20000, 4],
+        [25000, 5], [50000, 5], [100000, 4], [200000, 4]];
       const [len, seg] = [...NICE].reverse().find(([l]) => l <= target) || NICE[0];
       const km = len >= 2000;
       const barW = (len * 1000) / v.scale;
@@ -611,9 +715,27 @@
       occupied.push([x - 1, y - 1, x + bw + 1, y + bh + 1]);
     }
 
+    // 확대 그림(전국 도면에서 사업지 둘레): 왼쪽 아래, 축척 막대 위
+    let inset = null;
+    if (natl && fig.natl.inset) {
+      // 제주를 가리지 않게 제주 북쪽(북위 33.9도) 위에 둠
+      const w = F.w * 0.4, h = Math.min(F.h * 0.26, w * 0.62);
+      const bottom = Math.min(sb ? sb.y - 3 * e : F.y + F.h - 3 * e, v.fromLL(126, 33.9)[1] - 2 * e);
+      inset = { x: F.x + 3 * e, y: bottom - h, w, h };
+      occupied.push([inset.x - 1, inset.y - 1, inset.x + w + 1, inset.y + h + 1]);
+    }
+
     // 범례 항목
     const legend = [];
-    legend.push({ type: site.features.some((f) => U.kindOf(f.geometry) === "polygon") ? "outline" : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: "사업지구" });
+    const sitePoly = site.features.some((f) => U.kindOf(f.geometry) === "polygon");
+    legend.push({ type: natl ? "point" : sitePoly ? (nat ? "outlineFill" : "outline") : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: "사업지구" });
+    if (nat) {
+      if (fig.nat.g1) legend.push({ type: "fill", color: NAT.g1, opacity: NAT.op, label: "1등급" });
+      if (fig.nat.g2) legend.push({ type: "fill", color: NAT.g2, opacity: NAT.op, label: "2등급" });
+      legend.push({ type: "box", label: "3등급" });
+      if (fig.nat.sep) legend.push({ type: "fill", color: NAT.sep, opacity: 0.9, label: "별도관리지역" });
+    }
+    if (natl && cls) cls.classes.forEach((c) => legend.push({ type: "fill", color: c.color, opacity: 1, label: c.name }));
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
     if (eco && (lc && (fig.eco.water || fig.eco.tidal) || land && fig.eco.sea || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone))) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "forest")) legend.push({ type: "arrow", color: COLOR.arrowForest, label: "산림축" });
@@ -622,10 +744,11 @@
     if (eco && os && fig.eco.peaks && os.peaks.length) legend.push({ type: "peak", color: COLOR.peak, label: "산봉우리" });
     if (rings) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: `${fmtNum(r.km)} km 범위` }));
     let lg = null;
+    const legendTitle = { nat: "생태·자연도", veg: "한국 식생기후 분포도", flo: "한국 식물상 지역" }[fig.kind] || "범   례";
     if (fig.el.legend) {
       const fs = 8.2 * e, rowH = 5.4 * e, sym = 9 * e, pad = 3 * e, titleH = 7.4 * e;
       // 글꼴이 없는 프로그램(SVG를 맑은 고딕으로 열 때 등)에서도 넘치지 않게 여유를 둠
-      const tw = Math.max(textW("범   례", 9.5 * e, 700), ...legend.map((it) => textW(it.label, fs))) * 1.12;
+      const tw = Math.max(textW(legendTitle, 9.5 * e, 700), ...legend.map((it) => textW(it.label, fs))) * 1.12;
       const bw = Math.max(34 * e, pad * 2 + sym + 2.6 * e + tw), bh = titleH + legend.length * rowH + pad * 0.9;
       const x = F.x + F.w - 3 * e - bw, y = F.y + F.h - 3 * e - bh;
       lg = { x, y, bw, bh, fs, rowH, sym, pad, titleH };
@@ -639,6 +762,20 @@
     // 바탕
     if (base) pen.image(base.canvas, F.x, F.y, F.w, F.h);
     if (fig.base > 0) pen.path([[[F.x, F.y], [F.x + F.w, F.y], [F.x + F.w, F.y + F.h], [F.x, F.y + F.h]]], { closed: true, fill: "#ffffff", fillOpacity: Math.min(1, fig.base) });
+    // 식생기후대(그림)·식물상 지역(격자)을 주어진 지도 변환으로 그림(본 지도와 확대 그림이 같이 씀)
+    const drawClasses = (vw) => {
+      if (!cls) return;
+      if (fig.kind === "veg") {
+        const [w0, s0, e0, n0] = cls.idx.bounds, a = vw.fromLL(w0, n0), b = vw.fromLL(e0, s0);
+        pen.image(cls.warped, a[0], a[1], b[0] - a[0], b[1] - a[1], { png: true, pixel: true });
+      } else {
+        cls.classes.forEach((z) => {
+          const parts = cls.cells.filter((c) => c[0] === z.v).map((c) => c[1].map(([X, Y]) => vw.fromM(X, Y)));
+          pen.path(parts, { closed: true, fill: z.color, stroke: z.color, width: 0.05 });
+        });
+      }
+    };
+    if (natl) drawClasses(v);
 
     // 토지피복 면(용지 좌표로 바꿔 줄이고, 아주 작은 조각은 뺌)
     const polyParts = (polys, minA) => {
@@ -663,6 +800,13 @@
       }
       return out;
     };
+    // 생태·자연도: 2등급 → 1등급 → 별도관리지역 순으로 반투명하게(바탕 선이 비치게)
+    if (nat && nd) {
+      if (fig.nat.g2) pen.path(polyParts(nd[2], 0.3), { closed: true, fill: NAT.g2, fillOpacity: NAT.op });
+      if (fig.nat.g1) pen.path(polyParts(nd[1], 0.3), { closed: true, fill: NAT.g1, fillOpacity: NAT.op });
+      // 별도관리지역은 등급 위에 겹쳐 있어, 덜 비치게 칠해 녹색과 섞이지 않게 함
+      if (fig.nat.sep) pen.path(polyParts(nd[9], 0.3), { closed: true, fill: NAT.sep, fillOpacity: 0.9 });
+    }
     // 바다: 틀 사각형과 육지(시군구 경계, 해안선을 따름) 고리를 짝홀 규칙으로 한 번에 칠해 육지 밖만 칠함
     if (eco && land && fig.eco.sea) {
       const p = 5, rect = [[F.x - p, F.y - p], [F.x + F.w + p, F.y - p], [F.x + F.w + p, F.y + F.h + p], [F.x - p, F.y + F.h + p]];
@@ -750,6 +894,7 @@
       if (g.type === "MultiLineString") g.coordinates.forEach((l) => siteLines.push(l.map((c) => P(c[0], c[1]))));
       if (g.type === "Point") sitePts.push(P(g.coordinates[0], g.coordinates[1]));
     });
+    if (nat) pen.path(sitePolys, { closed: true, fill: COLOR.site, fillOpacity: 0.3 });
     pen.path(sitePolys, { closed: true, stroke: "#ffffff", width: 1.25 * e, strokeOpacity: 0.55 });
     pen.path(sitePolys, { closed: true, stroke: COLOR.site, width: 0.75 * e });
     pen.path(siteLines, { stroke: "#ffffff", width: 1.5 * e, strokeOpacity: 0.55 });
@@ -880,6 +1025,33 @@
       }
     }
     place.forEach((fn) => fn());
+    if (natl && Number.isFinite(sb0[0])) {
+      const cx = (sb0[0] + sb0[2]) / 2, cy = (sb0[1] + sb0[3]) / 2, rr = 1.3 * e;
+      if (inset) {
+        // 확대 그림으로 잇는 선: 사업지 점에서 확대 그림 오른쪽 위 모서리
+        pen.path([[[cx, cy], [inset.x + inset.w, inset.y]]], { stroke: "#111111", width: 0.3 * e });
+      }
+      pen.path([Array.from({ length: 25 }, (_, k) => [cx + rr * Math.cos((k / 24) * 2 * Math.PI), cy + rr * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: COLOR.site, stroke: "#ffffff", width: 0.35 * e });
+      pen.text("사업지구", cx + rr + 1.2 * e, cy, { size: 7.5 * e, weight: 700, align: "left", base: "middle", color: "#111", halo: "#ffffff", haloWidth: 0.5 * e });
+    }
+    if (inset) {
+      const b = U.bboxOf(site.features), lon0 = (b[0] + b[2]) / 2, lat0 = (b[1] + b[3]) / 2;
+      const span = Math.max((mx(b[2]) - mx(b[0])) * Math.cos(lat0 * RAD), (my(b[3]) - my(b[1])) * Math.cos(lat0 * RAD), 600) * 2.2;
+      const iv = makeView(inset, lon0, lat0, Math.max(2000, (span / Math.min(inset.w, inset.h)) * 1000));
+      pen.clip(inset.x, inset.y, inset.w, inset.h);
+      pen.path([[[inset.x, inset.y], [inset.x + inset.w, inset.y], [inset.x + inset.w, inset.y + inset.h], [inset.x, inset.y + inset.h]]], { closed: true, fill: "#ffffff" });
+      drawClasses(iv);
+      const ip = [];
+      site.features.forEach((f) => {
+        const g = f.geometry;
+        const ring = (r) => ip.push(r.map((c) => iv.fromLL(c[0], c[1])));
+        if (g.type === "Polygon") g.coordinates.forEach(ring);
+        if (g.type === "MultiPolygon") g.coordinates.forEach((pp) => pp.forEach(ring));
+      });
+      pen.path(ip, { closed: true, stroke: COLOR.site, width: 0.6 * e });
+      pen.unclip();
+      pen.path([[[inset.x, inset.y], [inset.x + inset.w, inset.y], [inset.x + inset.w, inset.y + inset.h], [inset.x, inset.y + inset.h]]], { closed: true, stroke: "#111111", width: 0.3 * e, join: "miter" });
+    }
     ringLabels.forEach((r) => pen.text(r.t, r.x, r.y, { size: 7.5 * e, weight: 700, align: "center", base: "top", color: r.color, halo: "#000000", haloWidth: 0.45 * e }));
     gridLabels.forEach((g) => pen.text(g.t, g.x, g.y, { size: 6 * e, align: g.align, base: g.base, color: "#ffffff", halo: "#222222", haloWidth: 0.4 * e }));
     pen.unclip();
@@ -909,12 +1081,14 @@
     if (lg) {
       const { x, y, bw, bh, fs, rowH, sym, pad, titleH } = lg;
       pen.path([[[x, y], [x + bw, y], [x + bw, y + bh], [x, y + bh]]], { closed: true, fill: "#ffffff", fillOpacity: 0.95, stroke: "#333333", width: 0.25 * e });
-      pen.text("범   례", x + bw / 2, y + titleH / 2 + 0.3 * e, { size: 9.5 * e, weight: 700, align: "center", base: "middle", color: "#111" });
+      pen.text(legendTitle, x + bw / 2, y + titleH / 2 + 0.3 * e, { size: 9.5 * e, weight: 700, align: "center", base: "middle", color: "#111" });
       pen.path([[[x + pad * 0.6, y + titleH], [x + bw - pad * 0.6, y + titleH]]], { stroke: "#333333", width: 0.2 * e });
       legend.forEach((it, i) => {
         const cy = y + titleH + rowH * (i + 0.5) + pad * 0.3, sx = x + pad, sh = 3.4 * e;
         const r = [[sx, cy - sh / 2], [sx + sym, cy - sh / 2], [sx + sym, cy + sh / 2], [sx, cy + sh / 2]];
         if (it.type === "outline") pen.path([r], { closed: true, stroke: it.color, width: 0.7 * e, join: "miter" });
+        if (it.type === "outlineFill") pen.path([r], { closed: true, fill: it.color, fillOpacity: 0.3, stroke: it.color, width: 0.7 * e, join: "miter" });
+        if (it.type === "box") pen.path([r], { closed: true, fill: "#ffffff", stroke: "#8a8a8a", width: 0.25 * e, join: "miter" });
         if (it.type === "fill") pen.path([r], { closed: true, fill: it.color, fillOpacity: Math.min(1, (it.opacity || 1) + 0.1) });
         if (it.type === "line") pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.95 * e });
         if (it.type === "point") pen.path([Array.from({ length: 25 }, (_, k) => [sx + sym / 2 + 1.4 * e * Math.cos((k / 24) * 2 * Math.PI), cy + 1.4 * e * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: it.color });
@@ -933,13 +1107,15 @@
     // 출처·축척
     const fy = F.y + F.h + Lo.foot * 0.62;
     if (fig.el.source) {
-      const src = ["영상: Esri World Imagery(Esri, Maxar, Earthstar Geographics)"];
+      const src = [nat && fig.nat.base === "white" && VW_KEY ? "바탕: 국토교통부 브이월드 백지도" : "영상: Esri World Imagery(Esri, Maxar, Earthstar Geographics)"];
+      if (nat && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
+      if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
       if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
       if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
       if (eco && land && fig.eco.sea) src.push("해안선: 국토교통부 브이월드 시군구 경계");
       if (eco && os) src.push("이름·하천: © OpenStreetMap 기여자");
-      if (fig.base >= 1) src.shift();
+      if (nat ? fig.nat.base === "none" || (fig.nat.base === "white" && !VW_KEY) : fig.base >= 1) src.shift();
       // 축척 글자와 겹치지 않게, 길면 ‘·’ 사이에서 줄을 나눔
       const fs = 6.2 * e, maxW = F.w - textW("축척 1:100,000 (A3 세로)", fs) - 6 * e;
       const lines = [];
@@ -966,5 +1142,5 @@
     return { ...out, view: D.v, layout: D.L, warn: D.warn };
   };
 
-  window.Carto = { render, layout, makeView, autoScale, centerOf, SCALES, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
+  window.Carto = { render, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
 })();

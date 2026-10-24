@@ -129,3 +129,5 @@ details .checks { margin-bottom: 8px; }
   .checks { grid-template-columns: 1fr; }
   .draw-bar { flex-wrap: wrap; justify-content: center; white-space: normal; width: calc(100% - 32px); }
 }
+.seg.wrap { flex-wrap: wrap; }
+.seg.wrap button { flex: 1 1 30%; }

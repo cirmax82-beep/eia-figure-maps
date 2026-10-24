@@ -1,0 +1,51 @@
+# main에 올리면 GitHub Pages로 배포합니다.
+# 브이월드 인증키(백지도용)는 저장소 비밀값 VWORLD_KEY로 js/config.js를 만들어 넣습니다(인증키 저장.bat).
+# 브라우저에서 쓰는 키라 배포된 사이트에서는 보이며, 브이월드에 등록한 서비스 주소에서 쓰도록 되어 있습니다.
+name: 배포
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: 배포할 파일만 모으기
+        run: |
+          mkdir -p _site
+          cp -r index.html css js data robots.txt sitemap.xml _site/
+          [ -f CNAME ] && cp CNAME _site/ || true
+          ls _site
+      - name: 브이월드 설정 만들기
+        env:
+          VWORLD_KEY: ${{ secrets.VWORLD_KEY }}
+        run: |
+          KEY=$(printf '%s' "$VWORLD_KEY" | tr -d '[:space:]')
+          if printf '%s' "$KEY" | grep -Eq '^[A-Za-z0-9-]{20,64}$'; then
+            printf 'window.FIG_CONFIG = { vworldKey: "%s" };\n' "$KEY" > _site/js/config.js
+            echo "브이월드 키를 넣었습니다."
+          else
+            echo 'window.FIG_CONFIG = {};' > _site/js/config.js
+            echo "::warning::VWORLD_KEY 비밀값이 없어 생태·자연도 백지도 바탕은 흰 바탕으로 그립니다."
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
