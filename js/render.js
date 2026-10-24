@@ -192,11 +192,19 @@
   const ESRI = (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
   // 브이월드 인증키는 저장소에 넣지 않고 배포할 때 js/config.js로 넣음(로컬 시험은 인증키 저장.bat)
   const VW_KEY = (window.FIG_CONFIG || {}).vworldKey || "";
-  // 백지도는 선이 아주 옅어 보고서용으로 진하게(흰색과의 차이를 darken배) 바꿈. 18단계까지 있음
+  // 바탕지도 종류. key: 브이월드 인증키가 있어야 함. darken: 옅은 선을 보고서용으로 진하게(흰색과의 차이를 darken배)
+  const VW = (layer, ext) => (z, x, y) => `https://api.vworld.kr/req/wmts/1.0.0/${VW_KEY}/${layer}/${z}/${y}/${x}.${ext}`;
   const BASES = {
-    sat: { url: ESRI, max: 19, bg: "#d9dee2" },
-    white: { url: (z, x, y) => `https://api.vworld.kr/req/wmts/1.0.0/${VW_KEY}/white/${z}/${y}/${x}.png`, max: 18, bg: "#ffffff", darken: 2.6 },
+    sat: { name: "위성영상(Esri)", url: ESRI, max: 19, bg: "#d9dee2", src: "영상: Esri World Imagery(Esri, Maxar, Earthstar Geographics)" },
+    vsat: { name: "위성영상(브이월드)", url: VW("Satellite", "jpeg"), max: 19, bg: "#d9dee2", key: true, src: "영상: 국토교통부 브이월드 위성영상" },
+    vbase: { name: "브이월드 기본지도", url: VW("Base", "png"), max: 19, bg: "#ffffff", key: true, src: "바탕: 국토교통부 브이월드 기본지도" },
+    // 백지도: 공원·묘지 같은 옅은 색 면이 진하게 하면 짙은 색이 되므로 흑백으로 바꾼 뒤 진하게
+    vwhite: { name: "브이월드 백지도", url: VW("white", "png"), max: 18, bg: "#ffffff", darken: 2.2, gray: true, key: true, src: "바탕: 국토교통부 브이월드 백지도" },
+    hill: { name: "지형 음영(Esri)", url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/${z}/${y}/${x}`, max: 16, bg: "#ffffff", src: "지형 음영: Esri World Hillshade(Esri, USGS, NASA 등)" },
+    none: { name: "흰 바탕" },
   };
+  // 위성 위에 겹치는 지명·도로(브이월드 하이브리드, 투명 PNG)
+  const LABELS = { url: VW("Hybrid", "png"), max: 19, bg: null, src: "지명: 국토교통부 브이월드" };
   const imgCache = new Map();
   const loadImg = (url) => {
     if (!imgCache.has(url)) {
@@ -216,7 +224,7 @@
     await Promise.all(Array.from({ length: Math.min(n, jobs.length) }, async () => { while (i < jobs.length) await jobs[i++](); }));
   };
   // 틀 범위를 출력 해상도(k 화소/mm)에 맞는 확대 단계 타일로 이어 붙여 캔버스 하나로
-  const basemap = async (v, k, onProgress, alive, src = BASES.sat) => {
+  const basemap = async (v, k, onProgress, alive, src = BASES.sat, gray = false) => {
     const pxW = Math.max(1, Math.round(v.frame.w * k)), pxH = Math.max(1, Math.round(v.frame.h * k));
     const mPerPx = (v.mBox[2] - v.mBox[0]) / pxW;
     let z = Math.max(6, Math.min(src.max, Math.ceil(Math.log2(WORLD / 256 / mPerPx) - 0.25)));
@@ -231,8 +239,7 @@
     const cv = document.createElement("canvas");
     cv.width = pxW; cv.height = pxH;
     const c = cv.getContext("2d");
-    c.fillStyle = src.bg;
-    c.fillRect(0, 0, pxW, pxH);
+    if (src.bg) { c.fillStyle = src.bg; c.fillRect(0, 0, pxW, pxH); }
     c.imageSmoothingQuality = "high";
     const jobs = [];
     const total = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
@@ -253,10 +260,14 @@
       }
     }
     await pool(jobs, 12);
-    if (src.darken && alive()) {
-      const img = c.getImageData(0, 0, pxW, pxH), d = img.data, f = src.darken;
+    // 진하게(백지도)·흑백(선택)
+    gray = gray || src.gray;
+    if ((src.darken || gray) && alive()) {
+      const img = c.getImageData(0, 0, pxW, pxH), d = img.data, f = src.darken || 1;
       for (let i = 0; i < d.length; i += 4) {
-        d[i] = Math.max(0, 255 - (255 - d[i]) * f); d[i + 1] = Math.max(0, 255 - (255 - d[i + 1]) * f); d[i + 2] = Math.max(0, 255 - (255 - d[i + 2]) * f);
+        let r = 255 - (255 - d[i]) * f, g = 255 - (255 - d[i + 1]) * f, b = 255 - (255 - d[i + 2]) * f;
+        if (gray) r = g = b = 0.299 * r + 0.587 * g + 0.114 * b;
+        d[i] = Math.max(0, r); d[i + 1] = Math.max(0, g); d[i + 2] = Math.max(0, b);
       }
       c.putImageData(img, 0, 0);
     }
@@ -643,14 +654,14 @@
     const warn = [];
     const eco = fig.kind === "eco", nat = fig.kind === "nat";
     const wantRings = ringsOn(fig);
-    // 바탕: 생태·자연도는 브이월드 백지도(키가 없으면 흰 바탕)·위성·흰 바탕, 나머지는 위성(밝기 조절)
-    let baseSrc = fig.base < 1 ? BASES.sat : null;
-    if (nat) {
-      baseSrc = fig.nat.base === "sat" ? BASES.sat : fig.nat.base === "white" ? BASES.white : null;
-      if (baseSrc === BASES.white && !VW_KEY) { warn.push("브이월드 인증키가 없어 바탕지도 없이 그렸습니다(인증키 저장.bat)."); baseSrc = null; }
-    }
+    // 바탕: 고른 종류(브이월드는 인증키가 없으면 Esri 위성으로), 밝기는 그리기에서 흰색을 덮어 조절
+    let baseKey = BASES[fig.basemap] ? fig.basemap : "sat";
+    if (BASES[baseKey].key && !VW_KEY) { warn.push(`브이월드 인증키가 없어 ${BASES[baseKey].name} 대신 위성영상(Esri)으로 그렸습니다(인증키 저장.bat).`); baseKey = "sat"; }
+    const baseSrc = baseKey === "none" ? null : BASES[baseKey];
+    const labelsOn = fig.baseLabels && VW_KEY && baseKey !== "none";
     const jobs = {
-      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
+      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc, fig.gray).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
+      labels: labelsOn ? basemap(v, k, null, alive, LABELS).catch((err) => { console.warn(err); return null; }) : null,
       lc: eco && (fig.eco.forest || fig.eco.water || fig.eco.tidal) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
       osm: eco && (fig.eco.peaks || fig.eco.wnames || fig.eco.flow || fig.eco.streams) ? osm(v).catch((err) => { console.warn(err); warn.push("이름·하천 자료를 받지 못했습니다."); return null; }) : null,
       rings: wantRings && fig.rings.length ? ringGeoms(site, fig.rings).catch((err) => { console.warn(err); warn.push("주변 범위를 계산하지 못했습니다."); return null; }) : null,
@@ -671,14 +682,14 @@
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
     const natJob = nat ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
-    const [base, lc, os, rings, wz, land, nd, cls] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe]);
+    const [base, lc, os, rings, wz, land, nd, cls, labels] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels]);
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, lc, osm: os, rings, wz, land, nd, cls, natl, warn };
+    return { L: L0, v, base, baseKey, labels, lc, osm: os, rings, wz, land, nd, cls, natl, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
-    const { L: Lo, v, base, lc, osm: os, rings, wz, land, nd, cls, natl } = D;
+    const { L: Lo, v, base, baseKey, labels, lc, osm: os, rings, wz, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
     const eco = fig.kind === "eco", nat = fig.kind === "nat";
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -728,7 +739,8 @@
     // 범례 항목
     const legend = [];
     const sitePoly = site.features.some((f) => U.kindOf(f.geometry) === "polygon");
-    legend.push({ type: natl ? "point" : sitePoly ? (nat ? "outlineFill" : "outline") : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: "사업지구" });
+    const siteName = fig.siteText || "사업지구";
+    legend.push({ type: natl ? "point" : sitePoly ? (nat ? "outlineFill" : "outline") : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: siteName });
     if (nat) {
       if (fig.nat.g1) legend.push({ type: "fill", color: NAT.g1, opacity: NAT.op, label: "1등급" });
       if (fig.nat.g2) legend.push({ type: "fill", color: NAT.g2, opacity: NAT.op, label: "2등급" });
@@ -761,6 +773,7 @@
     pen.clip(F.x, F.y, F.w, F.h);
     // 바탕
     if (base) pen.image(base.canvas, F.x, F.y, F.w, F.h);
+    if (labels) pen.image(labels.canvas, F.x, F.y, F.w, F.h, { png: true });
     if (fig.base > 0) pen.path([[[F.x, F.y], [F.x + F.w, F.y], [F.x + F.w, F.y + F.h], [F.x, F.y + F.h]]], { closed: true, fill: "#ffffff", fillOpacity: Math.min(1, fig.base) });
     // 식생기후대(그림)·식물상 지역(격자)을 주어진 지도 변환으로 그림(본 지도와 확대 그림이 같이 씀)
     const drawClasses = (vw) => {
@@ -916,7 +929,7 @@
 
     // 사업지구 글자
     if (fig.el.sitelabel && Number.isFinite(sb0[0])) {
-      const t = "사업지구", fs = 9.5 * e;
+      const t = siteName, fs = 9.5 * e;
       const x = (sb0[0] + sb0[2]) / 2, y = sb0[1] - 2.2 * e;
       pen.text(t, x, y, { size: fs, weight: 700, align: "center", color: COLOR.site, halo, haloWidth: 0.55 * e });
       occupied.push([x - textW(t, fs, 700) / 2 - 1, y - fs * PT - 1, x + textW(t, fs, 700) / 2 + 1, y + 1]);
@@ -1032,7 +1045,7 @@
         pen.path([[[cx, cy], [inset.x + inset.w, inset.y]]], { stroke: "#111111", width: 0.3 * e });
       }
       pen.path([Array.from({ length: 25 }, (_, k) => [cx + rr * Math.cos((k / 24) * 2 * Math.PI), cy + rr * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: COLOR.site, stroke: "#ffffff", width: 0.35 * e });
-      pen.text("사업지구", cx + rr + 1.2 * e, cy, { size: 7.5 * e, weight: 700, align: "left", base: "middle", color: "#111", halo: "#ffffff", haloWidth: 0.5 * e });
+      pen.text(siteName, cx + rr + 1.2 * e, cy, { size: 7.5 * e, weight: 700, align: "left", base: "middle", color: "#111", halo: "#ffffff", haloWidth: 0.5 * e });
     }
     if (inset) {
       const b = U.bboxOf(site.features), lon0 = (b[0] + b[2]) / 2, lat0 = (b[1] + b[3]) / 2;
@@ -1107,7 +1120,8 @@
     // 출처·축척
     const fy = F.y + F.h + Lo.foot * 0.62;
     if (fig.el.source) {
-      const src = [nat && fig.nat.base === "white" && VW_KEY ? "바탕: 국토교통부 브이월드 백지도" : "영상: Esri World Imagery(Esri, Maxar, Earthstar Geographics)"];
+      const src = [BASES[baseKey].src || ""];
+      if (labels) src.push(LABELS.src);
       if (nat && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
@@ -1115,7 +1129,7 @@
       if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
       if (eco && land && fig.eco.sea) src.push("해안선: 국토교통부 브이월드 시군구 경계");
       if (eco && os) src.push("이름·하천: © OpenStreetMap 기여자");
-      if (nat ? fig.nat.base === "none" || (fig.nat.base === "white" && !VW_KEY) : fig.base >= 1) src.shift();
+      if (!src[0]) src.shift();
       // 축척 글자와 겹치지 않게, 길면 ‘·’ 사이에서 줄을 나눔
       const fs = 6.2 * e, maxW = F.w - textW("축척 1:100,000 (A3 세로)", fs) - 6 * e;
       const lines = [];
@@ -1142,5 +1156,5 @@
     return { ...out, view: D.v, layout: D.L, warn: D.warn };
   };
 
-  window.Carto = { render, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
+  window.Carto = { render, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
 })();

@@ -5,12 +5,13 @@
 
   const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역" };
   const newFig = (kind) => ({
-    kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0], base: 0,
+    kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
+    basemap: kind === "nat" ? "vwhite" : "sat", base: 0, gray: false, baseLabels: false,
     title: TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat", grid: "none" },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
-    nat: { base: "white", g1: true, g2: true, sep: true, rings: false },
+    nat: { g1: true, g2: true, sep: true, rings: false },
     natl: { inset: true },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
@@ -23,6 +24,7 @@
   const CHECKS = { "o-forest": ["eco", "forest"], "o-water": ["eco", "water"], "o-tidal": ["eco", "tidal"], "o-sea": ["eco", "sea"], "o-rzone": ["eco", "rzone"], "o-szone": ["eco", "szone"],"o-peaks": ["eco", "peaks"], "o-wnames": ["eco", "wnames"], "o-flow": ["eco", "flow"],
     "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
     "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
+    "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
     "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "v-inset": ["natl", "inset"] };
   const scaleOptions = () => {
     const f = fig();
@@ -34,15 +36,16 @@
     const f = fig();
     $("#o-paper").value = f.paper;
     $("#o-orient").value = f.orient;
+    // 바탕지도 목록: 브이월드 바탕은 인증키가 있어야 고를 수 있음
+    $("#o-basemap").innerHTML = Object.entries(Carto.BASES).map(([k, b]) => `<option value="${k}" ${b.key && !Carto.hasVworld ? "disabled" : ""}>${b.name}${b.key && !Carto.hasVworld ? " (인증키 필요)" : ""}</option>`).join("");
+    $("#o-basemap").value = f.basemap;
     $("#o-base").value = String(f.base);
-    $("#n-base").value = f.nat.base;
-    $("#o-base-row").hidden = f.kind === "nat";
-    $("#n-base-row").hidden = f.kind !== "nat";
+    $("#o-labels").disabled = !Carto.hasVworld;
     $("#o-title").value = f.title;
     $("#o-rings").value = f.rings.join(", ");
     $("#o-forest-name").value = f.eco.forestName;
     $("#o-water-name").value = f.eco.waterName;
-    Object.entries(CHECKS).forEach(([id, [g, k]]) => { $(`#${id}`).checked = !!f[g][k]; });
+    Object.entries(CHECKS).forEach(([id, [g, k]]) => { $(`#${id}`).checked = !!(g ? f[g][k] : f[k]); });
     $("#e-grid").value = f.el.grid;
     scaleOptions();
     $$("[data-figpane]").forEach((p) => { p.hidden = !p.dataset.figpane.split(" ").includes(f.kind); });
@@ -55,12 +58,12 @@
     f.paper = $("#o-paper").value;
     f.orient = $("#o-orient").value;
     f.base = parseFloat($("#o-base").value);
-    f.nat.base = $("#n-base").value;
+    f.basemap = $("#o-basemap").value;
     f.title = $("#o-title").value.trim();
     f.rings = parseRings($("#o-rings").value);
     f.eco.forestName = $("#o-forest-name").value.trim() || "산림생태계";
     f.eco.waterName = $("#o-water-name").value.trim() || "수생태계";
-    Object.entries(CHECKS).forEach(([id, [g, k]]) => { f[g][k] = $(`#${id}`).checked; });
+    Object.entries(CHECKS).forEach(([id, [g, k]]) => { if (g) f[g][k] = $(`#${id}`).checked; else f[k] = $(`#${id}`).checked; });
     f.el.grid = $("#e-grid").value;
     const sv = $("#o-scale").value;
     if (sv === "auto") f.scaleMode = "auto"; else { f.scaleMode = "fixed"; f.scale = +sv; }
@@ -90,6 +93,7 @@
     }
     $("#paper").classList.remove("empty");
     const f = fig();
+    f.siteText = siteText();
     resolveScale(f);
     scaleOptions();
     const Lo = Carto.layout(f);
@@ -138,9 +142,38 @@
 
   // 미리보기 화면 좌표 → 용지 mm
   const toPage = (e) => {
-    const r = $("#pv").getBoundingClientRect();
+    const r = $("#paper").getBoundingClientRect();
     const Lo = S.last.layout;
     return [((e.clientX - r.left) / r.width) * Lo.W, ((e.clientY - r.top) / r.height) * Lo.H];
+  };
+
+  // 마우스 휠로 축척 한 단계씩 확대·축소. 커서 아래 지점이 제자리에 있게 가운데를 옮기고, 그리는 동안은 그림을 늘려 보여 줌
+  const initWheel = () => {
+    const over = $("#pv-over"), cv = $("#pv");
+    let zoom = 1;
+    const draw = debounce(() => { zoom = 1; renderPreview(); }, 280);
+    over.addEventListener("wheel", (e) => {
+      if (!S.last || A.mode) return;
+      e.preventDefault();
+      const f = fig(), list = Carto.scalesFor(f), cur = f.scale;
+      let i = list.findIndex((v) => v >= cur);
+      if (i < 0) i = list.length - 1;
+      const next = list[Math.max(0, Math.min(list.length - 1, i + (e.deltaY > 0 ? 1 : -1)))];
+      if (next === cur) return;
+      const { view, layout: Lo } = S.last;
+      const [px, py] = toPage(e);
+      const F = Lo.frame, dx = px - (F.x + F.w / 2), dy = py - (F.y + F.h / 2);
+      const k = 1 / 1000 / Math.cos((view.lat0 * Math.PI) / 180), dm = (cur - next) * k;   // 용지 1 mm의 메르카토르 m 차이
+      f.offset = [f.offset[0] + dx * dm, f.offset[1] - dy * dm];
+      f.scaleMode = "fixed";
+      f.scale = next;
+      zoom *= cur / next;
+      const r = $("#paper").getBoundingClientRect();
+      cv.style.transformOrigin = `${e.clientX - r.left}px ${e.clientY - r.top}px`;
+      cv.style.transform = `scale(${zoom})`;
+      status(`축척 1:${fmt(next)}`);
+      draw();
+    }, { passive: false });
   };
 
   // 끌어서 가운데 옮기기
@@ -330,6 +363,7 @@
     S.busy = true;
     $$("[data-dl]").forEach((b) => { b.disabled = true; });
     const f = fig();
+    f.siteText = siteText();
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;
@@ -376,7 +410,16 @@
   // ---------- 시작 ----------
   Input.init();
   IN.onTab = (t) => { if (t === "draw" && S.view !== "map") setView("map"); };
+  // 경계 이름(범례·글자): 직접 고치지 않았으면 모양에 맞춰(면 사업지구, 선 사업노선, 점 조사지점)
+  const siteText = () => $("#site-text").value.trim() || "사업지구";
+  const autoSiteText = (s) => {
+    const el = $("#site-text");
+    if (!s || el.dataset.edited) return;
+    const kinds = new Set(s.features.map((f) => U.kindOf(f.geometry)));
+    el.value = kinds.has("polygon") ? "사업지구" : kinds.has("line") ? "사업노선" : "조사지점";
+  };
   IN.onChange = (s) => {
+    autoSiteText(s);
     Object.values(S.figs).forEach((f) => { f.offset = [0, 0]; f.labelHide.clear(); f.labelText.clear(); });
     scaleOptions();
     if (s) setView("preview"); else renderPreview();
@@ -393,9 +436,11 @@
     if (el.closest("[data-pane]") || el.id === "o-dpi" || el.closest("#label-list")) return;
     el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); renderPreview(); });
   });
+  $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
   ["o-title", "o-rings", "o-forest-name", "o-water-name"].forEach((id) => $(`#${id}`).addEventListener("input", () => { readControls(); rerender(); }));
   $$("[data-dl]").forEach((b) => b.addEventListener("click", () => exportFig(b.dataset.dl)));
   initPan();
+  initWheel();
   initArrow();
   initLabels();
   window.addEventListener("resize", debounce(() => { if (S.view === "preview") renderPreview(); }, 300));

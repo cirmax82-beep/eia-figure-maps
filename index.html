@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261026e">
+<link rel="stylesheet" href="css/style.css?v=20261026g">
 </head>
 <body>
 <header class="top">
@@ -64,7 +64,14 @@
       </div>
 
       <div id="site-box" class="site-box" hidden></div>
-      <label class="row">사업명 <input id="site-name" class="input" placeholder="예: ○○ 도시개발사업"></label>
+      <div class="grid2">
+        <label>사업명 <input id="site-name" class="input" placeholder="예: ○○ 도시개발사업"></label>
+        <label title="범례와 도면 글자에 쓰는 이름">경계 이름 <input id="site-text" class="input" list="site-text-list" value="사업지구"></label>
+      </div>
+      <datalist id="site-text-list">
+        <option value="사업지구"><option value="계획지구"><option value="사업대상지"><option value="조사대상지"><option value="사업노선"><option value="계획노선">
+        <option value="사업하천"><option value="계획하천"><option value="조사지점"><option value="사업부지">
+      </datalist>
       <p class="hint">파일은 이 브라우저 안에서만 읽고 어디에도 보내지 않습니다.</p>
     </section>
 
@@ -79,12 +86,14 @@
         <label>용지 <select id="o-paper" class="input"><option value="A4">A4</option><option value="A3">A3</option></select></label>
         <label>방향 <select id="o-orient" class="input"><option value="land">가로</option><option value="port">세로</option></select></label>
         <label>축척 <select id="o-scale" class="input"></select></label>
-        <label id="o-base-row">바탕 <select id="o-base" class="input">
-          <option value="0">위성 그대로</option><option value="0.2">위성 조금 밝게</option><option value="0.4">위성 밝게</option><option value="1">흰 바탕</option>
+        <label>바탕지도 <select id="o-basemap" class="input"></select></label>
+        <label>바탕 밝기 <select id="o-base" class="input">
+          <option value="0">그대로</option><option value="0.2">조금 밝게</option><option value="0.4">밝게</option><option value="0.6">아주 밝게</option>
         </select></label>
-        <label id="n-base-row" hidden>바탕 <select id="n-base" class="input">
-          <option value="white">브이월드 백지도</option><option value="sat">위성</option><option value="none">흰 바탕</option>
-        </select></label>
+        <div class="checks base-checks">
+          <label><input type="checkbox" id="o-gray"> 흑백</label>
+          <label title="브이월드 하이브리드(지명·도로)를 바탕 위에 겹침"><input type="checkbox" id="o-labels"> 지명 겹치기</label>
+        </div>
       </div>
       <label class="row">제목 <input id="o-title" class="input"></label>
 
@@ -206,9 +215,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261026e"></script>
-<script src="js/input.js?v=20261026e"></script>
-<script src="js/render.js?v=20261026e"></script>
-<script src="js/app.js?v=20261026e"></script>
+<script src="js/util.js?v=20261026g"></script>
+<script src="js/input.js?v=20261026g"></script>
+<script src="js/render.js?v=20261026g"></script>
+<script src="js/app.js?v=20261026g"></script>
 </body>
 </html>
