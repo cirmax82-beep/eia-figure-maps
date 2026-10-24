@@ -11,7 +11,7 @@
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat", grid: "none" },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
-    nat: { g1: true, g2: true, sep: true, rings: false },
+    nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
@@ -25,7 +25,7 @@
     "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
     "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
-    "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "v-inset": ["natl", "inset"] };
+    "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "n-dist1": ["nat", "dist1"], "v-inset": ["natl", "inset"] };
   const scaleOptions = () => {
     const f = fig();
     const auto = site() ? ` (1:${fmt(Carto.autoScale(f, site()))})` : "";
@@ -132,6 +132,10 @@
       S.last = { view: out.view, layout: Lo, cssW, cssH, k, fig: f };
       drawArrowTemp();
       renderLabelList(out.labels);
+      // 1등급 이격거리 결과(생태·자연도, 켰을 때)
+      const dt = $("#n-dist-text"), d = out.dist1;
+      dt.hidden = !(f.kind === "nat" && f.nat.dist1);
+      dt.textContent = !d ? "" : d.inside ? "사업지구가 1등급 권역과 겹칩니다." : d.none ? "도면에 보이는 범위 안에 1등급 권역이 없습니다." : `1등급 권역까지 약 ${fmt(d.m >= 1000 ? d.m / 1000 : Math.round(d.m / 10) * 10, d.m >= 1000 ? 2 : 0)} ${d.m >= 1000 ? "km" : "m"}(도면에 보이는 범위 안)`;
       status(out.warn.length ? out.warn.join(" ") : `축척 1:${fmt(f.scale)} · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`);
     } catch (err) {
       console.error(err);

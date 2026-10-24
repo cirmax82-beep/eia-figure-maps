@@ -926,6 +926,84 @@
       pen.path([shape], { closed: true, fill: a.kind === "forest" ? COLOR.arrowForest : COLOR.arrowWater, fillOpacity: 0.78, stroke: "#ffffff", width: 0.35 * e });
     });
 
+    // 1등급 권역까지 이격거리(선택): 도면 틀 안에 보이는 1등급만 보고, 사업지구 경계와 가장 가까운 두 점을 치수선으로 이음
+    let dist1 = null;
+    if (nat && nd && fig.nat.dist1 && Number.isFinite(sb0[0])) {
+      const x0 = F.x, y0 = F.y, x1 = F.x + F.w, y1 = F.y + F.h;
+      // 선분을 틀 안으로 자름(리앙-바스키). 틀 밖이면 null
+      const clipSeg = (ax, ay, bx, by) => {
+        let t0 = 0, t1 = 1;
+        const dx = bx - ax, dy = by - ay;
+        for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dy, ay - y0], [dy, y1 - ay]]) {
+          if (p === 0) { if (q < 0) return null; continue; }
+          const r = q / p;
+          if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
+        }
+        return [ax + t0 * dx, ay + t0 * dy, ax + t1 * dx, ay + t1 * dy];
+      };
+      const segs = [], polys1 = [];
+      nd[1].forEach((poly) => {
+        const rings = poly.map((r) => { const pts = []; for (let i = 0; i < r.length; i += 2) pts.push(PM(r[i], r[i + 1])); return pts; });
+        polys1.push(rings);
+        rings.forEach((pts) => { for (let i = 1; i < pts.length; i++) { const c = clipSeg(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]); if (c) segs.push(c); } });
+      });
+      const siteSegs = [];
+      [...sitePolys, ...siteLines].forEach((pts) => { for (let i = 1; i < pts.length; i++) siteSegs.push([pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]]); });
+      sitePts.forEach(([x, y]) => siteSegs.push([x, y, x, y]));
+      const inPolys = (x, y) => polys1.some((rings) => {
+        let c = false;
+        rings.forEach((r) => { for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; });
+        return c;
+      });
+      // 점과 선분 사이 가장 가까운 점
+      const near = (px, py, ax, ay, bx, by) => {
+        const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+        let t = L ? ((px - ax) * dx + (py - ay) * dy) / L : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const qx = ax + t * dx, qy = ay + t * dy;
+        return [(px - qx) ** 2 + (py - qy) ** 2, qx, qy];
+      };
+      const cross = (a, b) => {
+        const d = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+        const p1 = [a[0], a[1]], p2 = [a[2], a[3]], p3 = [b[0], b[1]], p4 = [b[2], b[3]];
+        return d(p3, p4, p1) * d(p3, p4, p2) < 0 && d(p1, p2, p3) * d(p1, p2, p4) < 0;
+      };
+      const siteVerts = siteSegs.map((s) => [s[0], s[1]]);
+      let best = null;
+      if (siteVerts.some(([x, y]) => inPolys(x, y)) || segs.some((g) => siteSegs.some((s) => cross(s, g)))) {
+        dist1 = { m: 0, inside: true };
+      } else if (segs.length) {
+        for (const s of siteSegs) {
+          for (const g of segs) {
+            for (const [d, ax, ay, bx, by] of [
+              ((r) => [r[0], s[0], s[1], r[1], r[2]])(near(s[0], s[1], g[0], g[1], g[2], g[3])),
+              ((r) => [r[0], s[2], s[3], r[1], r[2]])(near(s[2], s[3], g[0], g[1], g[2], g[3])),
+              ((r) => [r[0], r[1], r[2], g[0], g[1]])(near(g[0], g[1], s[0], s[1], s[2], s[3])),
+              ((r) => [r[0], r[1], r[2], g[2], g[3]])(near(g[2], g[3], s[0], s[1], s[2], s[3])),
+            ]) if (!best || d < best.d) best = { d, a: [ax, ay], b: [bx, by] };
+          }
+        }
+        if (best) dist1 = { m: (Math.sqrt(best.d) * v.scale) / 1000 };
+      } else dist1 = { none: true };
+      const distText = (m) => (m >= 1000 ? `${fmtNum(Math.round(m / 10) / 100)} km` : `${fmtNum(Math.round(m / 10) * 10)} m`);
+      if (best) {
+        const [a, b] = [best.a, best.b], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), hl = 1.8 * e;
+        const head = [b, [b[0] - hl * Math.cos(ang - 0.38), b[1] - hl * Math.sin(ang - 0.38)], [b[0] - hl * Math.cos(ang + 0.38), b[1] - hl * Math.sin(ang + 0.38)]];
+        pen.path([[a, b]], { stroke: "#ffffff", width: 1.2 * e });
+        pen.path([[a, b]], { stroke: "#1f1f1f", width: 0.45 * e });
+        pen.path([head], { closed: true, fill: "#1f1f1f", stroke: "#ffffff", width: 0.2 * e });
+        pen.path([Array.from({ length: 17 }, (_, k) => [a[0] + 0.7 * e * Math.cos((k / 16) * 2 * Math.PI), a[1] + 0.7 * e * Math.sin((k / 16) * 2 * Math.PI)])], { closed: true, fill: "#1f1f1f", stroke: "#ffffff", width: 0.2 * e });
+        // 글자: 치수선 방향으로 돌려(거꾸로 서지 않게) 선 바로 위에
+        const t = `1등급 권역까지 약 ${distText(dist1.m)}`, fs = 8 * e, mxp = (a[0] + b[0]) / 2, myp = (a[1] + b[1]) / 2;
+        let deg = (ang * 180) / Math.PI;
+        if (deg > 90) deg -= 180; else if (deg <= -90) deg += 180;
+        const off = fs * PT * 0.85, nx = Math.sin(deg * RAD), ny = -Math.cos(deg * RAD);
+        pen.text(t, mxp + nx * off, myp + ny * off, { size: fs, weight: 700, align: "center", base: "middle", angle: deg, color: "#111", halo: "#ffffff", haloWidth: 0.6 * e });
+      } else if (dist1 && dist1.inside) {
+        pen.text("1등급 권역과 겹침", (sb0[0] + sb0[2]) / 2, sb0[3] + 2 * e, { size: 8 * e, weight: 700, align: "center", base: "top", color: "#111", halo: "#ffffff", haloWidth: 0.6 * e });
+      }
+    }
+
     // 사업지구 글자
     if (fig.el.sitelabel && Number.isFinite(sb0[0])) {
       const t = siteName, fs = 9.5 * e;
@@ -1139,7 +1217,7 @@
       lines.forEach((t, i) => pen.text(t, F.x, fy + (i - (lines.length - 1) / 2) * 2.7 * e, { size: fs, align: "left", base: "middle", color: "#555555" }));
     }
     pen.text(`축척 1:${fmtNum(v.scale)} (${fig.paper} ${fig.orient === "port" ? "세로" : "가로"})`, F.x + F.w, fy, { size: 6.2 * e, align: "right", base: "middle", color: "#555555" });
-    return { labels: labelsOut };
+    return { labels: labelsOut, dist1 };
   };
 
   // 전체: 자료 받기 → 글꼴 → 그리기
