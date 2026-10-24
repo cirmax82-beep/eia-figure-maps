@@ -681,15 +681,29 @@
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
     const natJob = nat ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
+    const api1Job = nat && fig.nat.dist1 && fig.ecoKey ? eco1Frame(v, fig.ecoKey).catch((err) => { console.warn(err); warn.push(`${err.message} 1등급 이격거리는 정기고시 원본 경계로 계산했습니다.`); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
-    const [base, lc, os, rings, wz, land, nd, cls, labels] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels]);
+    // 원본 경계(API)가 늦으면(미리보기) 단순화 경계로 먼저 그리고, 도착하면 onLate로 다시 그림
+    let api1 = api1Job;
+    if (api1Job && ctl.osmWait != null) {
+      const LATE = {};
+      api1 = Promise.race([api1Job, new Promise((res) => setTimeout(() => res(LATE), ctl.osmWait))]).then((x) => {
+        if (x !== LATE) return x;
+        warn.push("최신 DB(API)를 받는 중이라 1등급 이격거리는 우선 정기고시 원본 경계로 그렸습니다.");
+        api1Job.then((d) => ctl.onLate && ctl.onLate(!!d));
+        return null;
+      });
+    }
+    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1]);
+    // 안전장치: API가 1등급을 하나도 주지 않았는데 조각에는 틀 안에 1등급이 있으면 조각으로
+    if (g1api && !g1api.length && nd && nd[1] && nd[1].length) { warn.push("API 응답에서 1등급 면을 찾지 못해 1등급 이격거리는 정기고시 원본 경계로 계산했습니다."); g1api = null; }
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, baseKey, labels, lc, osm: os, rings, wz, land, nd, cls, natl, warn };
+    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, land, nd, cls, natl, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
-    const { L: Lo, v, base, baseKey, labels, lc, osm: os, rings, wz, land, nd, cls, natl } = D;
+    const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
     const eco = fig.kind === "eco", nat = fig.kind === "nat";
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -942,7 +956,7 @@
         return [ax + t0 * dx, ay + t0 * dy, ax + t1 * dx, ay + t1 * dy];
       };
       const segs = [], polys1 = [];
-      nd[1].forEach((poly) => {
+      (g1api || nd[1]).forEach((poly) => {
         const rings = poly.map((r) => { const pts = []; for (let i = 0; i < r.length; i += 2) pts.push(PM(r[i], r[i + 1])); return pts; });
         polys1.push(rings);
         rings.forEach((pts) => { for (let i = 1; i < pts.length; i++) { const c = clipSeg(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]); if (c) segs.push(c); } });
@@ -985,10 +999,9 @@
         }
         // 거리는 두 점의 경위도로 다시 계산(그 자리 위도의 1도 길이, 타원체 급수) — 지도 투영 오차를 없앰
         if (best) {
-          const [lo1, la1] = v.toLL(...best.a), [lo2, la2] = v.toLL(...best.b), f0 = ((la1 + la2) / 2) * RAD;
-          const kx = 111412.84 * Math.cos(f0) - 93.5 * Math.cos(3 * f0) + 0.118 * Math.cos(5 * f0);
-          const ky = 111132.92 - 559.82 * Math.cos(2 * f0) + 1.175 * Math.cos(4 * f0) - 0.0023 * Math.cos(6 * f0);
-          dist1 = { m: Math.hypot((lo2 - lo1) * kx, (la2 - la1) * ky) };
+          // EPSG:5186 평면 거리(GIS에서 재는 값과 같은 방식)
+          const tr5186 = proj4("WGS84", crsDef("5186")), p1 = tr5186.forward(v.toLL(...best.a)), p2 = tr5186.forward(v.toLL(...best.b));
+          dist1 = { m: Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), api: !!g1api };
         }
       } else dist1 = { none: true };
       // 1 m 단위(1 m 미만은 cm)
@@ -1239,40 +1252,149 @@
     return { ...out, view: D.v, layout: D.L, warn: D.warn };
   };
 
-  // 사업지구 안 생태·자연도 등급별 면적(㎡): 사업지구 면과 등급 면(조각, 5 m로 줄인 것)을 겹쳐 계산.
-  // 3등급은 ‘1·2등급과 별도관리지역 외의 지역’이므로 사업지구에서 1·2등급을 뺀 나머지, 별도관리지역은 등급과 겹칠 수 있어 따로 셈
+  // ---------- 국립생태원 생태자연도 WFS(공공데이터포털): 원본 경계로 정확한 면적·이격거리 ----------
+  // 범위는 EPSG:5186 x,y(동,북), 한 번에 500개까지라 꽉 차면 4등분해 다시 받음. 별도관리지역은 이 API에 없음
+  const ECO_WFS = "https://apis.data.go.kr/B553084/ecoapi/EcologyzmpService/wfs/getEcologyzmpWFS";
+  const parseEcoGml = (text, box) => {
+    const doc = new DOMParser().parseFromString(text, "application/xml");
+    const err = doc.getElementsByTagName("errMsg")[0] || doc.getElementsByTagNameNS("*", "ExceptionText")[0] || doc.getElementsByTagName("ServiceException")[0];
+    if (err) throw new Error(`생태자연도 API: ${err.textContent.trim()}`);
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("생태자연도 API 응답을 읽지 못했습니다.");
+    const nums = (s, pairSep) => {
+      const out = [];
+      if (pairSep) s.trim().split(/\s+/).forEach((p) => { const [x, y] = p.split(",").map(Number); if (Number.isFinite(x) && Number.isFinite(y)) out.push([x, y]); });
+      else { const v = s.trim().split(/[\s,]+/).map(Number); for (let i = 0; i + 1 < v.length; i += 2) out.push([v[i], v[i + 1]]); }
+      return out;
+    };
+    const members = [...doc.getElementsByTagNameNS("*", "featureMember"), ...doc.getElementsByTagNameNS("*", "member")];
+    const feats = members.map((m) => {
+      const f = m.firstElementChild;
+      if (!f) return null;
+      const gEl = f.getElementsByTagNameNS("*", "eczm_grad")[0];
+      const polys = [...f.getElementsByTagNameNS("*", "Polygon")].map((pg) => [...pg.getElementsByTagNameNS("*", "LinearRing")].map((lr) => {
+        const c = lr.getElementsByTagNameNS("*", "coordinates")[0], pl = lr.getElementsByTagNameNS("*", "posList")[0];
+        if (c) return nums(c.textContent, true);
+        if (pl) return nums(pl.textContent, false);
+        return [...lr.getElementsByTagNameNS("*", "pos")].map((p) => nums(p.textContent, false)[0]).filter(Boolean);
+      }).filter((r) => r.length >= 3)).filter((p) => p.length);
+      return { id: f.getAttribute("fid") || f.getAttribute("gml:id") || f.getAttributeNS("http://www.opengis.net/gml", "id") || "", grade: gEl ? +gEl.textContent : 0, polys };
+    }).filter((x) => x && x.polys.length);
+    // 좌표 순서가 북,동으로 오면 바꿈(요청 범위 안에 드는 쪽으로)
+    const pt = feats[0] && feats[0].polys[0][0][0];
+    if (pt && !(pt[0] >= box[0] - 5000 && pt[0] <= box[2] + 5000) && pt[1] >= box[0] - 5000 && pt[1] <= box[2] + 5000) {
+      feats.forEach((f) => f.polys.forEach((p) => p.forEach((r) => r.forEach((c) => c.reverse()))));
+    }
+    return feats;
+  };
+  const ecoFetch = async (key, box, grade, depth = 0) => {
+    const url = `${ECO_WFS}?ServiceKey=${encodeURIComponent(key)}&typeName=tbl_opn_eczm&bbox=${box.map((v) => v.toFixed(2)).join(",")}&maxFeatures=500&eczmGr=${grade}`;
+    let text = "";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 45000);
+      try { text = await (await fetch(url, { signal: ctl.signal })).text(); } catch (_) { text = ""; } finally { clearTimeout(t); }
+      if (text && !/SERVICETIMEOUT/.test(text)) break;
+    }
+    if (!text || /SERVICETIMEOUT/.test(text)) throw new Error("생태자연도 API(국립생태원)가 응답하지 않습니다.");
+    const feats = parseEcoGml(text, box);
+    if (feats.length < 500 || depth >= 4) return feats;
+    const [x0, y0, x1, y1] = box, xm = (x0 + x1) / 2, ym = (y0 + y1) / 2, seen = new Set(), out = [];
+    for (const b of [[x0, y0, xm, ym], [xm, y0, x1, ym], [x0, ym, xm, y1], [xm, ym, x1, y1]]) {
+      for (const f of await ecoFetch(key, b, grade, depth + 1)) {
+        const k = f.id || JSON.stringify(f.polys[0][0][0]);
+        if (!seen.has(k)) { seen.add(k); out.push(f); }
+      }
+    }
+    return out;
+  };
+  // 1·2등급(사업지구 안 부분)과 별도관리지역으로 서로 겹치지 않는 면적 나누기
+  const splitGrades = (total, S1, S2, SS) => {
+    const A = (f) => (f ? geomArea5186(f.geometry) : 0);
+    const cut = (f) => { if (!f || !SS) return 0; try { return A(turf.intersect(turf.featureCollection([f, SS]))); } catch (err) { console.warn(err); return 0; } };
+    const o1 = cut(S1), o2 = cut(S2), g1 = A(S1) - o1, g2 = A(S2) - o2, sep = A(SS);
+    return { g1, g2, sep, g3: Math.max(0, total - g1 - g2 - sep), overlap: o1 + o2 };
+  };
+  const ringArea5186 = (r) => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return Math.abs(a / 2); };
+  const geomArea5186 = (g) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [])
+    .reduce((s, p) => s + p.reduce((t, r, i) => t + (i ? -1 : 1) * ringArea5186(r), 0), 0);
+  // 원본 경계(API)로 사업지구 안 1·2등급 면적(EPSG:5186 평면 넓이 — GIS에서 재는 값과 같은 방식). 별도관리지역은 조각으로 따로 셈
+  const natAreasApi = async (site, key) => {
+    await U.loadScript(U.LIB.turf, "turf");
+    const tr = proj4("WGS84", crsDef("5186"));
+    const polys = site.features.filter((f) => /Polygon/.test(f.geometry.type));
+    if (!polys.length) throw new Error("면적은 면(구역) 경계일 때만 계산합니다.");
+    const to = (g) => ({ type: g.type, coordinates: (g.type === "Polygon" ? [g.coordinates] : g.coordinates).map((p) => p.map((r) => r.map((c) => tr.forward([c[0], c[1]])))) });
+    const ps = polys.map((f) => turf.feature(((g) => (g.type === "MultiPolygon" ? g : { type: "Polygon", coordinates: g.coordinates[0] }))(to(f.geometry))));
+    const sitePoly = ps.length === 1 ? ps[0] : turf.union(turf.featureCollection(ps));
+    const b = turf.bbox(sitePoly), box = [b[0] - 1, b[1] - 1, b[2] + 1, b[3] + 1];
+    const [f1, f2, tiles] = await Promise.all([ecoFetch(key, box, 1), ecoFetch(key, box, 2), natAreas(site).catch(() => null)]);
+    const inside = (feats) => {
+      const out = [];
+      feats.forEach((f) => f.polys.forEach((rings) => {
+        const closed = rings.map((r) => (r[0][0] === r[r.length - 1][0] && r[0][1] === r[r.length - 1][1] ? r : [...r, r[0]]));
+        try { const x = turf.intersect(turf.featureCollection([sitePoly, turf.polygon(closed)])); if (x) out.push(x); } catch (err) { console.warn(err); }
+      }));
+      return out.length > 1 ? turf.union(turf.featureCollection(out)) : out[0] || null;
+    };
+    // 안전장치: API가 등급 면을 하나도 주지 않았는데 조각에는 1·2등급이 있으면 응답을 믿지 않음(형식이 다르거나 빈 응답)
+    if (!f1.length && !f2.length && tiles && tiles.g1 + tiles.g2 > tiles.total * 0.01) throw new Error("API 응답에서 등급 면을 찾지 못했습니다.");
+    const total = geomArea5186(sitePoly.geometry);
+    return { total, ...splitGrades(total, inside(f1), inside(f2), tiles ? tiles.sepGeom : null), api: true,
+      source: `공공데이터포털 국립생태원 생태자연도 WFS(최신 DB, 조회 ${new Date().toISOString().slice(0, 10)})`, sepSource: tiles && tiles.source };
+  };
+  // 도면 틀 안 1등급(원본 경계)을 메르카토르 고리로(조각과 같은 꼴) — 이격거리용, 틀 범위별로 기억
+  const ECO1 = { key: "", val: null };
+  const eco1Frame = async (v, key) => {
+    const tr = proj4("WGS84", crsDef("5186")), back = proj4(crsDef("5186"), "WGS84");
+    const F = v.frame, cs = [[F.x, F.y], [F.x + F.w, F.y], [F.x + F.w, F.y + F.h], [F.x, F.y + F.h]].map(([x, y]) => tr.forward(v.toLL(x, y)));
+    const box = [Math.min(...cs.map((c) => c[0])), Math.min(...cs.map((c) => c[1])), Math.max(...cs.map((c) => c[0])), Math.max(...cs.map((c) => c[1]))];
+    const k = box.map((x) => Math.round(x)).join(",");
+    if (ECO1.key === k) return ECO1.val;
+    const feats = await ecoFetch(key, box, 1);
+    const val = feats.flatMap((f) => f.polys.map((rings) => rings.map((r) => {
+      const a = new Float64Array(r.length * 2);
+      r.forEach((c, i) => { const [lon, lat] = back.forward(c); a[2 * i] = mx(lon); a[2 * i + 1] = my(lat); });
+      return a;
+    })));
+    ECO1.key = k;
+    ECO1.val = val;
+    return val;
+  };
+
+  // 사업지구 안 생태·자연도 등급별 면적(㎡): 사업지구 면과 정기고시 원본 등급 경계(조각, 1 cm 안)를 겹쳐 EPSG:5186 평면 넓이로 계산
+  // (GIS에서 재는 값과 같은 방식). 1·2·3등급·별도관리지역은 서로 겹치지 않는 구분이므로 3등급은 사업지구에서 1·2등급과
+  // 별도관리지역을 뺀 나머지, 등급 면과 겹치는 별도관리지역이 있으면 그 부분은 별도관리지역으로 셈(겹친 넓이는 overlap)
   const natAreas = async (site) => {
     await U.loadScript(U.LIB.turf, "turf");
     const polys = site.features.filter((f) => /Polygon/.test(f.geometry.type));
     if (!polys.length) throw new Error("면적은 면(구역) 경계일 때만 계산합니다.");
-    const sitePoly = polys.length === 1 ? turf.feature(polys[0].geometry) : turf.union(turf.featureCollection(polys.map((f) => turf.feature(f.geometry))));
+    const tr = proj4("WGS84", crsDef("5186"));
+    const to = (g) => (g.type === "Polygon" ? { type: "Polygon", coordinates: g.coordinates.map((r) => r.map((c) => tr.forward([c[0], c[1]]))) }
+      : { type: "MultiPolygon", coordinates: g.coordinates.map((p) => p.map((r) => r.map((c) => tr.forward([c[0], c[1]])))) });
+    const ps = polys.map((f) => turf.feature(to(f.geometry)));
+    const sitePoly = ps.length === 1 ? ps[0] : turf.union(turf.featureCollection(ps));
+    const lb = U.bboxOf(polys);
+    const nd = await natLayer({ llBox: [lb[0] - 0.002, lb[1] - 0.002, lb[2] + 0.002, lb[3] + 0.002] });
     const b = turf.bbox(sitePoly);
-    const nd = await natLayer({ llBox: [b[0] - 0.002, b[1] - 0.002, b[2] + 0.002, b[3] + 0.002] });
-    // 넓이: 사업지 가운데 위도의 1도 길이(타원체 급수)로 경위도를 m로 바꿔 계산
-    const f0 = ((b[1] + b[3]) / 2) * RAD;
-    const kx = 111412.84 * Math.cos(f0) - 93.5 * Math.cos(3 * f0) + 0.118 * Math.cos(5 * f0);
-    const ky = 111132.92 - 559.82 * Math.cos(2 * f0) + 1.175 * Math.cos(4 * f0) - 0.0023 * Math.cos(6 * f0);
-    const ringA = (r) => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return Math.abs(a / 2) * kx * ky; };
-    const areaOf = (g) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [])
-      .reduce((s, p) => s + p.reduce((t, r, i) => t + (i ? -1 : 1) * ringA(r), 0), 0);
     const toFeat = (rings) => {
-      const rs = rings.map((r) => { const o = []; for (let i = 0; i < r.length; i += 2) o.push([ilon(r[i]), ilat(r[i + 1])]); if (o.length) o.push(o[0].slice()); return o; }).filter((r) => r.length >= 4);
+      const rs = rings.map((r) => { const o = []; for (let i = 0; i < r.length; i += 2) o.push(tr.forward([ilon(r[i]), ilat(r[i + 1])])); if (o.length) o.push(o[0].slice()); return o; }).filter((r) => r.length >= 4);
       return rs.length ? turf.polygon(rs) : null;
     };
-    const sum = (code) => {
-      let a = 0;
+    // 사업지구 안에 든 부분을 모아 하나로
+    const inside = (code) => {
+      const out = [];
       for (const p of nd[code] || []) {
         const f = toFeat(p);
         if (!f) continue;
         const fb = turf.bbox(f);
         if (fb[0] > b[2] || fb[2] < b[0] || fb[1] > b[3] || fb[3] < b[1]) continue;
-        try { const x = turf.intersect(turf.featureCollection([sitePoly, f])); if (x) a += areaOf(x.geometry); } catch (err) { console.warn(err); }
+        try { const x = turf.intersect(turf.featureCollection([sitePoly, f])); if (x) out.push(x); } catch (err) { console.warn(err); }
       }
-      return a;
+      return out.length > 1 ? turf.union(turf.featureCollection(out)) : out[0] || null;
     };
-    const total = areaOf(sitePoly.geometry), g1 = sum(1), g2 = sum(2), sep = sum(9);
-    return { total, g1, g2, g3: Math.max(0, total - g1 - g2), sep, source: nd.source };
+    const total = geomArea5186(sitePoly.geometry);
+    const S1 = inside(1), S2 = inside(2), SS = inside(9);
+    return { total, ...splitGrades(total, S1, S2, SS), source: nd.source, sepGeom: SS };
   };
 
-  window.Carto = { render, natAreas, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
+  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
 })();

@@ -3,7 +3,8 @@
     python tools/build_ecnat.py "…/2026년 생태자연도 정기고시(기후에너지환경부고시 제2026-128호).gdb" data/ecnat
 
 - F_생태자연도_A의 ‘생태자연도’ 값 1·2(3등급은 흰색이라 담지 않음), F_별도관리지역_A를 씁니다(EPSG:5186).
-- 조각마다 등급별로 합치고 조각 경계에서 자른 뒤 5 m로 줄입니다(원자료 1:25,000).
+- 조각마다 등급별로 합치고 조각 경계에서 자른 뒤, 1 cm 안쪽의 겹친 꼭짓점만 뺍니다(경계는 고시 원본과 1 cm 안에서 같음 —
+  환경영향평가 도면·면적·이격거리에 쓰므로 단순화하지 않음. 전국 약 490 MB).
 - 정기고시는 해마다 나오므로 새 GDB를 받으면 이 스크립트를 다시 돌립니다(약 20분).
 
 파일 구조(조각 하나): [판 1바이트=2] [층 수] {[층 번호(1·2등급, 9 별도관리지역)] [면 수] {면} …} …
@@ -27,7 +28,7 @@ from pyproj import Transformer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build_water import TILE, Q, enc_poly, polys_of, varint  # noqa: E402
 
-TOL_M = 5.0
+TOL_M = 0.01
 KOREA = (124.5, 33.0, 131.9, 38.7)
 GRADE_LAYER, SEP_LAYER = "F_생태자연도_A", "F_별도관리지역_A"
 warnings.filterwarnings("ignore")

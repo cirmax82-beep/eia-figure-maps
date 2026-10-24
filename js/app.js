@@ -94,6 +94,7 @@
     $("#paper").classList.remove("empty");
     const f = fig();
     f.siteText = siteText();
+    f.ecoKey = ecoKey();
     resolveScale(f);
     scaleOptions();
     const Lo = Carto.layout(f);
@@ -116,7 +117,7 @@
         alive: () => my === gen,
         onTiles: (p) => { if (my === gen) status(`위성영상 받는 중 ${Math.round(p * 100)}%`); },
         osmWait: 2500,
-        onLate: (ok) => { if (my !== gen) return; if (ok) renderPreview(); else status("이름·하천 자료를 받지 못해 이름표 없이 그렸습니다."); },
+        onLate: (ok) => { if (my !== gen) return; if (ok) renderPreview(); else status("늦게 오던 자료(이름·하천 또는 원본 경계)를 받지 못해 지금 그림대로 둡니다."); },
       });
       if (!out || my !== gen) return;
       const paper = $("#paper");
@@ -135,7 +136,7 @@
       // 1등급 이격거리 결과(생태·자연도, 켰을 때)
       const dt = $("#n-dist-text"), d = out.dist1;
       dt.hidden = !(f.kind === "nat" && f.nat.dist1);
-      dt.textContent = !d ? "" : d.inside ? "사업지구가 1등급 권역과 겹칩니다." : d.none ? "도면에 보이는 범위 안에 1등급 권역이 없습니다." : `1등급 권역까지 ${d.m < 1 ? `${Math.round(d.m * 100)} cm` : `${fmt(Math.round(d.m))} m`}(도면에 보이는 범위 안)`;
+      dt.textContent = !d ? "" : d.inside ? "사업지구가 1등급 권역과 겹칩니다." : d.none ? "도면에 보이는 범위 안에 1등급 권역이 없습니다." : `1등급 권역까지 ${d.m < 1 ? `${Math.round(d.m * 100)} cm` : `${fmt(Math.round(d.m))} m`}(도면에 보이는 범위 안, ${d.api ? "최신 DB·API" : "정기고시 원본 경계"})`;
       status(out.warn.length ? out.warn.join(" ") : `축척 1:${fmt(f.scale)} · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`);
     } catch (err) {
       console.error(err);
@@ -329,6 +330,28 @@
     });
   };
 
+  // ---------- 공공데이터포털 인증키(생태자연도 API) — 이 브라우저(localStorage)에만 둠 ----------
+  const KEY_NAME = "figmaps.ecoApiKey";
+  const ecoKey = () => { try { return localStorage.getItem(KEY_NAME) || ""; } catch (_) { return ""; } };
+  const showKeyState = () => {
+    const k = ecoKey();
+    $("#n-key-state").textContent = k ? `저장된 키로 면적표·1등급 이격거리를 국립생태원 최신 DB(API)로 계산합니다(${k.length}자, 이 브라우저에만 저장). API가 안 되면 정기고시 원본으로 계산합니다.`
+      : "키 없이도 2026년 정기고시 원본 경계로 계산합니다. 키를 저장하면 국립생태원 최신 DB(API)로 계산합니다(키는 이 브라우저에만 저장).";
+  };
+  const initEcoKey = () => {
+    $("#n-key-save").addEventListener("click", () => {
+      const v = $("#n-key").value.trim();
+      if (!v) { toast("인증키를 붙여 넣으세요."); return; }
+      try { localStorage.setItem(KEY_NAME, v); } catch (_) { toast("이 브라우저에 저장할 수 없습니다(사생활 보호 모드 등)."); return; }
+      $("#n-key").value = "";
+      showKeyState();
+      toast("인증키를 이 브라우저에 저장했습니다.");
+      renderPreview();
+    });
+    $("#n-key-clear").addEventListener("click", () => { try { localStorage.removeItem(KEY_NAME); } catch (_) { /* 없음 */ } showKeyState(); renderPreview(); });
+    showKeyState();
+  };
+
   // ---------- 생태·자연도 등급별 면적표(엑셀) ----------
   const natAreaExcel = async () => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
@@ -337,22 +360,30 @@
     box.hidden = false;
     box.textContent = "면적을 계산하는 중…";
     try {
-      const [a] = await Promise.all([Carto.natAreas(site()), loadScript(LIB.xlsx, "XLSX")]);
+      let a, note = "";
+      const key = ecoKey();
+      if (key) {
+        box.textContent = "국립생태원 API(최신 DB)에서 경계를 받는 중…(1~2분 걸릴 수 있음)";
+        try { a = await Carto.natAreasApi(site(), key); } catch (err) { console.warn(err); note = `${err.message} 정기고시 원본 경계로 계산했습니다.`; }
+      }
+      if (!a) a = await Carto.natAreas(site());
+      await loadScript(LIB.xlsx, "XLSX");
       const name = $("#site-name").value.trim(), label = siteText();
       const pct = (v) => (a.total ? Math.round((v / a.total) * 10000) / 100 : 0);
       const r1 = (v) => Math.round(v * 10) / 10;
       const rows = [
         ["생태·자연도 등급별 면적표"], [],
         ["사업명", name || "-"], ["경계", label], ["자료", a.source || "생태·자연도 정기고시"],
-        ["계산", "사업지구 경계와 생태·자연도 등급 면을 겹쳐 계산(등급 면은 도면용으로 5 m 안에서 단순화)"], [],
+        ["계산", a.api ? "사업지구 경계와 국립생태원 최신 DB 등급 경계(API)를 겹쳐 EPSG:5186 평면 넓이로 계산" : "사업지구 경계와 2026년 정기고시 원본 등급 경계(1 cm 안에서 같음)를 겹쳐 EPSG:5186 평면 넓이로 계산"], [],
         ["구분", "면적(㎡)", "비율(%)"],
-        ["1등급", r1(a.g1), pct(a.g1)], ["2등급", r1(a.g2), pct(a.g2)], ["3등급", r1(a.g3), pct(a.g3)], ["계", r1(a.total), a.total ? 100 : 0], [],
-        ["별도관리지역", r1(a.sep), pct(a.sep)], [],
-        ["주) 3등급은 ‘1·2등급과 별도관리지역 외의 지역’으로 보아 사업지구에서 1·2등급을 뺀 나머지 면적입니다."],
-        ["주) 별도관리지역은 등급 면과 겹칠 수 있어 위 등급 합계와 따로 적었습니다."],
+        ["1등급", r1(a.g1), pct(a.g1)], ["2등급", r1(a.g2), pct(a.g2)], ["3등급", r1(a.g3), pct(a.g3)], ["별도관리지역", r1(a.sep), pct(a.sep)],
+        ["계", r1(a.total), a.total ? 100 : 0], [],
+        ["주) 3등급은 ‘1·2등급과 별도관리지역 외의 지역’으로 보아 사업지구에서 1·2등급과 별도관리지역을 뺀 나머지 면적입니다."],
+        ...(a.overlap >= 1 ? [[`주) 등급 면과 겹치는 별도관리지역 ${fmt(r1(a.overlap), 1)} ㎡는 별도관리지역으로 셈했습니다.`]] : []),
+        ...(a.api ? [["주) 별도관리지역은 API에 없어 2026년 정기고시 원본 경계로 계산했습니다."]] : []),
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      for (let r = 9; r <= 14; r++) {
+      for (let r = 9; r <= 13; r++) {
         if (ws[`B${r}`] && typeof ws[`B${r}`].v === "number") ws[`B${r}`].z = "#,##0.0";
         if (ws[`C${r}`] && typeof ws[`C${r}`].v === "number") ws[`C${r}`].z = "0.00";
       }
@@ -362,7 +393,7 @@
       const out = XLSX.write(wb, { type: "array", bookType: "xlsx" });
       saveBlob(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${safeName([name, label, "생태자연도_등급별면적"].filter(Boolean).join("_"))}.xlsx`);
       const f = (v) => fmt(r1(v), 1);
-      box.innerHTML = `1등급 ${f(a.g1)} ㎡(${pct(a.g1)}%) · 2등급 ${f(a.g2)} ㎡(${pct(a.g2)}%) · 3등급 ${f(a.g3)} ㎡(${pct(a.g3)}%)<br>계 ${f(a.total)} ㎡ · 별도관리지역 ${f(a.sep)} ㎡`;
+      box.innerHTML = `1등급 ${f(a.g1)} ㎡(${pct(a.g1)}%) · 2등급 ${f(a.g2)} ㎡(${pct(a.g2)}%) · 3등급 ${f(a.g3)} ㎡(${pct(a.g3)}%) · 별도관리지역 ${f(a.sep)} ㎡(${pct(a.sep)}%)<br>계 ${f(a.total)} ㎡<br>${a.api ? "최신 DB(API)로 계산" : "2026년 정기고시 원본 경계로 계산"}${note ? ` — ${esc(note)}` : ""}`;
     } catch (err) {
       console.error(err);
       box.textContent = err.message || "면적을 계산하지 못했습니다.";
@@ -410,6 +441,7 @@
     $$("[data-dl]").forEach((b) => { b.disabled = true; });
     const f = fig();
     f.siteText = siteText();
+    f.ecoKey = ecoKey();
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;
@@ -486,6 +518,7 @@
   ["o-title", "o-rings", "o-forest-name", "o-water-name"].forEach((id) => $(`#${id}`).addEventListener("input", () => { readControls(); rerender(); }));
   $$("[data-dl]").forEach((b) => b.addEventListener("click", () => exportFig(b.dataset.dl)));
   $("#n-area").addEventListener("click", natAreaExcel);
+  initEcoKey();
   initPan();
   initWheel();
   initArrow();
@@ -496,5 +529,5 @@
     if (e.key === "Enter") finishArrow();
     if (e.key === "Escape") stopArrow();
   });
-  window.App = { S, renderPreview, exportFig };
+  window.App = { S, renderPreview, exportFig, ecoKey };
 })();
