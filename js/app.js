@@ -11,7 +11,7 @@
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { base: "white", g1: true, g2: true, sep: true, rings: false },
-    natl: { inset: kind === "veg" },
+    natl: { inset: true },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false };
