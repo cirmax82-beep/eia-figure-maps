@@ -740,7 +740,7 @@
     const legend = [];
     const sitePoly = site.features.some((f) => U.kindOf(f.geometry) === "polygon");
     const siteName = fig.siteText || "사업지구";
-    legend.push({ type: natl ? "point" : sitePoly ? (nat ? "outlineFill" : "outline") : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: siteName });
+    legend.push({ type: natl ? "point" : sitePoly ? "outline" : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: siteName });
     if (nat) {
       if (fig.nat.g1) legend.push({ type: "fill", color: NAT.g1, opacity: NAT.op, label: "1등급" });
       if (fig.nat.g2) legend.push({ type: "fill", color: NAT.g2, opacity: NAT.op, label: "2등급" });
@@ -907,7 +907,6 @@
       if (g.type === "MultiLineString") g.coordinates.forEach((l) => siteLines.push(l.map((c) => P(c[0], c[1]))));
       if (g.type === "Point") sitePts.push(P(g.coordinates[0], g.coordinates[1]));
     });
-    if (nat) pen.path(sitePolys, { closed: true, fill: COLOR.site, fillOpacity: 0.3 });
     pen.path(sitePolys, { closed: true, stroke: "#ffffff", width: 1.25 * e, strokeOpacity: 0.55 });
     pen.path(sitePolys, { closed: true, stroke: COLOR.site, width: 0.75 * e });
     pen.path(siteLines, { stroke: "#ffffff", width: 1.5 * e, strokeOpacity: 0.55 });
@@ -1100,7 +1099,6 @@
         const cy = y + titleH + rowH * (i + 0.5) + pad * 0.3, sx = x + pad, sh = 3.4 * e;
         const r = [[sx, cy - sh / 2], [sx + sym, cy - sh / 2], [sx + sym, cy + sh / 2], [sx, cy + sh / 2]];
         if (it.type === "outline") pen.path([r], { closed: true, stroke: it.color, width: 0.7 * e, join: "miter" });
-        if (it.type === "outlineFill") pen.path([r], { closed: true, fill: it.color, fillOpacity: 0.3, stroke: it.color, width: 0.7 * e, join: "miter" });
         if (it.type === "box") pen.path([r], { closed: true, fill: "#ffffff", stroke: "#8a8a8a", width: 0.25 * e, join: "miter" });
         if (it.type === "fill") pen.path([r], { closed: true, fill: it.color, fillOpacity: Math.min(1, (it.opacity || 1) + 0.1) });
         if (it.type === "line") pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.95 * e });
