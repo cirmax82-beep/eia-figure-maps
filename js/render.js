@@ -655,11 +655,11 @@
     if (eco && wz && fig.eco.rzone) pen.path(polyParts(wz.river, 0), { closed: true, fill: COLOR.water });
     // 소하천구역은 폭이 몇 m뿐이라 작은 축척에서도 보이게 같은 색 테두리를 얇게 두름
     if (eco && wz && fig.eco.szone) pen.path(polyParts(wz.small, 0), { closed: true, fill: COLOR.water, stroke: COLOR.water, width: 0.18 * e });
-    // 작은 하천 선(오픈스트리트맵)
+    // 하천 선(오픈스트리트맵): 하천구역·소하천구역에 빠진 물길(지정 구간 밖 상류 등)을 같은 색으로 이어 칠함
     const wayPage = os ? os.ways.map((w) => ({ ...w, pp: w.pts.map(([X, Y]) => PM(X, Y)) })) : [];
     if (eco && os && fig.eco.streams) {
-      pen.path(wayPage.filter((w) => w.kind === "stream").map((w) => simplify(w.pp, 0.05)), { stroke: COLOR.water, width: 0.55 * e, strokeOpacity: 0.95 });
-      pen.path(wayPage.filter((w) => w.kind === "river").map((w) => simplify(w.pp, 0.05)), { stroke: COLOR.water, width: 0.9 * e, strokeOpacity: 0.95 });
+      pen.path(wayPage.filter((w) => w.kind === "stream").map((w) => simplify(w.pp, 0.05)), { stroke: COLOR.water, width: 0.6 * e });
+      pen.path(wayPage.filter((w) => w.kind === "river").map((w) => simplify(w.pp, 0.05)), { stroke: COLOR.water, width: 0.9 * e });
     }
 
     // 좌표 격자 선

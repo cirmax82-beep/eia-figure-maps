@@ -8,7 +8,7 @@
     title: kind === "sat" ? "위성사진 현황도" : "생태축 현황도",
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat", grid: "none" },
     rings: [1, 2],
-    eco: { forest: true, water: true, rzone: true, szone: true, peaks: true, wnames: true, flow: true, streams: false, rings: false, forestName: "산림생태계", waterName: "수생태계" },
+    eco: { forest: true, water: true, rzone: true, szone: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: { sat: newFig("sat"), eco: newFig("eco") }, view: "map", last: null, busy: false };
