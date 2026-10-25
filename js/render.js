@@ -152,6 +152,8 @@
   // 문헌자료 표: 기호 칸 + 「번호. 표기」. 10건까지 한 열, 넘으면 두 열로 반씩(17건이면 9·8, 많으면 한 열에 10건 넘게).
   // 칸 너비를 넘으면 낱말 사이(안 되면 글자)에서 줄을 나누고, 높이가 maxH를 넘으면 글자를 줄임(s0배에서 55%까지)
   const LIT_PER_COL = 10;
+  // 9격자 범위를 쓰는 도면: 문헌조사 위치도·보호구역 위치도
+  const GRID_KINDS = ["lit", "pa"];
   const litTable = (rows, w, e, maxH = Infinity, s0 = 1) => {
     if (!rows.length) return null;
     const cols = rows.length > LIT_PER_COL ? 2 : 1, per = Math.ceil(rows.length / cols);
@@ -223,7 +225,7 @@
     return v;
   };
   const centerOf = (fig, site) => {
-    const b = NATIONAL.includes(fig.kind) ? KOREA_BOX : fig.kind === "lit" && fig.lit && fig.lit.grid ? fig.lit.grid.bounds : U.bboxOf(site.features);
+    const b = NATIONAL.includes(fig.kind) ? KOREA_BOX : GRID_KINDS.includes(fig.kind) && fig.lit && fig.lit.grid ? fig.lit.grid.bounds : U.bboxOf(site.features);
     const X = (mx(b[0]) + mx(b[2])) / 2 + (fig.offset ? fig.offset[0] : 0);
     const Y = (my(b[1]) + my(b[3])) / 2 + (fig.offset ? fig.offset[1] : 0);
     return [ilon(X), ilat(Y)];
@@ -240,8 +242,8 @@
       const need = Math.max(((mx(k[2]) - mx(k[0])) * Math.cos(lat * RAD)) / (frame.w * 0.96), ((my(k[3]) - my(k[1])) * Math.cos(lat * RAD)) / (frame.h * 0.96)) * 1000;
       return NATIONAL_SCALES.find((v) => v >= need) || NATIONAL_SCALES[NATIONAL_SCALES.length - 1];
     }
-    // 문헌조사 위치도: 9격자가 틀에 꽉 차게(500 단위로 올림)
-    if (fig.kind === "lit") {
+    // 문헌조사·보호구역 위치도: 9격자가 틀에 꽉 차게(500 단위로 올림)
+    if (GRID_KINDS.includes(fig.kind)) {
       const g = fig.lit && fig.lit.grid;
       if (!g) return 50000;
       const k = g.bounds, c = Math.cos(((k[1] + k[3]) / 2) * RAD);
@@ -620,6 +622,107 @@
     return litFiles.get(name);
   };
   const litBasin = (code) => litPlace(`basins/${code}`);
+
+  // ---------- 보호구역 위치도: 보호구역 종합포털(protect.biogrideia.com)의 구역 목록과 구역별 원본 경계 ----------
+  const PA_BASE = "https://protect.biogrideia.com/data/";
+  let paIdx = null;
+  const paIndex = () => paIdx || (paIdx = fetch(`${PA_BASE}index.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).catch((err) => { paIdx = null; throw err; }));
+  const paFiles = new Map();
+  const paArea = (id) => {
+    if (!paFiles.has(id)) {
+      paFiles.set(id, fetch(`${PA_BASE}area/${id}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).catch((err) => { paFiles.delete(id); throw err; }));
+      while (paFiles.size > 300) paFiles.delete(paFiles.keys().next().value);
+    }
+    return paFiles.get(id);
+  };
+  // 고리를 축에 나란한 사각형으로 자름(서덜랜드-호지먼, 좌표계는 상관없음)
+  const clipRect = (pts, x0, y0, x1, y1) => {
+    let out = pts;
+    const E = [
+      [(p) => p[0] >= x0, (a, b) => [x0, a[1] + ((b[1] - a[1]) * (x0 - a[0])) / (b[0] - a[0])]],
+      [(p) => p[0] <= x1, (a, b) => [x1, a[1] + ((b[1] - a[1]) * (x1 - a[0])) / (b[0] - a[0])]],
+      [(p) => p[1] >= y0, (a, b) => [a[0] + ((b[0] - a[0]) * (y0 - a[1])) / (b[1] - a[1]), y0]],
+      [(p) => p[1] <= y1, (a, b) => [a[0] + ((b[0] - a[0]) * (y1 - a[1])) / (b[1] - a[1]), y1]],
+    ];
+    for (const [inside, cut] of E) {
+      const src = out;
+      out = [];
+      for (let i = 0; i < src.length; i++) {
+        const a = src[(i + src.length - 1) % src.length], b = src[i];
+        if (inside(b)) { if (!inside(a)) out.push(cut(a, b)); out.push(b); } else if (inside(a)) out.push(cut(a, b));
+      }
+      if (!out.length) break;
+    }
+    return out;
+  };
+  // 9격자(경위도 사각형 [서, 남, 동, 북])에 걸치는 보호구역: 목록의 범위로 먼저 고르고, 경계를 받아 사각형 안에 든 부분이 있는 것만
+  const paLoad = async (bounds, layerIds) => {
+    const d = await paIndex();
+    const want = new Set(layerIds), [w, s, e, n] = bounds;
+    const cand = d.areas.filter((a) => want.has(d.layers[a[1]].id) && a[8] && a[8][0] <= e && a[8][2] >= w && a[8][1] <= n && a[8][3] >= s);
+    const areas = [];
+    await pool(cand.map((a) => async () => {
+      let fc;
+      try { fc = await paArea(a[0]); } catch (_) { return; }
+      const rings = [];
+      (fc.features || []).forEach((f) => {
+        const g = f.geometry;
+        (g && g.type === "Polygon" ? [g.coordinates] : g && g.type === "MultiPolygon" ? g.coordinates : []).forEach((p) => p.forEach((r) => rings.push(r.map((q) => [q[0], q[1]]))));
+      });
+      if (!rings.some((r) => clipRect(r, w, s, e, n).length >= 3)) return;
+      const L = d.layers[a[1]];
+      areas.push({ id: a[0], order: a[1], layer: L.id, layerName: L.name, color: L.color, law: L.law, name: a[2], sub: a[3], sido: a[4], sigg: a[5], notice: a[6], ha: a[7], rings });
+    }), 8);
+    areas.sort((x, y) => x.order - y.order || x.name.localeCompare(y.name, "ko"));
+    return { areas };
+  };
+  // 사업지구와 보호구역의 관계·최단 이격거리(EPSG:5186 평면, GIS에서 재는 값과 같은 방식)·방향(사업지구 가운데에서 가장 가까운 지점을 본 8방위)
+  const paMeasure = (site, areas) => {
+    const fwd = proj4("WGS84", crsDef("5186")), inv = proj4(crsDef("5186"), "WGS84");
+    const sSegs = [], sPolys = [];
+    const addLine = (line) => { const q = line.map((c) => fwd.forward([c[0], c[1]])); if (q.length === 1) sSegs.push([q[0], q[0]]); for (let i = 1; i < q.length; i++) sSegs.push([q[i - 1], q[i]]); return q; };
+    site.features.forEach((f) => {
+      const g = f.geometry;
+      if (g.type === "Polygon") sPolys.push(g.coordinates.map(addLine));
+      if (g.type === "MultiPolygon") g.coordinates.forEach((p) => sPolys.push(p.map(addLine)));
+      if (g.type === "LineString") addLine(g.coordinates);
+      if (g.type === "MultiLineString") g.coordinates.forEach(addLine);
+      if (g.type === "Point") addLine([g.coordinates]);
+      if (g.type === "MultiPoint") g.coordinates.forEach((c) => addLine([c]));
+    });
+    const sv = sSegs.map((sg) => sg[0]);
+    const cx = (Math.min(...sv.map((p) => p[0])) + Math.max(...sv.map((p) => p[0]))) / 2, cy = (Math.min(...sv.map((p) => p[1])) + Math.max(...sv.map((p) => p[1]))) / 2;
+    const inRings = (x, y, rings) => { let c = false; rings.forEach((r) => { for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; }); return c; };
+    const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    const cross = (a, b, c, d) => side(c, d, a) * side(c, d, b) < 0 && side(a, b, c) * side(a, b, d) < 0;
+    const near = (p, a, b) => {
+      const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy;
+      let t = L ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const q = [a[0] + t * dx, a[1] + t * dy];
+      return [(p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2, q];
+    };
+    return areas.map((A) => {
+      const rings = A.rings.map((r) => r.map((c) => fwd.forward(c)));
+      const aSegs = [];
+      rings.forEach((r) => { for (let i = 1; i < r.length; i++) aSegs.push([r[i - 1], r[i]]); });
+      const hit = sv.some(([x, y]) => inRings(x, y, rings)) || sPolys.some((sp) => rings.some((r) => r.some(([x, y]) => inRings(x, y, sp))))
+        || sSegs.some(([a, b]) => aSegs.some(([c, d]) => cross(a, b, c, d)));
+      if (hit) return { ...A, rel: "겹침", dist: 0, dir: "" };
+      let best = null;
+      for (const [a, b] of sSegs) {
+        for (const [c, d] of aSegs) {
+          for (const [p, s0, s1, flip] of [[a, c, d, 0], [b, c, d, 0], [c, a, b, 1], [d, a, b, 1]]) {
+            const [d2, q] = near(p, s0, s1);
+            if (!best || d2 < best.d2) best = flip ? { d2, s: q, t: p } : { d2, s: p, t: q };
+          }
+        }
+      }
+      if (!best) return { ...A, rel: "이격", dist: NaN, dir: "" };
+      const ang = (Math.atan2(best.t[0] - cx, best.t[1] - cy) * 180) / Math.PI;
+      return { ...A, rel: "이격", dist: Math.sqrt(best.d2), dir: ["북", "북동", "동", "남동", "남", "남서", "서", "북서"][((Math.round(ang / 45) % 8) + 8) % 8], from: inv.forward(best.s), to: inv.forward(best.t) };
+    });
+  };
   const litData = () => litP || (litP = Promise.all(["sheets", "nes"].map((n) => fetch(`data/lit/${n}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })))
     .then(([s, nes]) => ({ sheets: s.sheets, source: s.source, nes }))
     .catch((err) => { litP = null; throw err; }));
@@ -786,6 +889,7 @@
     const topoJob = eco && fig.eco.topo ? topoLayer(v).then((d) => d.polys).catch((err) => { console.warn(err); warn.push("실폭하천·호수/저수지 자료를 받지 못했습니다."); return null; }) : null;
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
+    const paJob = fig.kind === "pa" && fig.lit.grid ? paLoad(fig.lit.grid.bounds, [...fig.pa.layers]).then((r) => ({ areas: paMeasure(site, r.areas) })).catch((err) => { console.warn(err); warn.push("보호구역 자료(보호구역 종합포털)를 받지 못했습니다."); return null; }) : null;
     const natJob = nat || (fig.kind === "lit" && fig.lit.nat) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const api1Job = nat && fig.nat.dist1 && fig.ecoKey ? eco1Frame(v, fig.ecoKey).catch((err) => { console.warn(err); warn.push(`${err.message} 1등급 이격거리는 정기고시 원본 경계로 계산했습니다.`); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
@@ -800,18 +904,18 @@
         return null;
       });
     }
-    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob]);
+    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo, paD] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob, paJob]);
     // 안전장치: API가 1등급을 하나도 주지 않았는데 조각에는 틀 안에 1등급이 있으면 조각으로
     if (g1api && !g1api.length && nd && nd[1] && nd[1].length) { warn.push("API 응답에서 1등급 면을 찾지 못해 1등급 이격거리는 정기고시 원본 경계로 계산했습니다."); g1api = null; }
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, warn };
+    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, pa: paD, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
     const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
-    const eco = fig.kind === "eco", nat = fig.kind === "nat", lit = fig.kind === "lit";
+    const eco = fig.kind === "eco", nat = fig.kind === "nat", lit = fig.kind === "lit", pa = fig.kind === "pa";
     // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다)
     const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : null;
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -864,6 +968,10 @@
     const siteName = fig.siteText || "사업지구";
     legend.push({ type: natl ? "point" : sitePoly ? "outline" : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: siteName });
     if (lit && fig.lit.grid) legend.push({ type: "outline", color: "#1f1f1f", label: "문헌조사 범위(9격자)" });
+    if (pa && fig.lit.grid) legend.push({ type: "outline", color: "#1f1f1f", label: "검토 범위(9격자)" });
+    // 보호구역: 9격자에 걸친 종류만(포털의 종류 순서)
+    if (pa && D.pa) [...new Map([...D.pa.areas].sort((a, b) => a.order - b.order).map((A) => [A.layer, A])).values()]
+      .forEach((A) => legend.push({ type: "fill", color: A.color, opacity: 0.32, label: A.layerName }));
     if (natOn && (nat || nd)) {
       const pre = lit ? "생태·자연도 " : "";
       if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: NAT.op, label: `${pre}1등급` });
@@ -968,7 +1076,7 @@
     // 문헌조사 위치도: 9격자 밖을 옅게 덮고, 문헌 위치(면·선·점) → 칸 선·도엽 경계. 이름표·문헌 번호는 사업지구 위에 나중에
     const litLater = [];
     let litOut = [];   // 위치가 9격자 밖에만 있어 그리지 않은 문헌
-    if (lit && fig.lit.grid) {
+    if ((lit || pa) && fig.lit.grid) {
       const g = fig.lit.grid;
       const R = (b) => { const a = P(b[0], b[3]), c = P(b[2], b[1]); return [[a[0], a[1]], [c[0], a[1]], [c[0], c[1]], [a[0], c[1]]]; };
       const fr = [[F.x - 5, F.y - 5], [F.x + F.w + 5, F.y - 5], [F.x + F.w + 5, F.y + F.h + 5], [F.x - 5, F.y + F.h + 5]];
@@ -1058,6 +1166,42 @@
         marks.set(it.geoKey, { nums: [it.n], x: at[0], y: at[1], col, kind });
       });
       litOut = [...outside.values()].flat();
+      // 보호구역 위치도: 9격자에 걸치는 보호구역을 종류 색으로(넓은 것부터 칠해 작은 것이 위에), 격자 안쪽만
+      if (pa && D.pa) {
+        const list = [...D.pa.areas].sort((a, b) => b.ha - a.ha);
+        pen.clip(gx0, gy0, gx1 - gx0, gy1 - gy0);
+        list.forEach((A) => pen.path(A.rings.map((r) => r.map(([lon, lat]) => P(lon, lat))), { closed: true, fill: A.color, fillOpacity: 0.32, stroke: A.color, width: 0.45 * e }));
+        pen.unclip();
+        // 이격거리(선택): 사업지구에서 가장 가까운 지점까지 치수선과 거리(1 m 단위, 1 km 넘으면 km 소수 둘째 자리)
+        if (fig.pa.dist) D.pa.areas.filter((A) => A.rel === "이격" && A.from).forEach((A) => litLater.push(() => {
+          const c = clipSegG(...P(...A.from), ...P(...A.to));
+          if (!c) return;
+          const a = [c[0], c[1]], b = [c[2], c[3]], ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+          pen.path([[a, b]], { stroke: "#ffffff", width: 1.1 * e });
+          pen.path([[a, b]], { stroke: A.color, width: 0.45 * e, dash: [1.2 * e, 0.6 * e] });
+          pen.path([Array.from({ length: 17 }, (_, k) => [b[0] + 0.7 * e * Math.cos((k / 16) * 2 * Math.PI), b[1] + 0.7 * e * Math.sin((k / 16) * 2 * Math.PI)])], { closed: true, fill: A.color, stroke: "#ffffff", width: 0.2 * e });
+          const t = A.dist >= 1000 ? `${(A.dist / 1000).toFixed(2)} km` : `${Math.round(A.dist).toLocaleString("ko-KR")} m`, fs = 6.6 * e;
+          let deg = (ang * 180) / Math.PI;
+          if (deg > 90) deg -= 180; else if (deg <= -90) deg += 180;
+          const off = fs * PT * 0.8, nx = Math.sin(deg * RAD), ny = -Math.cos(deg * RAD);
+          pen.text(t, (a[0] + b[0]) / 2 + nx * off, (a[1] + b[1]) / 2 + ny * off, { size: fs, weight: 700, align: "center", base: "middle", angle: deg, color: "#111", halo: "#ffffff", haloWidth: 0.55 * e });
+        }));
+        // 이름: 격자 안에 든 부분의 가운데(작은 구역부터 자리를 잡고, 다른 글자와 겹치면 위·아래로 비켜 보고 안 되면 뺌)
+        if (fig.pa.names) [...D.pa.areas].sort((a, b) => a.ha - b.ha).forEach((A) => {
+          let at = null;
+          A.rings.forEach((r) => { const c = labelPt(clipRing(r.map(([lon, lat]) => P(lon, lat)))); if (c && (!at || c[2] > at[2])) at = c; });
+          if (!at) return;
+          const fs = 6.8 * e, w = textW(A.name, fs, 700) + 1, h = fs * PT + 0.8;
+          let box = null;
+          for (const dy of [0, -h - 0.6, h + 0.6]) {
+            const x = Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, at[0] - w / 2)), y = Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, at[1] - h / 2 + dy));
+            if (!boxHit([x, y, x + w, y + h], occupied)) { box = [x, y, x + w, y + h]; break; }
+          }
+          if (!box) return;
+          occupied.push(box);
+          litLater.push(() => pen.text(A.name, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e }));
+        });
+      }
       // 칸 선(흰 테 위 검은 선), 도엽 경계는 굵게
       const cellR = g.cells.map((c) => R(c.b));
       pen.path(cellR, { closed: true, stroke: "#ffffff", width: 1.1 * e, strokeOpacity: 0.8, join: "miter" });
@@ -1076,7 +1220,7 @@
         const [cx0, cy0] = P(c.b[0], c.b[3]), [cx1, cy1] = P(c.b[2], c.b[1]);
         if (cx1 < F.x || cx0 > F.x + F.w || cy1 < F.y || cy0 > F.y + F.h) return;
         const x0 = Math.max(cx0, F.x), y0 = Math.max(cy0, F.y), fsE = 12 * e, fsS = 9.5 * e;
-        const s = sheets.get(c.code), first = fig.lit.sheetName && s.top === c;
+        const s = sheets.get(c.code), first = (lit ? fig.lit.sheetName : fig.pa.sheetName) && s.top === c;
         const t = s.name && s.name !== s.code ? `${s.name}(${s.code})` : s.code;
         litLater.push(() => {
           pen.text(c.id, x0 + 2 * e, y0 + 1.8 * e, { size: fsE, weight: 800, align: "left", base: "top", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.7 * e });
@@ -1471,7 +1615,8 @@
     if (fig.el.source) {
       const src = [BASES[baseKey].src || ""];
       if (labels) src.push(LABELS.src);
-      if (lit && fig.lit.grid) src.push("도엽: BioGrid EIA 기준 1:25,000 도엽(국토지리정보원)");
+      if ((lit || pa) && fig.lit.grid) src.push("도엽: BioGrid EIA 기준 1:25,000 도엽(국토지리정보원)");
+      if (pa && D.pa) src.push("보호구역: 보호구역 종합포털(protect.biogrideia.com — 국토교통부 브이월드·한국보호지역 통합DB)");
       if (lit && fig.lit.imported) src.push("문헌 위치: BioGrid EIA");
       if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
@@ -1493,7 +1638,7 @@
       lines.forEach((t, i) => pen.text(t, F.x, fy + (i - (lines.length - 1) / 2) * 2.7 * e, { size: fs, align: "left", base: "middle", color: "#555555" }));
     }
     pen.text(`축척 1:${fmtNum(v.scale)} (${fig.paper} ${fig.orient === "port" ? "세로" : "가로"})`, F.x + F.w, fy, { size: 6.2 * e, align: "right", base: "middle", color: "#555555" });
-    return { labels: labelsOut, dist1, litOut };
+    return { labels: labelsOut, dist1, litOut, pa: pa && D.pa ? D.pa.areas : null };
   };
 
   // 문헌조사 위치도 둘째 쪽: 첫 쪽과 같은 용지에 제목과 문헌자료 표만(표가 쪽을 넘으면 글자를 줄임)
@@ -1671,5 +1816,5 @@
     return { total, ...splitGrades(total, S1, S2, SS), source: nd.source, sepGeom: SS };
   };
 
-  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin };
+  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin, paLoad, paMeasure };
 })();

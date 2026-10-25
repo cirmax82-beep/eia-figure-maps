@@ -3,18 +3,31 @@
   const { $, $$, esc, fmt, debounce, toast, LIB, loadScript, saveBlob, safeName } = U;
   const { IN } = Input;
 
-  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도" };
+  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", pa: "보호구역 위치도" };
+  // 보호구역 종합포털의 종류(tools/layers.py 순서). on: 동식물상 관련이라 처음부터 켬
+  const PA_LAYERS = [
+    ["nature", "자연·생태 보호구역", [["wildlife-special", "야생생물특별보호구역", 1], ["wildlife", "야생생물보호구역", 1], ["wetland-coast", "연안습지보호지역", 1], ["wetland", "습지보호지역", 1],
+      ["eco-landscape", "생태·경관보전지역", 1], ["special-island", "특정도서", 1], ["park-national", "국립공원", 1], ["park-province", "도립공원", 1], ["park-county", "군립공원", 1],
+      ["forest", "산림보호구역", 0], ["forest-genetic", "산림유전자원보호림", 1], ["baekdu", "백두대간보호지역", 1], ["kdpa-other", "기타 보전지역(자연휴양림·수목원 등)", 0]]],
+    ["heritage", "국가유산", [["natural-heritage", "천연기념물", 1], ["scenic", "명승", 0], ["heritage", "국가유산 보호구역", 0], ["temple", "전통사찰보존구역", 0]]],
+    ["marine", "해양·연안", [["marine-mpa", "해양보호구역", 1], ["coast-conserve", "보전연안해역", 0], ["env-sea", "환경보전해역", 0], ["fishery", "수산자원보호구역", 0]]],
+    ["env", "물·환경 규제지역", [["water", "상수원보호구역", 0], ["riparian", "수변구역", 0], ["special-measure", "수질보전 특별대책지역", 0], ["natenv", "자연환경보전지역", 0],
+      ["urbanpark", "도시자연공원구역", 0], ["protect-district", "보호지구", 0], ["landscape", "자연경관지구", 0], ["greenbelt", "개발제한구역", 0], ["air", "대기환경규제지역", 0]]],
+  ];
+  const PA_DEFAULT = PA_LAYERS.flatMap(([, , ls]) => ls.filter((l) => l[2]).map((l) => l[0]));
   const newFig = (kind) => ({
-    kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || kind === "lit" ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
-    basemap: kind === "nat" ? "vwhite" : kind === "lit" && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
+    kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || kind === "lit" || kind === "pa" ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
+    basemap: kind === "nat" ? "vwhite" : (kind === "lit" || kind === "pa") && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
     title: TITLES[kind],
-    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat" || kind === "lit", grid: "none" },
+    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat" || kind === "lit" || kind === "pa", grid: "none" },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
     // 문헌조사 위치도: 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
     lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
+    // 보호구역 위치도: 그릴 종류, 이름, 이격거리 치수선, 도엽 이름(9격자는 lit.grid를 같이 씀)
+    pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
@@ -28,7 +41,7 @@
     "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
     "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "n-dist1": ["nat", "dist1"], "v-inset": ["natl", "inset"],
-    "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"] };
+    "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"], "p-names": ["pa", "names"], "p-dist": ["pa", "dist"], "p-sheet": ["pa", "sheetName"] };
   const scaleOptions = () => {
     const f = fig();
     const auto = site() ? ` (1:${fmt(Carto.autoScale(f, site()))})` : "";
@@ -121,6 +134,7 @@
     f.siteText = siteText();
     f.ecoKey = ecoKey();
     if (f.kind === "lit") await prepLit(f);
+    if (f.kind === "pa") await prepGrid(f);
     resolveScale(f);
     scaleOptions();
     const Lo = Carto.layout(f);
@@ -162,6 +176,7 @@
       S.last = { view: page2 ? null : out.view, layout: Lo, cssW, cssH, k, fig: f };
       // 위치가 9격자 밖에만 있어 도면에 그리지 않은 문헌은 목록에 「격자 밖」
       if (f.kind === "lit" && !page2) { S.litOut = new Set(out.litOut || []); renderLitList(); }
+      if (f.kind === "pa") paSummary(out.pa);
       drawArrowTemp();
       renderLabelList(out.labels);
       // 1등급 이격거리 결과(생태·자연도, 켰을 때)
@@ -360,6 +375,66 @@
     $("#arrow-list").innerHTML = list.map((a, i) => `<div class="arrow-row"><i class="sw sw-${a.kind}"></i>${arrowName(a.kind)} ${++n[a.kind]} <span class="muted small">점 ${a.pts.length}개</span><button class="link" data-del="${i}">지우기</button></div>`).join("");
   };
 
+  // ---------- 보호구역 위치도 ----------
+  const renderPaLayers = () => {
+    const on = S.figs.pa.pa.layers;
+    $("#p-layers").innerHTML = PA_LAYERS.map(([g, gname, ls]) => `<div class="pa-group"><b class="small">${esc(gname)}</b><div class="checks">${ls.map(([id, name]) =>
+      `<label><input type="checkbox" data-pa="${id}" ${on.has(id) ? "checked" : ""}> ${esc(name)}</label>`).join("")}</div></div>`).join("");
+  };
+  const paSummary = (areas) => {
+    const g = S.figs.pa.lit.grid;
+    $("#p-grid-text").textContent = !site() ? "사업지구를 넣으면 9격자(1:25,000 도엽을 3×3으로 나눈 E1~E9 칸) 안의 보호구역을 그립니다."
+      : !g ? "사업지구 가운데가 1:25,000 도엽 밖(바다 등)이라 9격자를 잡지 못했습니다."
+      : `가운데 칸: ${g.center.name && g.center.name !== g.center.code ? `${g.center.name}(${g.center.code})` : g.center.code} ${g.center.id}`
+        + (areas ? ` · 9격자 안 보호구역 ${areas.length}곳${areas.some((a) => a.rel === "겹침") ? `(사업지구와 겹침 ${areas.filter((a) => a.rel === "겹침").length}곳)` : ""}` : "");
+  };
+  // 9격자 안 보호구역 목록 엑셀(가까운 순): 종류·이름·관계·이격거리(EPSG:5186 평면)·방향
+  const paExcel = async () => {
+    if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
+    const f = S.figs.pa;
+    await prepGrid(f);
+    if (!f.lit.grid) { toast("9격자를 잡지 못했습니다."); return; }
+    $("#p-xlsx").disabled = true;
+    try {
+      const { areas } = await Carto.paLoad(f.lit.grid.bounds, [...f.pa.layers]);
+      const list = Carto.paMeasure(site(), areas).sort((a, b) => a.dist - b.dist || a.order - b.order);
+      await loadScript(LIB.xlsx, "XLSX");
+      const name = $("#site-name").value.trim(), c = f.lit.grid.center;
+      const aoa = [
+        ["보호구역 위치도 — 9격자 안 보호구역"], [],
+        ["사업명", name || "-"],
+        ["9격자 가운데 칸", `${c.name && c.name !== c.code ? `${c.name}(${c.code})` : c.code} ${c.id}`],
+        ["자료", "보호구역 종합포털(protect.biogrideia.com) — 국토교통부 브이월드·한국보호지역 통합DB(KDPA)"],
+        ["계산", "이격거리는 사업지구 경계와 보호구역 경계 사이 최단 거리(EPSG:5186 평면), 방향은 사업지구 가운데에서 가장 가까운 지점을 본 8방위"], [],
+        ["순번", "종류", "이름", "세부구분", "시도", "시군구", "고시", "면적(ha)", "관계", "이격거리(m)", "방향", "근거법령"],
+        ...list.map((a, i) => [i + 1, a.layerName, a.name, a.sub, a.sido, a.sigg, a.notice, a.ha, a.rel, Number.isFinite(a.dist) ? Math.round(a.dist) : "", a.dir, a.law || ""]),
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws["!cols"] = [{ wch: 5 }, { wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 10 }, { wch: 6 }, { wch: 11 }, { wch: 6 }, { wch: 30 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "보호구역");
+      saveBlob(new Blob([XLSX.write(wb, { type: "array", bookType: "xlsx" })], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${safeName([name, "보호구역위치도_보호구역목록"].filter(Boolean).join("_"))}.xlsx`);
+      toast(`9격자 안 보호구역 ${list.length}곳을 엑셀로 받았습니다.`);
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "보호구역 목록을 만들지 못했습니다.");
+    } finally {
+      $("#p-xlsx").disabled = false;
+    }
+  };
+  const initPa = () => {
+    renderPaLayers();
+    $("#p-layers").addEventListener("change", (e) => {
+      const id = e.target.dataset.pa;
+      if (!id) return;
+      const on = S.figs.pa.pa.layers;
+      if (e.target.checked) on.add(id); else on.delete(id);
+      renderPreview();
+    });
+    $("#p-reset").addEventListener("click", () => { S.figs.pa.pa.layers = new Set(PA_DEFAULT); renderPaLayers(); renderPreview(); });
+    $("#p-xlsx").addEventListener("click", paExcel);
+  };
+
   // ---------- 문헌조사 위치도 ----------
   // 문헌 위치 색: 포털 자료는 구분별, 직접 찍은 것은 돌아가며
   const LIT_COLORS = { "겨울철 조류 동시 센서스": "#7b2cbf", "습지생물상조사": "#2b8a3e", "생물측정망": "#1c7ed6" };
@@ -383,7 +458,7 @@
     return items;
   };
   // 사업지구 가운데가 든 칸으로 9격자를 잡고(경계가 바뀌면 다시), 도면에 넣을 문헌(번호 매김)을 f.litRows로
-  const prepLit = async (f) => {
+  const prepGrid = async (f) => {
     const L = f.lit;
     try {
       S.lit = S.lit || await Carto.litData();
@@ -393,6 +468,10 @@
       console.warn(err);
       toast("1:25,000 도엽 자료를 받지 못했습니다.");
     }
+  };
+  const prepLit = async (f) => {
+    const L = f.lit;
+    await prepGrid(f);
     f.litRows = litItems(L).filter((it) => !L.hide.has(it.id))
       .map((it, i) => ({ ...it, n: i + 1, text: L.text.has(it.id) ? L.text.get(it.id) : it.text, color: L.colors.get(it.id) || it.color }));
     renderLitList();
@@ -815,6 +894,7 @@
     f.siteText = siteText();
     f.ecoKey = ecoKey();
     if (f.kind === "lit") await prepLit(f);
+    if (f.kind === "pa") await prepGrid(f);
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;
@@ -919,6 +999,8 @@
   initLabels();
   initLit();
   renderLitList();
+  initPa();
+  paSummary(null);
   $$("#page-tabs button").forEach((b) => b.addEventListener("click", () => {
     S.page = +b.dataset.page;
     syncPageTabs();
