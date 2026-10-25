@@ -131,3 +131,6 @@ details .checks { margin-bottom: 8px; }
 }
 .seg.wrap { flex-wrap: wrap; }
 .seg.wrap button { flex: 1 1 30%; }
+/* 경계 지도: 백지도는 도면처럼 흑백으로 진하게, 흑백 선택 */
+.tiles-white { filter: grayscale(1) contrast(1.9) brightness(0.97); }
+#map.map-gray .leaflet-tile-pane { filter: grayscale(1); }

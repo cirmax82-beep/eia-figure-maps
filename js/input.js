@@ -93,14 +93,21 @@
   const SITE_STYLE = { color: "#e03131", weight: 3, opacity: 1, fillColor: "#e03131", fillOpacity: 0.08 };
   const initMap = () => {
     IN.map = L.map("map", { zoomSnap: 0.5, minZoom: 6, maxZoom: 19 }).setView([36.3, 127.8], 7);
-    const base = {
-      "위성 영상": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-        maxZoom: 19, attribution: "영상 &copy; Esri, Maxar, Earthstar Geographics" }),
-      "일반 지도": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 기여자' }),
-    };
-    base["위성 영상"].addTo(IN.map);
-    L.control.layers(base, null, { position: "topright" }).addTo(IN.map);
+    // 바탕지도: 도면의 바탕 종류와 같은 열쇠(sat·vsat·vbase·vwhite·hill)에 오픈스트리트맵을 더함. 브이월드는 인증키가 있을 때만
+    const VWK = (window.FIG_CONFIG || {}).vworldKey || "";
+    const vwAttr = '&copy; <a href="https://www.vworld.kr" target="_blank" rel="noopener">국토교통부 브이월드</a>';
+    const vw = (layer, ext, max, opts = {}) => L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWK}/${layer}/{z}/{y}/{x}.${ext}`, { maxZoom: 19, maxNativeZoom: max, attribution: vwAttr, ...opts });
+    const B = [
+      ["sat", "위성영상(Esri)", L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "영상 &copy; Esri, Maxar, Earthstar Geographics" })],
+      ...(VWK ? [["vsat", "위성영상(브이월드)", vw("Satellite", "jpeg", 19)], ["vbase", "브이월드 기본지도", vw("Base", "png", 19)],
+        ["vwhite", "브이월드 백지도", vw("white", "png", 18, { className: "tiles-white" })]] : []),
+      ["hill", "지형 음영(Esri)", L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, maxNativeZoom: 16, attribution: "지형 음영 &copy; Esri" })],
+      ["osm", "오픈스트리트맵", L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 기여자' })],
+    ];
+    IN.bases = Object.fromEntries(B.map(([k, , l]) => [k, l]));
+    IN.labels = VWK ? vw("Hybrid", "png", 19) : null;
+    IN.bases.sat.addTo(IN.map);
+    L.control.layers(Object.fromEntries(B.map(([, n, l]) => [n, l])), IN.labels ? { "지명·도로(브이월드)": IN.labels } : null, { position: "topright" }).addTo(IN.map);
     L.control.scale({ imperial: false, position: "bottomright" }).addTo(IN.map);
     IN.renderer = L.canvas({ padding: 0.3 });
     IN.siteLayer = L.featureGroup().addTo(IN.map);
@@ -108,6 +115,19 @@
     IN.map.on("click", onMapClick);
     IN.map.on("dblclick", () => { if (D.mode === "line" || D.mode === "polygon") finishDraw(); });
   };
+  // 왼쪽 ‘바탕지도·흑백·지명 겹치기’와 맞춤(흰 바탕은 경계를 보기 어려워 그대로 둠)
+  IN.setBase = (key) => {
+    const l = IN.bases && IN.bases[key];
+    if (!l || IN.map.hasLayer(l)) return;
+    Object.values(IN.bases).forEach((b) => IN.map.removeLayer(b));
+    l.addTo(IN.map);
+  };
+  IN.setLabels = (on) => {
+    if (!IN.labels) return;
+    if (on && !IN.map.hasLayer(IN.labels)) IN.labels.addTo(IN.map);
+    if (!on && IN.map.hasLayer(IN.labels)) IN.map.removeLayer(IN.labels);
+  };
+  IN.setGray = (on) => $("#map").classList.toggle("map-gray", !!on);
   const drawSite = () => {
     IN.siteLayer.clearLayers();
     if (!IN.site) return;

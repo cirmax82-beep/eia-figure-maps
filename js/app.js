@@ -51,6 +51,15 @@
     $$("[data-figpane]").forEach((p) => { p.hidden = !p.dataset.figpane.split(" ").includes(f.kind); });
     $$("#fig-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.fig === S.cur));
     renderArrowList();
+    syncMapBase();
+  };
+  // 경계 지도 바탕도 고른 도면의 바탕·흑백·지명 겹치기를 따름
+  const syncMapBase = () => {
+    const f = fig();
+    if (!IN.setBase) return;
+    IN.setBase(f.basemap);
+    IN.setLabels(f.baseLabels);
+    IN.setGray(f.gray);
   };
   const parseRings = (s) => [...new Set((s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter((x) => x > 0 && x <= 20))].sort((a, b) => a - b).slice(0, 5);
   const readControls = () => {
@@ -512,7 +521,7 @@
   $$("#view-tabs button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $$(".side select, .side input[type=checkbox]").forEach((el) => {
     if (el.closest("[data-pane]") || el.id === "o-dpi" || el.closest("#label-list")) return;
-    el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); renderPreview(); });
+    el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); if (/^o-(basemap|gray|labels)$/.test(el.id)) syncMapBase(); renderPreview(); });
   });
   $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
   ["o-title", "o-rings", "o-forest-name", "o-water-name"].forEach((id) => $(`#${id}`).addEventListener("input", () => { readControls(); rerender(); }));
