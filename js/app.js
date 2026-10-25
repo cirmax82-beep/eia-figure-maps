@@ -452,7 +452,63 @@
     L.hide.clear();
     return { cnt, n: items.length, mismatch };
   };
+  // 문헌 목록 파일(.json): 직접 찍은 위치·고친 이름·색·뺀 문헌·넣은 포털 자료·선택, 그리고 경계(불러올 때 경계가 없으면 씀)
+  const LIT_FILE = "eia-figure-maps/lit";
+  const centerId = (L) => (L.grid ? `${L.grid.center.code}_${L.grid.center.id}` : "");
+  const saveLit = () => {
+    const L = S.figs.lit.lit;
+    if (!L.manual.length && !L.text.size && !L.colors.size && !L.hide.size && !L.imported) { toast("저장할 것이 없습니다. 위치를 찍거나 문헌 이름을 고친 뒤 저장하세요."); return; }
+    const name = $("#site-name").value.trim();
+    const data = {
+      type: LIT_FILE, version: 1, saved: new Date().toISOString(),
+      project: name, siteText: siteText(), site: site() ? site().features : null, center: centerId(L),
+      options: { nat: L.nat, table: L.table, sheetName: L.sheetName },
+      manual: L.manual, text: [...L.text], colors: [...L.colors], hide: [...L.hide], imported: L.imported,
+    };
+    saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "문헌조사위치도_목록"].filter(Boolean).join("_"))}.json`);
+    toast(`직접 찍은 위치 ${L.manual.length}곳, 고친 이름 ${L.text.size}건을 파일로 저장했습니다.`);
+  };
+  const loadLit = async (file) => {
+    let d;
+    try { d = JSON.parse(await file.text()); } catch (_) { throw new Error("문헌 목록 파일(.json)을 읽지 못했습니다."); }
+    if (!d || d.type !== LIT_FILE) throw new Error("이 도구에서 저장한 문헌 목록 파일이 아닙니다.");
+    let note = "";
+    if (!site() && Array.isArray(d.site) && d.site.length && Input.setSite(d.site, "문헌 목록 파일의 경계")) note = " 파일에 있던 경계도 넣었습니다.";
+    if (!site()) throw new Error("먼저 사업지구 경계를 넣으세요.");
+    const f = S.figs.lit, L = f.lit, str = (v) => typeof v === "string";
+    const pairs = (a) => (Array.isArray(a) ? a.filter((p) => Array.isArray(p) && str(p[0]) && str(p[1])) : []);
+    L.manual = (Array.isArray(d.manual) ? d.manual : []).filter((m) => m && str(m.id) && m.geo && Array.isArray(m.geo.parts) && ["point", "line", "area"].includes(m.geo.kind));
+    L.seq = Math.max(0, ...L.manual.map((m) => +m.id.split(":")[1] || 0));
+    L.text = new Map(pairs(d.text));
+    L.colors = new Map(pairs(d.colors));
+    L.hide = new Set((Array.isArray(d.hide) ? d.hide : []).filter(str));
+    L.imported = d.imported && Array.isArray(d.imported.items) && Array.isArray(d.imported.extra) ? d.imported : null;
+    const o = d.options || {};
+    ["nat", "table", "sheetName"].forEach((k) => { if (typeof o[k] === "boolean") L[k] = o[k]; });
+    if (str(d.project) && d.project && !$("#site-name").value.trim()) $("#site-name").value = d.project;
+    const st = $("#site-text");
+    if (str(d.siteText) && d.siteText && !st.dataset.edited) { st.value = d.siteText; st.dataset.edited = "1"; }
+    await prepLit(f);
+    const differ = d.center && centerId(L) && d.center !== centerId(L);
+    return { n: L.manual.length, t: L.text.size, note, differ };
+  };
   const initLit = () => {
+    $("#l-save").addEventListener("click", saveLit);
+    $("#l-load").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const r = await loadLit(file);
+        if (S.cur !== "lit") S.cur = "lit";
+        syncControls();
+        setView("preview");
+        toast(`직접 찍은 위치 ${r.n}곳, 고친 이름 ${r.t}건을 불러왔습니다.${r.note}${r.differ ? " 저장할 때와 9격자 가운데 칸이 다릅니다 — 경계가 바뀌었는지 확인하세요." : ""}`, r.differ ? 8000 : 4000);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "문헌 목록 파일을 읽지 못했습니다.");
+      }
+    });
     $("#l-file").addEventListener("change", async (e) => {
       const file = e.target.files[0];
       e.target.value = "";

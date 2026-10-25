@@ -984,7 +984,10 @@
       pen.path([...sheets.values()].map((s) => R(s.b)), { closed: true, stroke: "#1f1f1f", width: 0.9 * e, join: "miter" });
       // 칸 이름(E1~E9)은 칸 왼쪽 위(아래 모서리의 축척 막대·범례를 피함), 도엽의 맨 왼쪽 위 칸에는 그 옆에 도엽 이름(번호)
       g.cells.forEach((c) => {
-        const [x0, y0] = P(c.b[0], c.b[3]), fsE = 12 * e, fsS = 9.5 * e;
+        // 칸 왼쪽 위가 틀 밖이면(가운데를 옮긴 때) 칸이 보이는 부분의 왼쪽 위로
+        const [cx0, cy0] = P(c.b[0], c.b[3]), [cx1, cy1] = P(c.b[2], c.b[1]);
+        if (cx1 < F.x || cx0 > F.x + F.w || cy1 < F.y || cy0 > F.y + F.h) return;
+        const x0 = Math.max(cx0, F.x), y0 = Math.max(cy0, F.y), fsE = 12 * e, fsS = 9.5 * e;
         const s = sheets.get(c.code), first = fig.lit.sheetName && s.top === c;
         const t = s.name && s.name !== s.code ? `${s.name}(${s.code})` : s.code;
         litLater.push(() => {
