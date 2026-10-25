@@ -14,10 +14,10 @@
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
     // 문헌조사 위치도: 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
-    lit: { nat: false, table: true, sheetName: true, grid: null, gridKey: "", imported: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
+    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
-  const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false };
+  const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
   const fig = () => S.figs[S.cur];
   const site = () => IN.site;
   const resolveScale = (f) => { if (f.scaleMode === "auto") f.scale = Carto.autoScale(f, site()); return f.scale; };
@@ -28,7 +28,7 @@
     "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
     "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "n-dist1": ["nat", "dist1"], "v-inset": ["natl", "inset"],
-    "l-nat": ["lit", "nat"], "l-table": ["lit", "table"], "l-sheet": ["lit", "sheetName"] };
+    "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"] };
   const scaleOptions = () => {
     const f = fig();
     const auto = site() ? ` (1:${fmt(Carto.autoScale(f, site()))})` : "";
@@ -50,6 +50,8 @@
     $("#o-water-name").value = f.eco.waterName;
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { $(`#${id}`).checked = !!(g ? f[g][k] : f[k]); });
     $("#e-grid").value = f.el.grid;
+    $("#l-table").value = f.lit.table;
+    syncPageTabs();
     scaleOptions();
     $$("[data-figpane]").forEach((p) => { p.hidden = !p.dataset.figpane.split(" ").includes(f.kind); });
     $$("#fig-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.fig === S.cur));
@@ -77,8 +79,19 @@
     f.eco.waterName = $("#o-water-name").value.trim() || "수생태계";
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { if (g) f[g][k] = $(`#${id}`).checked; else f[k] = $(`#${id}`).checked; });
     f.el.grid = $("#e-grid").value;
+    f.lit.table = $("#l-table").value;
+    syncPageTabs();
     const sv = $("#o-scale").value;
     if (sv === "auto") f.scaleMode = "auto"; else { f.scaleMode = "fixed"; f.scale = +sv; }
+  };
+
+  // 문헌조사 위치도에서 문헌자료 표를 둘째 쪽에 둘 때만 미리보기 쪽(1쪽 도면·2쪽 문헌자료)을 고름
+  const twoPages = (f) => f.kind === "lit" && f.lit.table === "page2";
+  const syncPageTabs = () => {
+    const show = twoPages(fig());
+    if (!show) S.page = 1;
+    $("#page-tabs").hidden = !show;
+    $$("#page-tabs button").forEach((b) => b.classList.toggle("on", +b.dataset.page === S.page));
   };
 
   // ---------- 보기 바꾸기 ----------
@@ -125,8 +138,10 @@
     off.width = Math.round(Lo.W * k);
     off.height = Math.round(Lo.H * k);
     status("도면을 그리는 중…");
+    const page2 = twoPages(f) && S.page === 2;
     try {
-      const out = await Carto.render(new Carto.CanvasPen(off.getContext("2d"), k), f, site(), k, {
+      const pen = new Carto.CanvasPen(off.getContext("2d"), k);
+      const out = page2 ? await Carto.renderLitPage(pen, f) : await Carto.render(pen, f, site(), k, {
         alive: () => my === gen,
         onTiles: (p) => { if (my === gen) status(`위성영상 받는 중 ${Math.round(p * 100)}%`); },
         osmWait: 2500,
@@ -143,14 +158,16 @@
       const over = $("#pv-over");
       over.width = off.width;
       over.height = off.height;
-      S.last = { view: out.view, layout: Lo, cssW, cssH, k, fig: f };
+      // 둘째 쪽(문헌자료)은 지도가 없어 끌기·휠·찍기를 하지 않음(view 없음)
+      S.last = { view: page2 ? null : out.view, layout: Lo, cssW, cssH, k, fig: f };
       drawArrowTemp();
       renderLabelList(out.labels);
       // 1등급 이격거리 결과(생태·자연도, 켰을 때)
       const dt = $("#n-dist-text"), d = out.dist1;
       dt.hidden = !(f.kind === "nat" && f.nat.dist1);
       dt.textContent = !d ? "" : d.inside ? "사업지구가 1등급 권역과 겹칩니다." : d.none ? "도면에 보이는 범위 안에 1등급 권역이 없습니다." : `1등급 권역까지 ${d.m < 1 ? `${Math.round(d.m * 100)} cm` : `${fmt(Math.round(d.m))} m`}(도면에 보이는 범위 안, ${d.api ? "최신 DB·API" : "정기고시 원본 경계"})`;
-      status(out.warn.length ? out.warn.join(" ") : `축척 1:${fmt(f.scale)} · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`);
+      status(page2 ? `2쪽 문헌자료 ${fmt((f.litRows || []).length)}건 · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`
+        : out.warn.length ? out.warn.join(" ") : `축척 1:${fmt(f.scale)} · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`);
     } catch (err) {
       console.error(err);
       if (my === gen) status(err.message || "도면을 그리지 못했습니다.");
@@ -171,7 +188,7 @@
     let zoom = 1;
     const draw = debounce(() => { zoom = 1; renderPreview(); }, 280);
     over.addEventListener("wheel", (e) => {
-      if (!S.last || A.mode) return;
+      if (!S.last || !S.last.view || A.mode) return;
       e.preventDefault();
       const f = fig(), list = Carto.scalesFor(f), cur = f.scale;
       let i = list.findIndex((v) => v >= cur);
@@ -199,7 +216,7 @@
     const cv = $("#pv-over");
     let drag = null;
     cv.addEventListener("pointerdown", (e) => {
-      if (!S.last || A.mode) return;
+      if (!S.last || !S.last.view || A.mode) return;
       drag = { x: e.clientX, y: e.clientY, moved: false };
       cv.setPointerCapture(e.pointerId);
     });
@@ -233,6 +250,7 @@
   const needPts = (m) => (m === "lit-point" ? 1 : m === "lit-area" ? 3 : 2);
   const startArrow = (kind) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
+    if (S.page === 2) { S.page = 1; syncPageTabs(); renderPreview(); }
     if (S.view !== "preview") setView("preview");
     A.mode = kind;
     A.pts = [];
@@ -276,7 +294,7 @@
     const c = over.getContext("2d");
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, over.width, over.height);
-    if (!A.mode || !S.last || !A.pts.length) return;
+    if (!A.mode || !S.last || !S.last.view || !A.pts.length) return;
     const { view, k } = S.last;
     const pp = A.pts.map(([lon, lat]) => view.fromLL(lon, lat));
     c.setTransform(k, 0, 0, k, 0, 0);
@@ -307,7 +325,7 @@
   const initArrow = () => {
     const over = $("#pv-over");
     over.addEventListener("click", (e) => {
-      if (!A.mode || !S.last) return;
+      if (!A.mode || !S.last || !S.last.view) return;
       const [px, py] = toPage(e);
       const ll = S.last.view.toLL(px, py);
       const last = A.pts[A.pts.length - 1];
@@ -484,7 +502,9 @@
     L.hide = new Set((Array.isArray(d.hide) ? d.hide : []).filter(str));
     L.imported = d.imported && Array.isArray(d.imported.items) && Array.isArray(d.imported.extra) ? d.imported : null;
     const o = d.options || {};
-    ["nat", "table", "sheetName"].forEach((k) => { if (typeof o[k] === "boolean") L[k] = o[k]; });
+    ["nat", "sheetName"].forEach((k) => { if (typeof o[k] === "boolean") L[k] = o[k]; });
+    if (typeof o.table === "boolean") L.table = o.table ? "below" : "none";
+    else if (["below", "page2", "none"].includes(o.table)) L.table = o.table;
     if (str(d.project) && d.project && !$("#site-name").value.trim()) $("#site-name").value = d.project;
     const st = $("#site-text");
     if (str(d.siteText) && d.siteText && !st.dataset.edited) { st.value = d.siteText; st.dataset.edited = "1"; }
@@ -702,9 +722,9 @@
     $("i", el).style.width = `${Math.round(p * 100)}%`;
     $("span", el).textContent = msg;
   };
-  const fileName = (f, ext) => {
+  const fileName = (f, ext, tail = "") => {
     const name = $("#site-name").value.trim();
-    return `${safeName([name, f.title || (f.kind === "sat" ? "위성사진현황도" : "생태축현황도")].filter(Boolean).join("_"))}_${f.paper}${f.orient === "port" ? "세로" : "가로"}_1-${f.scale}.${ext}`;
+    return `${safeName([name, f.title || (f.kind === "sat" ? "위성사진현황도" : "생태축현황도")].filter(Boolean).join("_"))}_${f.paper}${f.orient === "port" ? "세로" : "가로"}_1-${f.scale}${tail}.${ext}`;
   };
   const exportFig = async (type) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
@@ -722,31 +742,47 @@
     const ctl = { onTiles: (p) => progress(0.05 + p * 0.75, `위성영상 받는 중 ${Math.round(p * 100)}%`), osmWait: 60000 };
     try {
       progress(0.03, "자료 받는 중…");
-      let blob, out;
+      // 문헌자료 표를 둘째 쪽에 두면: PDF는 두 쪽 한 파일, PNG·SVG는 도면과 문헌자료 두 파일
+      const two = twoPages(f);
+      let blob, blob2 = null, out;
       if (type === "svg") {
         const pen = new Carto.SvgPen(Lo.W, Lo.H);
         out = await Carto.render(pen, f, site(), Math.min(k, 300 / 25.4), ctl);
         progress(0.9, "파일 만드는 중…");
         blob = new Blob([pen.toString()], { type: "image/svg+xml" });
+        if (two) {
+          const pen2 = new Carto.SvgPen(Lo.W, Lo.H);
+          await Carto.renderLitPage(pen2, f);
+          blob2 = new Blob([pen2.toString()], { type: "image/svg+xml" });
+        }
       } else {
-        const cv = document.createElement("canvas");
-        cv.width = Math.round(Lo.W * k);
-        cv.height = Math.round(Lo.H * k);
+        const page = () => { const c = document.createElement("canvas"); c.width = Math.round(Lo.W * k); c.height = Math.round(Lo.H * k); return c; };
+        const cv = page();
         out = await Carto.render(new Carto.CanvasPen(cv.getContext("2d"), k), f, site(), k, ctl);
+        let cv2 = null;
+        if (two) { cv2 = page(); await Carto.renderLitPage(new Carto.CanvasPen(cv2.getContext("2d"), k), f); }
         progress(0.9, "파일 만드는 중…");
         if (type === "png") {
           blob = await withDpi(await new Promise((r) => cv.toBlob(r, "image/png")), dpi);
+          if (cv2) blob2 = await withDpi(await new Promise((r) => cv2.toBlob(r, "image/png")), dpi);
         } else {
           await loadScript(LIB.jspdf, "jspdf");
-          const doc = new jspdf.jsPDF({ orientation: Lo.W > Lo.H ? "landscape" : "portrait", unit: "mm", format: f.paper.toLowerCase(), compress: true });
+          const orient = Lo.W > Lo.H ? "landscape" : "portrait";
+          const doc = new jspdf.jsPDF({ orientation: orient, unit: "mm", format: f.paper.toLowerCase(), compress: true });
           doc.setProperties({ title: f.title || "도면", creator: "사업지 도면 만들기" });
           doc.addImage(cv.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, Lo.W, Lo.H, undefined, "FAST");
+          if (cv2) {
+            doc.addPage(f.paper.toLowerCase(), orient);
+            doc.addImage(cv2.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, Lo.W, Lo.H, undefined, "FAST");
+          }
           blob = doc.output("blob");
         }
       }
       if (out && out.warn.length) toast(out.warn.join(" "), 6000);
-      saveBlob(blob, fileName(f, type));
-      progress(1, `${type.toUpperCase()} 받기 완료 (${fmt(blob.size / 1048576, 1)} MB)`);
+      saveBlob(blob, fileName(f, type, blob2 ? "_1쪽도면" : ""));
+      // 브라우저가 연달아 받기를 막지 않게 조금 띄움
+      if (blob2) setTimeout(() => saveBlob(blob2, fileName(f, type, "_2쪽문헌자료")), 700);
+      progress(1, `${type.toUpperCase()} 받기 완료 (${fmt((blob.size + (blob2 ? blob2.size : 0)) / 1048576, 1)} MB${blob2 ? ", 2개 파일" : two ? ", 2쪽" : ""})`);
       setTimeout(() => progress(null), 2500);
     } catch (err) {
       console.error(err);
@@ -803,6 +839,11 @@
   initLabels();
   initLit();
   renderLitList();
+  $$("#page-tabs button").forEach((b) => b.addEventListener("click", () => {
+    S.page = +b.dataset.page;
+    syncPageTabs();
+    if (S.view !== "preview") setView("preview"); else renderPreview();
+  }));
   window.addEventListener("resize", debounce(() => { if (S.view === "preview") renderPreview(); }, 300));
   document.addEventListener("keydown", (e) => {
     if (!A.mode) return;
