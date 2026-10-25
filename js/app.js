@@ -160,6 +160,8 @@
       over.height = off.height;
       // 둘째 쪽(문헌자료)은 지도가 없어 끌기·휠·찍기를 하지 않음(view 없음)
       S.last = { view: page2 ? null : out.view, layout: Lo, cssW, cssH, k, fig: f };
+      // 위치가 9격자 밖에만 있어 도면에 그리지 않은 문헌은 목록에 「격자 밖」
+      if (f.kind === "lit" && !page2) { S.litOut = new Set(out.litOut || []); renderLitList(); }
       drawArrowTemp();
       renderLabelList(out.labels);
       // 1등급 이격거리 결과(생태·자연도, 켰을 때)
@@ -406,7 +408,7 @@
       const on = !L.hide.has(it.id), col = L.colors.get(it.id) || it.color || "#7b2cbf";
       return `<div class="lit-row ${on ? "" : "off"}">
         <input type="checkbox" data-lshow="${esc(it.id)}" ${on ? "checked" : ""} title="도면에 넣기">
-        <span class="tag">${on ? `문헌${++n}` : "뺌"}</span>
+        <span class="tag">${on ? `문헌${++n}` : "뺌"}${on && S.litOut && S.litOut.has(it.id) ? ` <b class="warn" title="위치가 9격자 밖이라 도면에 그리지 않았습니다(문헌자료 표에는 남음)">격자 밖</b>` : ""}</span>
         <input class="input" data-ltext="${esc(it.id)}" value="${esc(L.text.has(it.id) ? L.text.get(it.id) : it.text)}" title="${esc(it.cat)}">
         ${it.geo ? `<input type="color" data-lcolor="${esc(it.id)}" value="${col}" title="기호 색">` : `<span class="muted small" title="도엽 단위 문헌(위치 기호 없음)">도엽</span>`}
         ${it.src === "man" ? `<button class="link" data-ldel="${esc(it.id)}">지우기</button>` : "<span></span>"}

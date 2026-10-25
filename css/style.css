@@ -140,3 +140,4 @@ details .checks { margin-bottom: 8px; }
 .lit-row .input { padding: 4px 7px; font-size: 12.5px; }
 .lit-row.off .input { color: var(--muted); }
 .lit-row input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: #fff; cursor: pointer; }
+.lit-row .tag .warn { color: #d9480f; font-weight: 700; }

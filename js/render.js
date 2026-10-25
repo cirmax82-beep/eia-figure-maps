@@ -967,40 +967,97 @@
 
     // 문헌조사 위치도: 9격자 밖을 옅게 덮고, 문헌 위치(면·선·점) → 칸 선·도엽 경계. 이름표·문헌 번호는 사업지구 위에 나중에
     const litLater = [];
+    let litOut = [];   // 위치가 9격자 밖에만 있어 그리지 않은 문헌
     if (lit && fig.lit.grid) {
       const g = fig.lit.grid;
       const R = (b) => { const a = P(b[0], b[3]), c = P(b[2], b[1]); return [[a[0], a[1]], [c[0], a[1]], [c[0], c[1]], [a[0], c[1]]]; };
       const fr = [[F.x - 5, F.y - 5], [F.x + F.w + 5, F.y - 5], [F.x + F.w + 5, F.y + F.h + 5], [F.x - 5, F.y + F.h + 5]];
       pen.path([fr, R(g.bounds)], { closed: true, fill: "#ffffff", fillOpacity: 0.5 });
+      // 문헌 위치는 9격자(틀 안에 보이는 부분) 안쪽만 그리고, 번호표도 격자 안에 든 부분에 붙임. 격자 밖에만 있는 문헌은 그리지 않고 알려 줌
+      const GB = R(g.bounds);
+      const gx0 = Math.max(GB[0][0], F.x), gy0 = Math.max(GB[0][1], F.y), gx1 = Math.min(GB[2][0], F.x + F.w), gy1 = Math.min(GB[2][1], F.y + F.h);
+      const inG = (x, y) => x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1;
+      // 고리를 격자 사각형으로 자름(서덜랜드-호지먼)
+      const clipRing = (pts) => {
+        let out = pts;
+        const E = [
+          [(p) => p[0] >= gx0, (a, b) => [gx0, a[1] + ((b[1] - a[1]) * (gx0 - a[0])) / (b[0] - a[0])]],
+          [(p) => p[0] <= gx1, (a, b) => [gx1, a[1] + ((b[1] - a[1]) * (gx1 - a[0])) / (b[0] - a[0])]],
+          [(p) => p[1] >= gy0, (a, b) => [a[0] + ((b[0] - a[0]) * (gy0 - a[1])) / (b[1] - a[1]), gy0]],
+          [(p) => p[1] <= gy1, (a, b) => [a[0] + ((b[0] - a[0]) * (gy1 - a[1])) / (b[1] - a[1]), gy1]],
+        ];
+        for (const [inside, cut] of E) {
+          const src = out;
+          out = [];
+          for (let i = 0; i < src.length; i++) {
+            const a = src[(i + src.length - 1) % src.length], b = src[i];
+            if (inside(b)) { if (!inside(a)) out.push(cut(a, b)); out.push(b); } else if (inside(a)) out.push(cut(a, b));
+          }
+          if (!out.length) break;
+        }
+        return out;
+      };
+      // 잘린 고리의 무게중심(굽은 강처럼 중심이 면 밖이면 중심에서 가장 가까운 꼭짓점)과 넓이
+      const labelPt = (pts) => {
+        if (pts.length < 3) return null;
+        let a = 0, cx = 0, cy = 0;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const f = pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1]; a += f; cx += (pts[j][0] + pts[i][0]) * f; cy += (pts[j][1] + pts[i][1]) * f; }
+        if (Math.abs(a) < 1e-9) return null;
+        cx /= 3 * a; cy /= 3 * a;
+        let inside = false;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) if ((pts[i][1] > cy) !== (pts[j][1] > cy) && cx < ((pts[j][0] - pts[i][0]) * (cy - pts[i][1])) / (pts[j][1] - pts[i][1]) + pts[i][0]) inside = !inside;
+        if (!inside) [cx, cy] = pts.reduce((b, p) => (Math.hypot(p[0] - cx, p[1] - cy) < Math.hypot(b[0] - cx, b[1] - cy) ? p : b));
+        return [cx, cy, Math.abs(a / 2)];
+      };
+      // 선분을 격자 사각형으로 자름(리앙-바스키)
+      const clipSegG = (ax, ay, bx, by) => {
+        let t0 = 0, t1 = 1;
+        const dx = bx - ax, dy = by - ay;
+        for (const [p, q] of [[-dx, ax - gx0], [dx, gx1 - ax], [-dy, ay - gy0], [dy, gy1 - ay]]) {
+          if (p === 0) { if (q < 0) return null; continue; }
+          const r = q / p;
+          if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
+        }
+        return [ax + t0 * dx, ay + t0 * dy, ax + t1 * dx, ay + t1 * dy];
+      };
       // 같은 위치를 쓰는 문헌(같은 조사지역의 여러 해 등)은 한 번만 그리고 번호를 모아 붙임
-      const marks = new Map();
+      const marks = new Map(), outside = new Map();
       const dot = (x, y, r, col) => pen.path([Array.from({ length: 25 }, (_, k) => [x + r * Math.cos((k / 24) * 2 * Math.PI), y + r * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: col, stroke: "#ffffff", width: 0.35 * e });
       (fig.litRows || []).forEach((it) => {
         if (!it.geo || !it.geo.parts.length) return;
         const had = marks.get(it.geoKey);
         if (had) { had.nums.push(it.n); return; }
+        if (outside.has(it.geoKey)) { outside.get(it.geoKey).push(it.id); return; }
         const col = it.color || "#7b2cbf", kind = it.geo.kind;
         const parts = it.geo.parts.map((p) => p.map(([lon, lat]) => P(lon, lat)));
-        let ax, ay;
+        let at = null;
+        if (kind === "area") {
+          parts.forEach((p) => { const c = labelPt(clipRing(p)); if (c && (!at || c[2] > at[2])) at = c; });
+          if (at && at[2] < 0.3) at = null;   // 격자 안에 든 넓이가 0.3 ㎟도 안 되면 밖으로 봄
+        } else if (kind === "line") {
+          const segs = [];
+          parts.forEach((p) => { for (let i = 1; i < p.length; i++) { const c = clipSegG(p[i - 1][0], p[i - 1][1], p[i][0], p[i][1]); if (c) segs.push(c); } });
+          const total = segs.reduce((s, c) => s + Math.hypot(c[2] - c[0], c[3] - c[1]), 0);
+          let acc = 0;
+          if (total > 0.5) for (const c of segs) {
+            const L = Math.hypot(c[2] - c[0], c[3] - c[1]);
+            if (acc + L >= total / 2) { const t = (total / 2 - acc) / (L || 1); at = [c[0] + (c[2] - c[0]) * t, c[1] + (c[3] - c[1]) * t]; break; }
+            acc += L;
+          }
+        } else at = parts.flat().find(([x, y]) => inG(x, y)) || null;
+        if (!at) { outside.set(it.geoKey, [it.id]); return; }
+        pen.clip(gx0, gy0, gx1 - gx0, gy1 - gy0);
         if (kind === "area") {
           // 유역처럼 넓은 구역(outline)은 옅게 칠하고 점선 테두리만
           pen.path(parts, it.outline ? { closed: true, fill: col, fillOpacity: 0.07, stroke: col, width: 0.6 * e, dash: [2 * e, 1.2 * e] } : { closed: true, fill: col, fillOpacity: 0.28, stroke: col, width: 0.45 * e });
-          const big = parts.reduce((a, b) => (Math.abs(ringArea(b)) > Math.abs(ringArea(a)) ? b : a));
-          ax = big.reduce((s, p) => s + p[0], 0) / big.length; ay = big.reduce((s, p) => s + p[1], 0) / big.length;
         } else if (kind === "line") {
           pen.path(parts, { stroke: "#ffffff", width: 1.7 * e, strokeOpacity: 0.8 });
           pen.path(parts, { stroke: col, width: 1 * e });
-          const len = (p) => p.reduce((s, q, i) => (i ? s + Math.hypot(q[0] - p[i - 1][0], q[1] - p[i - 1][1]) : 0), 0);
-          const long = parts.reduce((a, b) => (len(b) > len(a) ? b : a));
-          [ax, ay] = long[Math.floor(long.length / 2)];
-        } else {
-          parts.forEach((p) => p.forEach(([x, y]) => dot(x, y, 1.5 * e, col)));
-          [ax, ay] = parts[0][0];
-        }
-        ax = Math.max(F.x + 4 * e, Math.min(F.x + F.w - 4 * e, ax));
-        ay = Math.max(F.y + 4 * e, Math.min(F.y + F.h - 4 * e, ay));
-        marks.set(it.geoKey, { nums: [it.n], x: ax, y: ay, col, kind });
+        } else parts.forEach((p) => p.forEach(([x, y]) => dot(x, y, 1.5 * e, col)));
+        pen.unclip();
+        marks.set(it.geoKey, { nums: [it.n], x: at[0], y: at[1], col, kind });
       });
+      litOut = [...outside.values()].flat();
       // 칸 선(흰 테 위 검은 선), 도엽 경계는 굵게
       const cellR = g.cells.map((c) => R(c.b));
       pen.path(cellR, { closed: true, stroke: "#ffffff", width: 1.1 * e, strokeOpacity: 0.8, join: "miter" });
@@ -1031,8 +1088,12 @@
       marks.forEach((m) => litLater.push(() => {
         const t = `문헌${m.nums.join("·")}`, fs = 7.2 * e, w = textW(t, fs, 700) + 2.4 * e, h = fs * PT + 1.6 * e;
         let x = m.kind === "point" ? m.x + 2.2 * e : m.x - w / 2, y = m.y - h / 2;
+        // 번호표도 격자 안에만(격자 가장자리에 걸리면 안쪽으로 밀어 넣음)
+        const keep = (bx, by) => [Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, bx)), Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, by))];
+        [x, y] = keep(x, y);
         for (const [dx, dy] of [[0, 0], [0, -h - 1], [0, h + 1], [w * 0.6, 0], [-w * 0.6, 0]]) {
-          if (!boxHit([x + dx, y + dy, x + dx + w, y + dy + h], occupied)) { x += dx; y += dy; break; }
+          const [bx, by] = keep(x + dx, y + dy);
+          if (!boxHit([bx, by, bx + w, by + h], occupied)) { x = bx; y = by; break; }
         }
         occupied.push([x, y, x + w, y + h]);
         pen.path([[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]], { closed: true, fill: "#ffffff", fillOpacity: 0.95, stroke: m.col, width: 0.4 * e, join: "miter" });
@@ -1432,7 +1493,7 @@
       lines.forEach((t, i) => pen.text(t, F.x, fy + (i - (lines.length - 1) / 2) * 2.7 * e, { size: fs, align: "left", base: "middle", color: "#555555" }));
     }
     pen.text(`축척 1:${fmtNum(v.scale)} (${fig.paper} ${fig.orient === "port" ? "세로" : "가로"})`, F.x + F.w, fy, { size: 6.2 * e, align: "right", base: "middle", color: "#555555" });
-    return { labels: labelsOut, dist1 };
+    return { labels: labelsOut, dist1, litOut };
   };
 
   // 문헌조사 위치도 둘째 쪽: 첫 쪽과 같은 용지에 제목과 문헌자료 표만(표가 쪽을 넘으면 글자를 줄임)
