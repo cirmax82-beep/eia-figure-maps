@@ -539,6 +539,8 @@
     .then((d) => ({ classes: d.zones, cells: d.cells.map(([v, ring]) => [v, ring.map(([lon, lat]) => [mx(lon), my(lat)])]), source: d.source }))
     .catch((err) => { FLO = null; throw err; }));
   const waterLayer = binLayer("data/water"), landLayer = binLayer("data/land"), natLayer = binLayer("data/ecnat", decodeLayers, mergeLayers);
+  // 실폭하천·호수/저수지(국토지리정보원 연속수치지형도, tools/build_topo.py): 기본지도에 파랗게 칠해진 물 면의 원본
+  const topoLayer = binLayer("data/topo");
   const waterZones = async (v) => { const d = await waterLayer(v); return { river: d.polys, small: d.grouped }; };
   const landPolys = async (v) => (await landLayer(v)).polys;
 
@@ -678,6 +680,7 @@
       });
     }
     const wzJob = eco && (fig.eco.rzone || fig.eco.szone) ? waterZones(v).catch((err) => { console.warn(err); warn.push("하천구역 자료를 받지 못했습니다."); return null; }) : null;
+    const topoJob = eco && fig.eco.topo ? topoLayer(v).then((d) => d.polys).catch((err) => { console.warn(err); warn.push("실폭하천·호수/저수지 자료를 받지 못했습니다."); return null; }) : null;
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
     const natJob = nat ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
@@ -694,16 +697,16 @@
         return null;
       });
     }
-    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1]);
+    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob]);
     // 안전장치: API가 1등급을 하나도 주지 않았는데 조각에는 틀 안에 1등급이 있으면 조각으로
     if (g1api && !g1api.length && nd && nd[1] && nd[1].length) { warn.push("API 응답에서 1등급 면을 찾지 못해 1등급 이격거리는 정기고시 원본 경계로 계산했습니다."); g1api = null; }
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, land, nd, cls, natl, warn };
+    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
-    const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, land, nd, cls, natl } = D;
+    const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
     const eco = fig.kind === "eco", nat = fig.kind === "nat";
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -763,7 +766,7 @@
     }
     if (natl && cls) cls.classes.forEach((c) => legend.push({ type: "fill", color: c.color, opacity: 1, label: c.name }));
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
-    if (eco && (lc && (fig.eco.water || fig.eco.tidal) || land && fig.eco.sea || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone))) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
+    if (eco && (lc && (fig.eco.water || fig.eco.tidal) || land && fig.eco.sea || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone) || topo && fig.eco.topo)) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "forest")) legend.push({ type: "arrow", color: COLOR.arrowForest, label: "산림축" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "water")) legend.push({ type: "arrow", color: COLOR.arrowWater, label: "수계축" });
     if (eco && os && fig.eco.flow && os.ways.length) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
@@ -846,6 +849,8 @@
     if (eco && wz && fig.eco.rzone) pen.path(polyParts(wz.river, 0), { closed: true, fill: COLOR.water });
     // 소하천구역은 폭이 몇 m뿐이라 작은 축척에서도 보이게 같은 색 테두리를 얇게 두름
     if (eco && wz && fig.eco.szone) pen.path(polyParts(wz.small, 0), { closed: true, fill: COLOR.water, stroke: COLOR.water, width: 0.18 * e });
+    // 실폭하천·호수/저수지: 폭 2~3 m 수로도 작은 축척에서 보이게 같은 색 테두리를 얇게(아주 작은 웅덩이는 뺌)
+    if (eco && topo && fig.eco.topo) pen.path(polyParts(topo, 0.05), { closed: true, fill: COLOR.water, stroke: COLOR.water, width: 0.15 * e });
     // 하천 선(오픈스트리트맵): 하천구역·소하천구역에 빠진 물길(지정 구간 밖 상류 등)을 같은 색으로 이어 칠함
     const wayPage = os ? os.ways.map((w) => ({ ...w, pp: w.pts.map(([X, Y]) => PM(X, Y)) })) : [];
     if (eco && os && fig.eco.streams) {
@@ -1223,6 +1228,7 @@
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
       if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
       if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
+      if (eco && topo && fig.eco.topo) src.push("실폭하천·호수/저수지: 국토지리정보원 연속수치지형도");
       if (eco && land && fig.eco.sea) src.push("해안선: 국토교통부 브이월드 시군구 경계");
       if (eco && os) src.push("이름·하천: © OpenStreetMap 기여자");
       if (!src[0]) src.shift();

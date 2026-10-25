@@ -10,7 +10,7 @@
     title: TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat", grid: "none" },
     rings: [1, 2],
-    eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
+    eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
     arrows: [], labelHide: new Set(), labelText: new Map(),
@@ -21,7 +21,7 @@
   const resolveScale = (f) => { if (f.scaleMode === "auto") f.scale = Carto.autoScale(f, site()); return f.scale; };
 
   // ---------- 설정 칸 ↔ 도면 ----------
-  const CHECKS = { "o-forest": ["eco", "forest"], "o-water": ["eco", "water"], "o-tidal": ["eco", "tidal"], "o-sea": ["eco", "sea"], "o-rzone": ["eco", "rzone"], "o-szone": ["eco", "szone"],"o-peaks": ["eco", "peaks"], "o-wnames": ["eco", "wnames"], "o-flow": ["eco", "flow"],
+  const CHECKS = { "o-forest": ["eco", "forest"], "o-water": ["eco", "water"], "o-tidal": ["eco", "tidal"], "o-sea": ["eco", "sea"], "o-rzone": ["eco", "rzone"], "o-szone": ["eco", "szone"], "o-topo": ["eco", "topo"], "o-peaks": ["eco", "peaks"], "o-wnames": ["eco", "wnames"], "o-flow": ["eco", "flow"],
     "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
     "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
