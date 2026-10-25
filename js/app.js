@@ -3,7 +3,7 @@
   const { $, $$, esc, fmt, debounce, toast, LIB, loadScript, saveBlob, safeName } = U;
   const { IN } = Input;
 
-  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", pa: "보호구역 위치도" };
+  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도" };
   // 보호구역 종합포털의 종류(tools/layers.py 순서). on: 동식물상 관련이라 처음부터 켬
   const PA_LAYERS = [
     ["nature", "자연·생태 보호구역", [["wildlife-special", "야생생물특별보호구역", 1], ["wildlife", "야생생물보호구역", 1], ["wetland-coast", "연안습지보호지역", 1], ["wetland", "습지보호지역", 1],
@@ -16,21 +16,23 @@
   ];
   const PA_DEFAULT = PA_LAYERS.flatMap(([, , ls]) => ls.filter((l) => l[2]).map((l) => l[0]));
   const newFig = (kind) => ({
-    kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || kind === "lit" || kind === "pa" ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
-    basemap: kind === "nat" ? "vwhite" : (kind === "lit" || kind === "pa") && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
+    kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || ["lit", "sp", "pa"].includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
+    basemap: kind === "nat" ? "vwhite" : ["lit", "sp", "pa"].includes(kind) && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
     title: TITLES[kind],
-    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: kind === "sat" || kind === "lit" || kind === "pa", grid: "none" },
+    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa"].includes(kind), grid: "none" },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
     // 문헌조사 위치도: 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
-    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
+    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
     // 보호구역 위치도: 그릴 종류, 이름, 이격거리 치수선, 도엽 이름(9격자는 lit.grid를 같이 씀)
     pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
+  // 법정보호종 출현위치도는 문헌조사 위치도의 문헌 목록·직접 찍은 위치·9격자를 같이 씀
+  S.figs.sp.lit = S.figs.lit.lit;
   const fig = () => S.figs[S.cur];
   const site = () => IN.site;
   const resolveScale = (f) => { if (f.scaleMode === "auto") f.scale = Carto.autoScale(f, site()); return f.scale; };
@@ -99,7 +101,7 @@
   };
 
   // 문헌조사 위치도에서 문헌자료 표를 둘째 쪽에 둘 때만 미리보기 쪽(1쪽 도면·2쪽 문헌자료)을 고름
-  const twoPages = (f) => f.kind === "lit" && f.lit.table === "page2";
+  const twoPages = (f) => (f.kind === "lit" || f.kind === "sp") && f.lit.table === "page2";
   const syncPageTabs = () => {
     const show = twoPages(fig());
     if (!show) S.page = 1;
@@ -133,7 +135,8 @@
     const f = fig();
     f.siteText = siteText();
     f.ecoKey = ecoKey();
-    if (f.kind === "lit") await prepLit(f);
+    if (f.kind === "lit" || f.kind === "sp") await prepLit(f);
+    if (f.kind === "sp") prepSp(f);
     if (f.kind === "pa") await prepGrid(f);
     resolveScale(f);
     scaleOptions();
@@ -175,7 +178,8 @@
       // 둘째 쪽(문헌자료)은 지도가 없어 끌기·휠·찍기를 하지 않음(view 없음)
       S.last = { view: page2 ? null : out.view, layout: Lo, cssW, cssH, k, fig: f };
       // 위치가 9격자 밖에만 있어 도면에 그리지 않은 문헌은 목록에 「격자 밖」
-      if (f.kind === "lit" && !page2) { S.litOut = new Set(out.litOut || []); renderLitList(); }
+      if ((f.kind === "lit" || f.kind === "sp") && !page2) { S.litOut = new Set(out.litOut || []); renderLitList(); }
+      if (f.kind === "sp" && !document.activeElement.matches("#sp-list textarea")) renderSpList();
       if (f.kind === "pa") paSummary(out.pa);
       drawArrowTemp();
       renderLabelList(out.labels);
@@ -262,9 +266,9 @@
   // ---------- 축 화살표 그리기(문헌조사 위치도의 지점·선·구역 찍기도 같이 씀: 모드 lit-point·lit-line·lit-area) ----------
   const A = { mode: null, pts: [] };
   const isLit = (m) => !!m && m.startsWith("lit-");
-  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역" };
+  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점" };
   const arrowName = (k) => LIT_NAME[k] || (k === "forest" ? "산림축" : "수계축");
-  const needPts = (m) => (m === "lit-point" ? 1 : m === "lit-area" ? 3 : 2);
+  const needPts = (m) => (m === "lit-point" || m === "lit-sp" ? 1 : m === "lit-area" ? 3 : 2);
   const startArrow = (kind) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
     if (S.page === 2) { S.page = 1; syncPageTabs(); renderPreview(); }
@@ -288,12 +292,20 @@
   };
   const arrowMsg = () => {
     const n = needPts(A.mode);
-    $("#arrow-msg").textContent = A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
+    $("#arrow-msg").textContent = A.mode === "lit-sp" ? "법정보호종 출현 지점을 도면 위에서 누르세요" : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
       : `${arrowName(A.mode)} 점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상 찍으세요${isLit(A.mode) ? "" : "(마지막 점이 화살 머리)"}` : ""}`;
   };
   const finishArrow = () => {
     const n = needPts(A.mode);
     if (A.pts.length < n) { toast(`점을 ${n}개 이상 찍으세요.`); return; }
+    if (A.mode === "lit-sp") {
+      const L = S.figs.lit.lit, pt = A.pts[0];
+      if (!L.sp) L.sp = { entries: [], seq: 0 };
+      const k = L.sp.entries.filter((x) => x.kind === "point").length + 1;
+      stopArrow();
+      spAdd({ kind: "point", point: pt, where: `직접 찍은 지점 ${k}` });
+      return;
+    }
     if (isLit(A.mode)) {
       const L = S.figs.lit.lit, k = ++L.seq, id = `man:${k}`;
       L.manual.push({ id, src: "man", cat: "기타", text: "기타 평가서(문헌 이름을 고치세요)", geo: { kind: A.mode.slice(4), parts: [A.pts.slice()] }, geoKey: id, color: MAN_COLORS[(k - 1) % MAN_COLORS.length] });
@@ -351,11 +363,11 @@
         if (Math.hypot(q[0] - px, q[1] - py) < 0.8) return;   // 두 번 누를 때 겹친 점
       }
       A.pts.push(ll);
-      if (A.mode === "lit-point") { finishArrow(); return; }
+      if (A.mode === "lit-point" || A.mode === "lit-sp") { finishArrow(); return; }
       arrowMsg();
       drawArrowTemp();
     });
-    over.addEventListener("dblclick", (e) => { if (A.mode && A.mode !== "lit-point") { e.preventDefault(); finishArrow(); } });
+    over.addEventListener("dblclick", (e) => { if (A.mode && A.mode !== "lit-point" && A.mode !== "lit-sp") { e.preventDefault(); finishArrow(); } });
     $$("[data-arrow]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.arrow ? stopArrow() : startArrow(b.dataset.arrow))));
     $$("[data-lit]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.lit ? stopArrow() : startArrow(b.dataset.lit))));
     $("#arrow-done").addEventListener("click", finishArrow);
@@ -433,6 +445,193 @@
     });
     $("#p-reset").addEventListener("click", () => { S.figs.pa.pa.layers = new Set(PA_DEFAULT); renderPaLayers(); renderPreview(); });
     $("#p-xlsx").addEventListener("click", paExcel);
+  };
+
+  // ---------- 문헌조사시 법정보호종 출현위치도 ----------
+  // 종 = { name, taxon, refs: [문헌 id] }. 위치 = { id, kind: cell(전국자연환경조사 칸)·geo(위치가 있는 문헌: 조류센서스·습지·측정망·유역·평가서)·
+  // point(직접 찍음)·note(위치 미기재 → 주석), where, items }. 문헌은 문헌조사 위치도 목록과 같이 쓰고 번호는 지금 목록 순서로 다시 매김
+  const SP_COLORS = { cell: "#c62828", point: "#a61e4d" };
+  const spSplit = (t) => String(t || "").split(/,\s*(?![^()]*\))/).map((x) => x.trim()).filter(Boolean);
+  const spToken = (t) => { const m = String(t).match(/^(.*?)\s*\(([^()]*)\)\s*$/); return m ? { name: m[1].trim(), nums: (m[2].match(/\d+/g) || []).map(Number) } : { name: String(t).trim(), nums: [] }; };
+  const spWhere = (it) => (it.geoKey && /^(census|wetland|station|basin)\|/.test(it.geoKey) ? it.geoKey.split("|")[1] + (it.geoKey.startsWith("basin|") ? " 유역" : "") : it.text);
+  // 포털의 protected_species.geojson: 종마다 (문n) 번호 → 그 문헌에 위치가 있으면 그 위치, 전국자연환경조사 칸이면 그 칸, 아니면 위치 미기재
+  const importSpecies = async (json) => {
+    const L = S.figs.lit.lit;
+    const feats = (json.features || []).filter((f) => f.properties && Array.isArray(f.properties.species));
+    if (!feats.length) throw new Error("법정보호종 파일(protected_species.geojson)이 아닙니다.");
+    const litList = (json.literature || (feats.find((f) => f.properties.literature) || { properties: {} }).properties.literature || []).filter((r) => r && r["문헌"]);
+    if (!L.grid || !S.lit) await prepGrid(S.figs.lit);
+    // 문헌 목록이 아직 없으면 이 파일의 문헌 목록으로(포털 번호 그대로, 위치는 문헌 이름으로 찾음)
+    if (!L.xls && !(L.imported && L.imported.items.length) && litList.length) {
+      const { items } = await resolveLit(litList.map((r) => ({ text: stripNo(r["문헌"]), cat: String(r["구분"] || "").trim() })), L.grid);
+      L.xls = { items, summary: `법정보호종 파일의 문헌 ${items.length}건, 위치 ${items.filter((i) => i.geo).length}건` };
+    }
+    const byText = new Map(litItems(L).map((it) => [normName(it.text), it]));
+    const numTo = new Map(litList.map((r) => [parseInt(String(r["문헌번호"]).replace(/\D/g, ""), 10), byText.get(normName(stripNo(r["문헌"])))]));
+    const entries = new Map();
+    let seq = 0, lost = 0;
+    const put = (key, base, name, taxon, ref) => {
+      if (!entries.has(key)) entries.set(key, { id: `sp:${++seq}`, ...base, items: [] });
+      const en = entries.get(key), had = en.items.find((x) => x.name === name);
+      if (had) { if (!had.refs.includes(ref)) had.refs.push(ref); } else en.items.push({ name, taxon, refs: [ref] });
+    };
+    feats.forEach((f) => {
+      const p = f.properties;
+      // 위치 미기재 묶음의 글자에서 「분류군: 종(문n), …」로 분류군을 알아냄
+      const taxonOf = new Map();
+      if (p.placement === "below_grid") String(p.label || "").split("\n").slice(1).forEach((line) => {
+        const m = line.match(/^([^:：]+)[:：]\s*(.+)$/);
+        if (m) spSplit(m[2]).forEach((t) => taxonOf.set(t, m[1].trim()));
+      });
+      p.species.forEach((tok) => {
+        const { name, nums } = spToken(tok), taxon = taxonOf.get(String(tok).trim()) || "";
+        (nums.length ? nums : [0]).forEach((n) => {
+          const it = numTo.get(n);
+          if (n && !it) lost++;
+          const ref = it ? it.id : `raw:${n}`;
+          if (it && it.geo) put(`geo|${it.geoKey}`, { kind: "geo", geoKey: it.geoKey, where: spWhere(it) }, name, taxon, ref);
+          else if (p.placement === "grid" && p.sheet_number && p.grid_id) put(`cell|${p.sheet_number}_${p.grid_id}`, { kind: "cell", code: String(p.sheet_number), cell: String(p.grid_id), where: p.detail || `${p.sheet_number} ${p.grid_id}` }, name, taxon, ref);
+          else put("note", { kind: "note", where: "위치 미기재(주석)" }, name, taxon, ref);
+        });
+      });
+    });
+    const order = { cell: 0, geo: 1, point: 2, note: 3 };
+    L.sp = { entries: [...entries.values()].sort((a, b) => order[a.kind] - order[b.kind] || String(a.where).localeCompare(String(b.where), "ko")), seq };
+    return { n: L.sp.entries.reduce((k, en) => k + en.items.length, 0), places: L.sp.entries.length, lost };
+  };
+  // 도면에 넣을 종 글자(f.spRows)와 위치 미기재 주석(f.spNote): 지금 보이는 문헌 번호로, 뺀 문헌만 가리키는 종은 뺌
+  const spNums = () => new Map((S.figs.sp.litRows || []).map((r) => [r.id, r.n]));
+  const spItemsText = (items, num) => items.map((it) => {
+    const ns = [...new Set(it.refs.map((id) => num.get(id)).filter(Boolean))].sort((a, b) => a - b);
+    if (it.refs.length && !ns.length) return null;
+    return { taxon: it.taxon || "기타", t: ns.length ? `${it.name}(${ns.map((n) => `문${n}`).join(",")})` : it.name };
+  }).filter(Boolean);
+  const prepSp = (f) => {
+    const sp = f.lit.sp, num = new Map((f.litRows || []).map((r) => [r.id, r.n]));
+    const geoOk = new Set((f.litRows || []).filter((r) => r.geo).map((r) => r.geoKey));
+    const geoCol = new Map((f.litRows || []).filter((r) => r.geo).map((r) => [r.geoKey, r.color]));
+    const noteBy = new Map();
+    const toNote = (toks) => toks.forEach((x) => { if (!noteBy.has(x.taxon)) noteBy.set(x.taxon, []); noteBy.get(x.taxon).push(x.t); });
+    f.spRows = [];
+    (sp ? sp.entries : []).forEach((en) => {
+      const toks = spItemsText(en.items, num);
+      if (!toks.length) return;
+      if (en.kind === "note" || (en.kind === "geo" && !geoOk.has(en.geoKey))) return toNote(toks);
+      // 상자 색: 문헌 종류에 맞춤(문헌 위치는 그 문헌 기호 색, 전국자연환경조사 칸은 빨강, 직접 찍은 지점은 진분홍)
+      const color = en.kind === "geo" ? (geoCol.get(en.geoKey) || SP_COLORS.cell) : SP_COLORS[en.kind] || SP_COLORS.cell;
+      f.spRows.push({ kind: en.kind, code: en.code, cell: en.cell, geoKey: en.geoKey, point: en.point, text: toks.map((x) => x.t).join(", "), color });
+    });
+    f.spNote = [...noteBy].map(([k, ts]) => `${k}: ${ts.join(", ")}`);
+  };
+  // 목록의 글자(지금 번호) ↔ 종. 위치 미기재는 「분류군: 종(문n), …」 줄, 나머지는 「종(문n), …」. 번호 없는 종은 평가서처럼 직접 넣은
+  // 문헌 위치면 그 문헌으로
+  const spText = (en) => {
+    const toks = spItemsText(en.items, spNums());
+    if (en.kind !== "note") return toks.map((x) => x.t).join(", ");
+    const by = new Map();
+    toks.forEach((x) => { if (!by.has(x.taxon)) by.set(x.taxon, []); by.get(x.taxon).push(x.t); });
+    return [...by].map(([k, ts]) => `${k}: ${ts.join(", ")}`).join("\n");
+  };
+  const spParse = (en, text) => {
+    const toId = new Map((S.figs.sp.litRows || []).map((r) => [r.n, r.id]));
+    const own = en.kind === "geo" && /^man:/.test(en.geoKey || "") ? en.geoKey : null;
+    // 지금 목록에서 빠져 있는 문헌을 가리키던 번호는 그대로 둠
+    const hidden = (name) => { const had = en.items.find((x) => x.name === name); return had ? had.refs.filter((id) => !(S.figs.sp.litRows || []).some((r) => r.id === id)) : []; };
+    const items = [];
+    String(text).split("\n").forEach((line) => {
+      let taxon = "", body = line;
+      const m = en.kind === "note" && line.match(/^([^:：(]+)[:：]\s*(.*)$/);
+      if (m) { taxon = m[1].trim(); body = m[2]; }
+      spSplit(body).forEach((tok) => {
+        const { name, nums } = spToken(tok);
+        if (!name) return;
+        const refs = nums.map((n) => toId.get(n)).filter(Boolean);
+        if (!refs.length && own) refs.push(own);
+        items.push({ name, taxon, refs: [...new Set([...refs, ...hidden(name)])] });
+      });
+    });
+    en.items = items;
+  };
+  const renderSpList = () => {
+    const L = S.figs.lit.lit, f = S.figs.sp, g = L.grid;
+    const box = $("#sp-list");
+    if (!box) return;
+    box.innerHTML = (L.sp && L.sp.entries.length ? L.sp.entries : []).map((en) => `<div class="sp-row">
+        <div class="sp-head"><b class="small">${esc(en.where)}</b><span class="tag">${{ cell: "칸", geo: "문헌 위치", point: "지점", note: "주석" }[en.kind]}</span><button class="link" data-spdel="${esc(en.id)}">지우기</button></div>
+        <textarea class="input" rows="${en.kind === "note" ? 3 : 2}" data-sptext="${esc(en.id)}" placeholder="${en.kind === "note" ? "조류: 원앙(문11), 큰고니(문11,문13)" : "삵(문3,문7), 수달(문7)"}">${esc(spText(en))}</textarea>
+      </div>`).join("") || `<p class="hint">포털의 법정보호종 파일을 넣거나, 아래에서 위치를 골라 직접 넣으세요.</p>`;
+    // 넣을 위치: 9격자 칸, 위치가 있는 문헌, 위치 미기재, 지도에 직접
+    const opts = [];
+    if (g) [...g.cells].sort((a, b) => a.r - b.r || a.c - b.c).forEach((c) => opts.push([`cell|${c.code}|${c.id}`, `칸: ${c.name && c.name !== c.code ? c.name : c.code} ${c.id}`]));
+    (f.litRows || []).filter((r) => r.geo).forEach((r) => { if (!opts.some((o) => o[0] === `geo|${r.geoKey}`)) opts.push([`geo|${r.geoKey}`, `문헌${r.n}: ${spWhere(r).slice(0, 30)}`]); });
+    opts.push(["note", "위치 미기재(주석)"], ["point", "지도에 직접 찍기"]);
+    $("#s-where").innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+  };
+  const spAdd = (base) => {
+    const L = S.figs.lit.lit;
+    if (!L.sp) L.sp = { entries: [], seq: 0 };
+    const key = base.kind === "cell" ? `cell|${base.code}_${base.cell}` : base.kind === "geo" ? `geo|${base.geoKey}` : base.kind;
+    let en = base.kind === "point" ? null : L.sp.entries.find((x) => (x.kind === "cell" ? `cell|${x.code}_${x.cell}` : x.kind === "geo" ? `geo|${x.geoKey}` : x.kind) === key);
+    if (!en) { en = { id: `sp:${++L.sp.seq}`, ...base, items: [] }; L.sp.entries.push(en); }
+    renderSpList();
+    const ta = $(`[data-sptext="${CSS.escape(en.id)}"]`);
+    if (ta) { ta.focus(); ta.scrollIntoView({ block: "nearest" }); }
+  };
+  const initSp = () => {
+    $("#s-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
+      try {
+        let json;
+        if (/\.zip$/i.test(file.name)) {
+          await prepGrid(S.figs.lit);
+          await importLit(file);
+          await loadScript(LIB.jszip, "JSZip");
+          const z = await JSZip.loadAsync(file), ent = Object.values(z.files).find((x) => !x.dir && /protected_species\.geojson$/i.test(x.name));
+          if (!ent) throw new Error("zip 안에 법정보호종(06_protected_species.geojson)이 없습니다.");
+          json = JSON.parse(await ent.async("string"));
+        } else json = JSON.parse(await file.text());
+        const r = await importSpecies(json);
+        if (S.cur !== "sp") { S.cur = "sp"; syncControls(); }
+        setView("preview");
+        renderSpList();
+        toast(`법정보호종 ${r.n}건(${r.places}곳)을 넣었습니다.${r.lost ? ` 지금 문헌 목록에 없는 문헌을 가리키는 번호 ${r.lost}개는 뺐습니다.` : ""}`, r.lost ? 7000 : 4000);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "법정보호종 파일을 읽지 못했습니다.");
+      }
+    });
+    $("#s-add").addEventListener("click", () => {
+      if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
+      const v = $("#s-where").value;
+      if (v === "point") { startArrow("lit-sp"); return; }
+      if (v === "note") return spAdd({ kind: "note", where: "위치 미기재(주석)" });
+      const [k, a, b] = v.split("|");
+      if (k === "cell") {
+        const c = S.figs.lit.lit.grid.cells.find((q) => q.code === a && q.id === b);
+        return spAdd({ kind: "cell", code: a, cell: b, where: `${c && c.name && c.name !== c.code ? c.name : a} ${b}` });
+      }
+      const gk = v.slice(4), r = (S.figs.sp.litRows || []).find((x) => x.geoKey === gk);
+      spAdd({ kind: "geo", geoKey: gk, where: r ? spWhere(r) : gk });
+    });
+    const box = $("#sp-list");
+    const redraw = debounce(() => renderPreview(), 400);
+    box.addEventListener("input", (e) => {
+      const id = e.target.dataset.sptext;
+      if (!id) return;
+      const en = S.figs.lit.lit.sp.entries.find((x) => x.id === id);
+      if (en) { spParse(en, e.target.value); redraw(); }
+    });
+    box.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-spdel]");
+      if (!b) return;
+      const L = S.figs.lit.lit;
+      L.sp.entries = L.sp.entries.filter((x) => x.id !== b.dataset.spdel);
+      renderSpList();
+      renderPreview();
+    });
   };
 
   // ---------- 문헌조사 위치도 ----------
@@ -628,13 +827,13 @@
   const centerId = (L) => (L.grid ? `${L.grid.center.code}_${L.grid.center.id}` : "");
   const saveLit = () => {
     const L = S.figs.lit.lit;
-    if (!L.manual.length && !L.text.size && !L.colors.size && !L.hide.size && !L.imported && !L.xls) { toast("저장할 것이 없습니다. 위치를 찍거나 문헌 이름을 고친 뒤 저장하세요."); return; }
+    if (!L.manual.length && !L.text.size && !L.colors.size && !L.hide.size && !L.imported && !L.xls && !L.sp) { toast("저장할 것이 없습니다. 위치를 찍거나 문헌 이름을 고친 뒤 저장하세요."); return; }
     const name = $("#site-name").value.trim();
     const data = {
       type: LIT_FILE, version: 1, saved: new Date().toISOString(),
       project: name, siteText: siteText(), site: site() ? site().features : null, center: centerId(L),
       options: { nat: L.nat, table: L.table, sheetName: L.sheetName },
-      manual: L.manual, text: [...L.text], colors: [...L.colors], hide: [...L.hide], imported: L.imported, xls: L.xls,
+      manual: L.manual, text: [...L.text], colors: [...L.colors], hide: [...L.hide], imported: L.imported, xls: L.xls, sp: L.sp,
     };
     saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "문헌조사위치도_목록"].filter(Boolean).join("_"))}.json`);
     toast(`직접 찍은 위치 ${L.manual.length}곳, 고친 이름 ${L.text.size}건을 파일로 저장했습니다.`);
@@ -655,6 +854,7 @@
     L.hide = new Set((Array.isArray(d.hide) ? d.hide : []).filter(str));
     L.imported = d.imported && Array.isArray(d.imported.items) && Array.isArray(d.imported.extra) ? d.imported : null;
     L.xls = d.xls && Array.isArray(d.xls.items) ? d.xls : null;
+    L.sp = d.sp && Array.isArray(d.sp.entries) ? d.sp : null;
     const o = d.options || {};
     ["nat", "sheetName"].forEach((k) => { if (typeof o[k] === "boolean") L[k] = o[k]; });
     if (typeof o.table === "boolean") L.table = o.table ? "below" : "none";
@@ -893,7 +1093,8 @@
     const f = fig();
     f.siteText = siteText();
     f.ecoKey = ecoKey();
-    if (f.kind === "lit") await prepLit(f);
+    if (f.kind === "lit" || f.kind === "sp") await prepLit(f);
+    if (f.kind === "sp") prepSp(f);
     if (f.kind === "pa") await prepGrid(f);
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
@@ -970,7 +1171,7 @@
     Object.values(S.figs).forEach((f) => { f.offset = [0, 0]; f.labelHide.clear(); f.labelText.clear(); });
     // 포털 공간자료는 그 사업지구로 받은 것이라 경계가 바뀌면 뺌(직접 찍은 위치는 둠)
     const L = S.figs.lit.lit;
-    if (L.imported || L.xls) { L.imported = null; L.xls = null; L.hide.clear(); toast("경계가 바뀌어 넣었던 BioGrid EIA 자료(문헌 엑셀·공간자료)를 뺐습니다. 새 경계로 받은 자료를 다시 넣어 주세요.", 5000); }
+    if (L.imported || L.xls || L.sp) { L.imported = null; L.xls = null; L.sp = null; L.hide.clear(); toast("경계가 바뀌어 넣었던 BioGrid EIA 자료(문헌 엑셀·공간자료·법정보호종)를 뺐습니다. 새 경계로 받은 자료를 다시 넣어 주세요.", 5000); }
     L.gridKey = "";
     renderLitList();
     scaleOptions();
@@ -1001,6 +1202,8 @@
   renderLitList();
   initPa();
   paSummary(null);
+  initSp();
+  renderSpList();
   $$("#page-tabs button").forEach((b) => b.addEventListener("click", () => {
     S.page = +b.dataset.page;
     syncPageTabs();
