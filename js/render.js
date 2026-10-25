@@ -196,7 +196,9 @@
       if (ci) pen.path([[[cx - T.pad * 0.4, y + T.head + 1 * e], [cx - T.pad * 0.4, y + T.h - 1 * e]]], { stroke: "#bbbbbb", width: 0.2 * e });
       col.forEach((it) => {
         const g = it.r.geo, c = it.r.color || "#7b2cbf", my0 = cy + T.lh / 2, s = T.sym - 2.2 * e;
-        if (g && g.kind === "area") pen.path([[[cx, my0 - r0], [cx + s, my0 - r0], [cx + s, my0 + r0], [cx, my0 + r0]]], { closed: true, fill: c, fillOpacity: 0.35, stroke: c, width: 0.35 * e, join: "miter" });
+        if (g && g.kind === "area") pen.path([[[cx, my0 - r0], [cx + s, my0 - r0], [cx + s, my0 + r0], [cx, my0 + r0]]], it.r.outline
+          ? { closed: true, fill: c, fillOpacity: 0.08, stroke: c, width: 0.4 * e, dash: [1.2 * e, 0.7 * e], join: "miter" }
+          : { closed: true, fill: c, fillOpacity: 0.35, stroke: c, width: 0.35 * e, join: "miter" });
         if (g && g.kind === "line") pen.path([[[cx, my0], [cx + s, my0]]], { stroke: c, width: 1 * e });
         if (g && g.kind === "point") pen.path([Array.from({ length: 25 }, (_, k) => [cx + s / 2 + r0 * Math.cos((k / 24) * 2 * Math.PI), my0 + r0 * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: c });
         it.lines.forEach((ln, li) => pen.text(ln, cx + T.sym, cy + T.lh * (li + 0.5), { size: T.fs, align: "left", base: "middle", color: "#1f1f1f" }));
@@ -611,6 +613,13 @@
 
   // ---------- 문헌조사 위치도: 1:25,000 도엽 E1~E9 칸과 도엽별 전국자연환경조사 문헌(data/lit, tools/build_lit.py) ----------
   let litP = null;
+  // 문헌 위치 자료(포털 원자료에서 만든 것): 조류센서스 조사지역·내륙습지·생물측정망 지점·유역 목록은 쓸 때 한 번 받고, 유역 모양은 코드별로
+  const litFiles = new Map();
+  const litPlace = (name) => {
+    if (!litFiles.has(name)) litFiles.set(name, fetch(`data/lit/${name}.json`).then((r) => { if (!r.ok) throw new Error(`${name} ${r.status}`); return r.json(); }).catch((err) => { litFiles.delete(name); throw err; }));
+    return litFiles.get(name);
+  };
+  const litBasin = (code) => litPlace(`basins/${code}`);
   const litData = () => litP || (litP = Promise.all(["sheets", "nes"].map((n) => fetch(`data/lit/${n}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })))
     .then(([s, nes]) => ({ sheets: s.sheets, source: s.source, nes }))
     .catch((err) => { litP = null; throw err; }));
@@ -974,7 +983,8 @@
         const parts = it.geo.parts.map((p) => p.map(([lon, lat]) => P(lon, lat)));
         let ax, ay;
         if (kind === "area") {
-          pen.path(parts, { closed: true, fill: col, fillOpacity: 0.28, stroke: col, width: 0.45 * e });
+          // 유역처럼 넓은 구역(outline)은 옅게 칠하고 점선 테두리만
+          pen.path(parts, it.outline ? { closed: true, fill: col, fillOpacity: 0.07, stroke: col, width: 0.6 * e, dash: [2 * e, 1.2 * e] } : { closed: true, fill: col, fillOpacity: 0.28, stroke: col, width: 0.45 * e });
           const big = parts.reduce((a, b) => (Math.abs(ringArea(b)) > Math.abs(ringArea(a)) ? b : a));
           ax = big.reduce((s, p) => s + p[0], 0) / big.length; ay = big.reduce((s, p) => s + p[1], 0) / big.length;
         } else if (kind === "line") {
@@ -1600,5 +1610,5 @@
     return { total, ...splitGrades(total, S1, S2, SS), source: nd.source, sepGeom: SS };
   };
 
-  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage };
+  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin };
 })();

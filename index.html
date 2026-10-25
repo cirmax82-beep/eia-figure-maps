@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261027a">
+<link rel="stylesheet" href="css/style.css?v=20261027c">
 </head>
 <body>
 <header class="top">
@@ -132,11 +132,11 @@
       <div data-figpane="lit" hidden>
         <p class="site-box small" id="l-grid-text">사업지구를 넣으면 9격자(1:25,000 도엽을 3×3으로 나눈 E1~E9 칸)를 잡습니다.</p>
         <div class="drop">
-          <input type="file" id="l-file" accept=".zip">
-          <b>BioGrid EIA 공간자료 넣기(선택)</b>
-          <span>포털에서 이 사업지구로 받은 spatial_layers.zip — 조류센서스 조사지역·습지·생물측정망 위치와 포털의 문헌 번호가 들어옵니다</span>
+          <input type="file" id="l-file" accept=".xlsx,.zip">
+          <b>BioGrid EIA 문헌 엑셀 넣기(선택)</b>
+          <span>포털에서 고른 문헌을 받은 엑셀(literature_by_taxon.xlsx) — 문헌 목록·번호가 그대로 바뀌고, 조류센서스 조사지역·내륙습지·생물측정망·하천조사 유역 위치가 바로 그려집니다(spatial_layers.zip도 됨)</span>
         </div>
-        <button class="link small" id="l-clear" hidden>넣은 공간자료 빼기</button>
+        <button class="link small" id="l-clear" hidden>넣은 포털 자료 빼기</button>
         <div class="checks">
           <label><input type="checkbox" id="l-sheet" checked> 도엽 이름</label>
           <label><input type="checkbox" id="l-nat"> 생태·자연도 1·2등급</label>
@@ -261,9 +261,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261027a"></script>
-<script src="js/input.js?v=20261027a"></script>
-<script src="js/render.js?v=20261027a"></script>
-<script src="js/app.js?v=20261027a"></script>
+<script src="js/util.js?v=20261027c"></script>
+<script src="js/input.js?v=20261027c"></script>
+<script src="js/render.js?v=20261027c"></script>
+<script src="js/app.js?v=20261027c"></script>
 </body>
 </html>

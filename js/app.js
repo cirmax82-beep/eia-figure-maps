@@ -14,7 +14,7 @@
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
     // 문헌조사 위치도: 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
-    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
+    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
@@ -369,13 +369,14 @@
   const litItems = (L) => {
     const items = [];
     const imp = L.imported;
-    if (imp && imp.items.length) items.push(...imp.items);
+    if (L.xls) items.push(...L.xls.items);
+    else if (imp && imp.items.length) items.push(...imp.items);
     else if (L.grid && S.lit) {
       const codes = [...new Set([...L.grid.cells].sort((a, b) => a.r - b.r || a.c - b.c).map((c) => c.code))];
       const all = codes.flatMap((code) => (S.lit.nes[code] || []).map((t) => ({ t, round: +((t.match(/제(\d+)차/) || [])[1] || 0) })));
       all.sort((a, b) => b.round - a.round).forEach(({ t }) => items.push({ id: `nes:${t}`, src: "nes", cat: "전국자연환경조사", text: t }));
     }
-    if (imp) items.push(...imp.extra);
+    if (imp && !L.xls) items.push(...imp.extra);
     items.push(...L.manual);
     return items;
   };
@@ -398,8 +399,8 @@
     const L = S.figs.lit.lit, g = L.grid;
     $("#l-grid-text").textContent = !site() ? "사업지구를 넣으면 9격자(1:25,000 도엽을 3×3으로 나눈 E1~E9 칸)를 잡습니다."
       : !g ? "사업지구 가운데가 1:25,000 도엽 밖(바다 등)이라 9격자를 잡지 못했습니다."
-      : `가운데 칸: ${g.center.name && g.center.name !== g.center.code ? `${g.center.name}(${g.center.code})` : g.center.code} ${g.center.id} · 도엽 ${new Set(g.cells.map((c) => c.code)).size}장${L.imported ? ` · 포털 자료 넣음(${L.imported.summary})` : ""}`;
-    $("#l-clear").hidden = !L.imported;
+      : `가운데 칸: ${g.center.name && g.center.name !== g.center.code ? `${g.center.name}(${g.center.code})` : g.center.code} ${g.center.id} · 도엽 ${new Set(g.cells.map((c) => c.code)).size}장${L.xls ? ` · ${L.xls.summary}` : ""}${L.imported ? ` · 포털 공간자료(${L.imported.summary})` : ""}`;
+    $("#l-clear").hidden = !L.imported && !L.xls;
     let n = 0;
     $("#lit-list").innerHTML = litItems(L).map((it) => {
       const on = !L.hide.has(it.id), col = L.colors.get(it.id) || it.color || "#7b2cbf";
@@ -470,18 +471,89 @@
     L.hide.clear();
     return { cnt, n: items.length, mismatch };
   };
+  // ---------- 포털 문헌 엑셀(literature_by_taxon.xlsx의 ‘문헌목록’): 고른 문헌·번호를 그대로, 위치는 문헌 이름으로 찾음 ----------
+  const XLS_COLORS = { census: "#7b2cbf", wetland: "#2b8a3e", station: "#1c7ed6", basin: "#0b7285" };
+  // 「…(이름), 2026, 기관」에서 연도 바로 앞 괄호 안(괄호가 겹쳐도 바깥 짝까지: 낙동강(삼랑진-대동), 금산천(양산))
+  const lastParen = (t) => {
+    const m = String(t).match(/^(.*\)),\s*(?:19|20)\d{2}\b/);
+    if (!m) return "";
+    const p = m[1];
+    for (let i = p.length - 1, d = 0; i >= 0; i--) {
+      if (p[i] === ")") d++;
+      else if (p[i] === "(" && --d === 0) return p.slice(i + 1, -1).trim();
+    }
+    return "";
+  };
+  const normName = (v) => String(v || "").replace(/[\s_()·ㆍ\-\[\]]+/g, "").toLowerCase();
+  const readLitXlsx = async (file) => {
+    await loadScript(LIB.xlsx, "XLSX");
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const pick = wb.SheetNames.find((n) => /문헌/.test(n)) || wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[pick], { header: 1, defval: "" });
+    const head = (rows[0] || []).map((v) => String(v).trim());
+    const iText = head.indexOf("문헌"), iCat = head.indexOf("구분");
+    if (iText < 0) throw new Error("‘문헌’ 열이 있는 문헌 목록 시트를 찾지 못했습니다(BioGrid EIA 문헌 엑셀인지 확인하세요).");
+    return rows.slice(1).map((r) => ({ text: stripNo(r[iText]), cat: iCat >= 0 ? String(r[iCat]).trim() : "" })).filter((r) => r.text);
+  };
+  // 문헌 이름으로 구분과 위치 찾기: 조류센서스 조사지역(이름)·내륙습지(습지명)·생물측정망(지점명, 같은 이름이면 9격자에 가까운 곳)·
+  // 전국자연환경조사 하천조사(괄호 안 6자리가 도엽번호가 아니라 유역코드면 그 유역)
+  const resolveLit = async (rows, grid) => {
+    const sheetCodes = new Set((S.lit ? S.lit.sheets : []).map((x) => x[0]));
+    const [cx, cy] = grid ? [(grid.bounds[0] + grid.bounds[2]) / 2, (grid.bounds[1] + grid.bounds[3]) / 2] : [127.5, 36];
+    const has = (re) => rows.some((r) => re.test(r.text));
+    const [census, wetlands, stations, basins] = await Promise.all([
+      has(/조류 동시 센서스/) ? Carto.litPlace("census") : [], has(/습지생물상|내륙습지/) ? Carto.litPlace("wetlands") : [],
+      has(/생물측정망/) ? Carto.litPlace("stations") : [], has(/전국자연환경조사/) ? Carto.litPlace("basins") : {}]);
+    const wetBy = new Map(wetlands.map((w) => [normName(w[0]), w]));
+    const area = (rings) => ({ kind: "area", parts: rings });
+    const missing = [];
+    const items = await Promise.all(rows.map(async (r, i) => {
+      const t = r.text, name = lastParen(t), it = { id: `xls:${i}:${t}`, src: "xls", cat: r.cat, text: t };
+      if (/조류 동시 센서스/.test(t)) {
+        it.cat = it.cat || "겨울철 조류 동시 센서스";
+        const c = census.find((x) => x[0] === name);
+        if (c) Object.assign(it, { geo: area(c[1]), geoKey: `census|${name}`, color: XLS_COLORS.census });
+      } else if (/습지생물상|내륙습지/.test(t)) {
+        it.cat = it.cat || "습지생물상조사";
+        const w = wetBy.get(normName(name));
+        if (w) Object.assign(it, { geo: area(w[2]), geoKey: `wetland|${w[0]}`, color: XLS_COLORS.wetland });
+      } else if (/생물측정망/.test(t)) {
+        it.cat = it.cat || "생물측정망";
+        const kind = (t.match(/생물측정망\s*(하천|하구)/) || [])[1];
+        const st = stations.filter((x) => x[1] === name && (!kind || x[2] === kind)).sort((a, b) => Math.hypot(a[3] - cx, a[4] - cy) - Math.hypot(b[3] - cx, b[4] - cy))[0];
+        if (st) Object.assign(it, { geo: { kind: "point", parts: [[[st[3], st[4]]]] }, geoKey: `station|${st[0]}`, color: XLS_COLORS.station });
+      } else if (/전국자연환경조사/.test(t) && /^\d{6}$/.test(name) && !sheetCodes.has(name) && basins[name]) {
+        it.cat = it.cat || "전국자연환경조사 하천조사";
+        try { const b = await Carto.litBasin(name); Object.assign(it, { geo: area(b[2]), geoKey: `basin|${name}`, color: XLS_COLORS.basin, outline: true }); } catch (_) { /* 모양 없음 */ }
+      } else if (/전국자연환경조사/.test(t)) it.cat = it.cat || "전국자연환경조사";
+      if (!it.cat) it.cat = "기타";
+      if (!it.geo && !["전국자연환경조사", "기타"].includes(it.cat)) missing.push(t);
+      return it;
+    }));
+    return { items, missing };
+  };
+  const importLitXlsx = async (file) => {
+    const rows = await readLitXlsx(file);
+    if (!rows.length) throw new Error("문헌 목록이 비어 있습니다.");
+    const L = S.figs.lit.lit;
+    const { items, missing } = await resolveLit(rows, L.grid);
+    const geo = items.filter((it) => it.geo).length;
+    L.xls = { items, summary: `문헌 엑셀 ${items.length}건, 위치 ${geo}건` };
+    L.hide.clear();
+    return { n: items.length, geo, missing };
+  };
   // 문헌 목록 파일(.json): 직접 찍은 위치·고친 이름·색·뺀 문헌·넣은 포털 자료·선택, 그리고 경계(불러올 때 경계가 없으면 씀)
   const LIT_FILE = "eia-figure-maps/lit";
   const centerId = (L) => (L.grid ? `${L.grid.center.code}_${L.grid.center.id}` : "");
   const saveLit = () => {
     const L = S.figs.lit.lit;
-    if (!L.manual.length && !L.text.size && !L.colors.size && !L.hide.size && !L.imported) { toast("저장할 것이 없습니다. 위치를 찍거나 문헌 이름을 고친 뒤 저장하세요."); return; }
+    if (!L.manual.length && !L.text.size && !L.colors.size && !L.hide.size && !L.imported && !L.xls) { toast("저장할 것이 없습니다. 위치를 찍거나 문헌 이름을 고친 뒤 저장하세요."); return; }
     const name = $("#site-name").value.trim();
     const data = {
       type: LIT_FILE, version: 1, saved: new Date().toISOString(),
       project: name, siteText: siteText(), site: site() ? site().features : null, center: centerId(L),
       options: { nat: L.nat, table: L.table, sheetName: L.sheetName },
-      manual: L.manual, text: [...L.text], colors: [...L.colors], hide: [...L.hide], imported: L.imported,
+      manual: L.manual, text: [...L.text], colors: [...L.colors], hide: [...L.hide], imported: L.imported, xls: L.xls,
     };
     saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "문헌조사위치도_목록"].filter(Boolean).join("_"))}.json`);
     toast(`직접 찍은 위치 ${L.manual.length}곳, 고친 이름 ${L.text.size}건을 파일로 저장했습니다.`);
@@ -501,6 +573,7 @@
     L.colors = new Map(pairs(d.colors));
     L.hide = new Set((Array.isArray(d.hide) ? d.hide : []).filter(str));
     L.imported = d.imported && Array.isArray(d.imported.items) && Array.isArray(d.imported.extra) ? d.imported : null;
+    L.xls = d.xls && Array.isArray(d.xls.items) ? d.xls : null;
     const o = d.options || {};
     ["nat", "sheetName"].forEach((k) => { if (typeof o[k] === "boolean") L[k] = o[k]; });
     if (typeof o.table === "boolean") L.table = o.table ? "below" : "none";
@@ -510,7 +583,7 @@
     if (str(d.siteText) && d.siteText && !st.dataset.edited) { st.value = d.siteText; st.dataset.edited = "1"; }
     await prepLit(f);
     const differ = d.center && centerId(L) && d.center !== centerId(L);
-    return { n: L.manual.length, t: L.text.size, note, differ };
+    return { n: L.manual.length, t: L.text.size, x: L.xls ? L.xls.items.length : 0, note, differ };
   };
   // 문헌 목록 엑셀(도면과 같은 번호): 문헌이 많아 표를 도면 밖에 따로 둘 때
   const litExcel = async () => {
@@ -547,7 +620,7 @@
         if (S.cur !== "lit") S.cur = "lit";
         syncControls();
         setView("preview");
-        toast(`직접 찍은 위치 ${r.n}곳, 고친 이름 ${r.t}건을 불러왔습니다.${r.note}${r.differ ? " 저장할 때와 9격자 가운데 칸이 다릅니다 — 경계가 바뀌었는지 확인하세요." : ""}`, r.differ ? 8000 : 4000);
+        toast(`${r.x ? `문헌 엑셀 ${r.x}건, ` : ""}직접 찍은 위치 ${r.n}곳, 고친 이름 ${r.t}건을 불러왔습니다.${r.note}${r.differ ? " 저장할 때와 9격자 가운데 칸이 다릅니다 — 경계가 바뀌었는지 확인하세요." : ""}`, r.differ ? 8000 : 4000);
       } catch (err) {
         console.error(err);
         toast(err.message || "문헌 목록 파일을 읽지 못했습니다.");
@@ -559,9 +632,14 @@
       if (!file) return;
       if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
       try {
-        if (!S.figs.lit.lit.grid) await prepLit(S.figs.lit);
-        const r = await importLit(file);
-        toast(`${r.cnt} 위치와 문헌 ${r.n}건을 넣었습니다.${r.mismatch ? " 넣은 자료의 9격자가 이 사업지구의 9격자와 다릅니다 — 포털에서 다른 위치로 받은 자료인지 확인하세요." : ""}`, r.mismatch ? 8000 : 4000);
+        if (!S.figs.lit.lit.grid || !S.lit) await prepLit(S.figs.lit);
+        if (/\.xlsx?$/i.test(file.name)) {
+          const r = await importLitXlsx(file);
+          toast(`문헌 엑셀에서 문헌 ${r.n}건(위치 ${r.geo}건)을 넣었습니다.${r.missing.length ? ` 위치를 찾지 못한 문헌 ${r.missing.length}건: ${r.missing.slice(0, 3).join(" / ")}${r.missing.length > 3 ? " …" : ""}` : ""}`, r.missing.length ? 9000 : 4000);
+        } else {
+          const r = await importLit(file);
+          toast(`${r.cnt} 위치와 문헌 ${r.n}건을 넣었습니다.${r.mismatch ? " 넣은 자료의 9격자가 이 사업지구의 9격자와 다릅니다 — 포털에서 다른 위치로 받은 자료인지 확인하세요." : ""}`, r.mismatch ? 8000 : 4000);
+        }
         if (S.cur !== "lit") { S.cur = "lit"; syncControls(); }
         setView("preview");
       } catch (err) {
@@ -569,7 +647,7 @@
         toast(err.message || "공간자료를 읽지 못했습니다.");
       }
     });
-    $("#l-clear").addEventListener("click", () => { const L = S.figs.lit.lit; L.imported = null; L.hide.clear(); renderPreview(); renderLitList(); });
+    $("#l-clear").addEventListener("click", () => { const L = S.figs.lit.lit; L.imported = null; L.xls = null; L.hide.clear(); renderPreview(); renderLitList(); });
     const box = $("#lit-list"), L = () => S.figs.lit.lit;
     box.addEventListener("change", (e) => {
       const t = e.target;
@@ -810,7 +888,7 @@
     Object.values(S.figs).forEach((f) => { f.offset = [0, 0]; f.labelHide.clear(); f.labelText.clear(); });
     // 포털 공간자료는 그 사업지구로 받은 것이라 경계가 바뀌면 뺌(직접 찍은 위치는 둠)
     const L = S.figs.lit.lit;
-    if (L.imported) { L.imported = null; L.hide.clear(); toast("경계가 바뀌어 넣었던 BioGrid EIA 공간자료를 뺐습니다. 새 경계로 받은 자료를 다시 넣어 주세요.", 5000); }
+    if (L.imported || L.xls) { L.imported = null; L.xls = null; L.hide.clear(); toast("경계가 바뀌어 넣었던 BioGrid EIA 자료(문헌 엑셀·공간자료)를 뺐습니다. 새 경계로 받은 자료를 다시 넣어 주세요.", 5000); }
     L.gridKey = "";
     renderLitList();
     scaleOptions();
