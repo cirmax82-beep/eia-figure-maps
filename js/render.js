@@ -149,11 +149,12 @@
     const tabH = tab ? tab.h + 3 * e : 0;
     return { W, H, e, frame: { x: m, y: m + top, w: W - 2 * m, h: H - 2 * m - top - foot - tabH }, m, top, foot, tab };
   };
-  // 문헌 목록: 기호 칸 + 「번호. 표기」. 칸 너비를 넘으면 낱말 사이(안 되면 글자)에서 줄을 나누고, 15건부터는 두 단
+  // 문헌 목록: 기호 칸 + 「번호. 표기」. 한 단에 10건까지, 넘으면 오른쪽 단으로. 칸 너비를 넘으면 낱말 사이(안 되면 글자)에서 줄을 나눔
+  const LIT_PER_COL = 10;
   const litTable = (rows, w, e) => {
     if (!rows.length) return null;
-    const fs = 6.6 * e, lh = 3.5 * e, head = 6.4 * e, pad = 2.4 * e, sym = 7 * e;
-    const cols = rows.length > 14 ? 2 : 1;
+    const cols = Math.ceil(rows.length / LIT_PER_COL);
+    const fs = (cols >= 3 ? 5.8 : 6.6) * e, lh = (cols >= 3 ? 3.1 : 3.5) * e, head = 6.4 * e, pad = 2.4 * e, sym = 7 * e;
     const cw = (w - pad * 2) / cols, tw = cw - sym - 2 * e;
     const wrap = (t) => {
       const out = [];
@@ -173,15 +174,9 @@
       return out;
     };
     const items = rows.map((r) => ({ r, lines: wrap(`${r.n}. ${r.text}`) }));
-    const total = items.reduce((s, it) => s + it.lines.length, 0);
-    let split = items.length;
-    if (cols === 2) {
-      let acc = 0;
-      split = items.findIndex((it) => (acc += it.lines.length) > total / 2);
-      if (split < 1) split = Math.ceil(items.length / 2);
-    }
-    const colLines = [items.slice(0, split), items.slice(split)].map((c) => c.reduce((s, it) => s + it.lines.length, 0));
-    return { h: head + Math.max(...colLines) * lh + pad, fs, lh, head, pad, sym, cw, items, split };
+    const colItems = Array.from({ length: cols }, (_, i) => items.slice(i * LIT_PER_COL, (i + 1) * LIT_PER_COL));
+    const colLines = colItems.map((c) => c.reduce((s, it) => s + it.lines.length, 0));
+    return { h: head + Math.max(...colLines) * lh + pad, fs, lh, head, pad, sym, cw, colItems };
   };
   // 웹 메르카토르를 가운데 위도에서 1/cos φ만큼 줄여 실제 축척을 맞춤(도면 범위 몇 km 안에서는 차이가 아주 작음)
   const makeView = (frame, lon0, lat0, scale) => {
@@ -1378,9 +1373,10 @@
       pen.path([[[x, y], [x + w, y], [x + w, y + T.h], [x, y + T.h]]], { closed: true, fill: "#ffffff", stroke: "#333333", width: 0.25 * e, join: "miter" });
       pen.text("문 헌 자 료", x + w / 2, y + T.head / 2 + 0.2 * e, { size: 8.5 * e, weight: 700, align: "center", base: "middle", color: "#111" });
       pen.path([[[x + T.pad * 0.6, y + T.head], [x + w - T.pad * 0.6, y + T.head]]], { stroke: "#333333", width: 0.2 * e });
-      [T.items.slice(0, T.split), T.items.slice(T.split)].forEach((col, ci) => {
+      T.colItems.forEach((col, ci) => {
         let cy = y + T.head + T.pad * 0.3;
         const cx = x + T.pad + ci * T.cw;
+        if (ci) pen.path([[[cx - T.pad * 0.4, y + T.head + 1 * e], [cx - T.pad * 0.4, y + T.h - 1 * e]]], { stroke: "#bbbbbb", width: 0.2 * e });
         col.forEach((it) => {
           const g = it.r.geo, c = it.r.color || "#7b2cbf", my0 = cy + T.lh / 2, s = T.sym - 2.2 * e;
           if (g && g.kind === "area") pen.path([[[cx, my0 - 1.3 * e], [cx + s, my0 - 1.3 * e], [cx + s, my0 + 1.3 * e], [cx, my0 + 1.3 * e]]], { closed: true, fill: c, fillOpacity: 0.35, stroke: c, width: 0.35 * e, join: "miter" });

@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261026x">
+<link rel="stylesheet" href="css/style.css?v=20261026y">
 </head>
 <body>
 <header class="top">
@@ -139,7 +139,7 @@
         <button class="link small" id="l-clear" hidden>넣은 공간자료 빼기</button>
         <div class="checks">
           <label><input type="checkbox" id="l-sheet" checked> 도엽 이름</label>
-          <label><input type="checkbox" id="l-table" checked> 문헌 목록(도면 아래)</label>
+          <label title="끄면 도면에는 문헌 번호만 남고, 목록은 엑셀로 받아 따로 쓸 수 있습니다"><input type="checkbox" id="l-table" checked> 문헌자료 표(도면 아래)</label>
           <label><input type="checkbox" id="l-nat"> 생태·자연도 1·2등급</label>
         </div>
         <div class="axis-tool">
@@ -156,6 +156,7 @@
         <div class="btns">
           <button class="btn ghost" id="l-save">목록 저장(파일)</button>
           <label class="btn ghost">불러오기<input type="file" id="l-load" accept=".json,application/json" hidden></label>
+          <button class="btn ghost" id="l-xlsx" title="도면과 같은 번호의 문헌 목록 — 문헌이 많아 표를 도면 밖에 따로 둘 때">문헌 목록 받기(엑셀)</button>
         </div>
         <p class="hint">직접 찍은 위치, 고친 문헌 이름·색, 뺀 문헌, 넣은 포털 자료를 .json 파일로 저장합니다. 경계를 넣기 전에 불러오면 파일에 있던 경계도 넣습니다.</p>
       </div>
@@ -257,9 +258,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261026x"></script>
-<script src="js/input.js?v=20261026x"></script>
-<script src="js/render.js?v=20261026x"></script>
-<script src="js/app.js?v=20261026x"></script>
+<script src="js/util.js?v=20261026y"></script>
+<script src="js/input.js?v=20261026y"></script>
+<script src="js/render.js?v=20261026y"></script>
+<script src="js/app.js?v=20261026y"></script>
 </body>
 </html>

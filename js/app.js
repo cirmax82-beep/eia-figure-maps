@@ -492,8 +492,32 @@
     const differ = d.center && centerId(L) && d.center !== centerId(L);
     return { n: L.manual.length, t: L.text.size, note, differ };
   };
+  // 문헌 목록 엑셀(도면과 같은 번호): 문헌이 많아 표를 도면 밖에 따로 둘 때
+  const litExcel = async () => {
+    if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
+    const f = S.figs.lit;
+    await prepLit(f);
+    const rows = f.litRows || [];
+    if (!rows.length) { toast("도면에 넣은 문헌이 없습니다."); return; }
+    await loadScript(LIB.xlsx, "XLSX");
+    const name = $("#site-name").value.trim(), c = f.lit.grid && f.lit.grid.center;
+    const KIND = { point: "지점", line: "선", area: "구역" };
+    const aoa = [
+      ["문헌조사 위치도 문헌 목록"], [],
+      ["사업명", name || "-"],
+      ["9격자 가운데 칸", c ? `${c.name && c.name !== c.code ? `${c.name}(${c.code})` : c.code} ${c.id}` : "-"], [],
+      ["번호", "구분", "문헌", "도면 표시"],
+      ...rows.map((r) => [`문헌${r.n}`, r.cat || "", r.text, r.geo ? KIND[r.geo.kind] || "" : "도엽"]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{ wch: 8 }, { wch: 22 }, { wch: 80 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "문헌 목록");
+    saveBlob(new Blob([XLSX.write(wb, { type: "array", bookType: "xlsx" })], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${safeName([name, "문헌조사위치도_문헌목록"].filter(Boolean).join("_"))}.xlsx`);
+  };
   const initLit = () => {
     $("#l-save").addEventListener("click", saveLit);
+    $("#l-xlsx").addEventListener("click", () => litExcel().catch((err) => { console.error(err); toast(err.message || "엑셀을 만들지 못했습니다."); }));
     $("#l-load").addEventListener("change", async (e) => {
       const file = e.target.files[0];
       e.target.value = "";
