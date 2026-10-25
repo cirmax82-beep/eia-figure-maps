@@ -1,4 +1,4 @@
-﻿# 브이월드 인증키(map.biogrideia.com용)를 이 컴퓨터와 GitHub 저장소 비밀값에 저장합니다.
+﻿# 브이월드 인증키(maps.biogrideia.com용)를 이 컴퓨터와 GitHub 저장소 비밀값에 저장합니다.
 # - 이 컴퓨터: work\vworld_key.txt, js\config.js(로컬 미리보기용, 둘 다 저장소에 올라가지 않음: .gitignore)
 # - GitHub: 저장소 비밀값 VWORLD_KEY(배포할 때 js/config.js로 넣음) — gh가 로그인돼 있을 때만, 넣은 뒤 다시 배포함
 # 입력 상자(Ctrl+V로 붙여넣기)를 띄우고 결과를 알려 줍니다.
@@ -7,7 +7,7 @@ Add-Type -AssemblyName System.Windows.Forms
 $title = '사업지 도면 만들기 - 인증키 저장'
 $repo = 'cirmax82-beep/eia-figure-maps'
 $root = Split-Path -Parent $PSScriptRoot
-$key = [Microsoft.VisualBasic.Interaction]::InputBox('map.biogrideia.com으로 발급한 브이월드 인증키를 붙여 넣고(Ctrl+V) 확인을 누르세요.', $title, '').Trim()
+$key = [Microsoft.VisualBasic.Interaction]::InputBox('maps.biogrideia.com으로 발급한 브이월드 인증키를 붙여 넣고(Ctrl+V) 확인을 누르세요.', $title, '').Trim()
 if (-not $key) {
     [System.Windows.Forms.MessageBox]::Show('입력이 없어 저장하지 않았습니다.', $title) | Out-Null
     exit 1

@@ -2,8 +2,8 @@
 
 사업지구 경계를 넣으면 **위성사진 현황도·생태축 현황도·생태·자연도·한국 식생기후대 분포도·한국 식물상 지역** 도면을 보고서에 바로 붙일 수 있는 PNG·PDF·SVG로 만듭니다.
 
-- 주소: https://map.biogrideia.com/
-- 호스팅케이알 DNS의 CNAME 레코드(`map` → `cirmax82-beep.github.io`)로 연결합니다.
+- 주소: https://maps.biogrideia.com/
+- 호스팅케이알 DNS의 CNAME 레코드(`maps` → `cirmax82-beep.github.io`)로 연결합니다. 처음 쓰던 map.biogrideia.com은 GitHub 인증서 발급이 실패 상태로 남아 maps로 옮겼습니다(새 하위 도메인은 DNS를 먼저 넣고 퍼진 뒤 GitHub에 연결).
 
 ## 쓰는 법
 
@@ -38,7 +38,7 @@
 
 ## 브이월드 인증키(생태·자연도 백지도)
 
-`인증키 저장.bat`을 더블클릭해 map.biogrideia.com으로 발급한 브이월드 인증키를 붙여 넣으면, 이 컴퓨터(`work/vworld_key.txt`, `js/config.js`, 모두 저장소 제외)와 GitHub 저장소 비밀값 `VWORLD_KEY`에 넣고 다시 배포합니다. 배포는 `.github/workflows/pages.yml`(GitHub Actions)이 합니다.
+`인증키 저장.bat`을 더블클릭해 maps.biogrideia.com으로 발급한 브이월드 인증키를 붙여 넣으면, 이 컴퓨터(`work/vworld_key.txt`, `js/config.js`, 모두 저장소 제외)와 GitHub 저장소 비밀값 `VWORLD_KEY`에 넣고 다시 배포합니다. 배포는 `.github/workflows/pages.yml`(GitHub Actions)이 합니다.
 
 ## 생태·자연도·식생기후대·식물상 지역 갱신
 
