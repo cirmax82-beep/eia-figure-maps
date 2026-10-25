@@ -144,7 +144,44 @@
     const m = 10 * e;
     const top = fig.el.title && fig.title ? 13 * e : 0;
     const foot = 6 * e;
-    return { W, H, e, frame: { x: m, y: m + top, w: W - 2 * m, h: H - 2 * m - top - foot }, m, top, foot };
+    // 문헌조사 위치도: 문헌 목록 칸을 틀 아래에 둠
+    const tab = fig.kind === "lit" && fig.lit && fig.lit.table ? litTable(fig.litRows || [], W - 2 * m, e) : null;
+    const tabH = tab ? tab.h + 3 * e : 0;
+    return { W, H, e, frame: { x: m, y: m + top, w: W - 2 * m, h: H - 2 * m - top - foot - tabH }, m, top, foot, tab };
+  };
+  // 문헌 목록: 기호 칸 + 「번호. 표기」. 칸 너비를 넘으면 낱말 사이(안 되면 글자)에서 줄을 나누고, 15건부터는 두 단
+  const litTable = (rows, w, e) => {
+    if (!rows.length) return null;
+    const fs = 6.6 * e, lh = 3.5 * e, head = 6.4 * e, pad = 2.4 * e, sym = 7 * e;
+    const cols = rows.length > 14 ? 2 : 1;
+    const cw = (w - pad * 2) / cols, tw = cw - sym - 2 * e;
+    const wrap = (t) => {
+      const out = [];
+      let cur = "";
+      for (const word of t.split(/(?<=\s)/)) {
+        if (cur && textW(cur + word, fs) > tw) { out.push(cur.trimEnd()); cur = ""; }
+        let wd = word;
+        while (textW(wd, fs) > tw) {
+          let k = wd.length;
+          while (k > 1 && textW(wd.slice(0, k), fs) > tw) k--;
+          out.push(wd.slice(0, k));
+          wd = wd.slice(k);
+        }
+        cur += wd;
+      }
+      if (cur.trim()) out.push(cur.trimEnd());
+      return out;
+    };
+    const items = rows.map((r) => ({ r, lines: wrap(`${r.n}. ${r.text}`) }));
+    const total = items.reduce((s, it) => s + it.lines.length, 0);
+    let split = items.length;
+    if (cols === 2) {
+      let acc = 0;
+      split = items.findIndex((it) => (acc += it.lines.length) > total / 2);
+      if (split < 1) split = Math.ceil(items.length / 2);
+    }
+    const colLines = [items.slice(0, split), items.slice(split)].map((c) => c.reduce((s, it) => s + it.lines.length, 0));
+    return { h: head + Math.max(...colLines) * lh + pad, fs, lh, head, pad, sym, cw, items, split };
   };
   // 웹 메르카토르를 가운데 위도에서 1/cos φ만큼 줄여 실제 축척을 맞춤(도면 범위 몇 km 안에서는 차이가 아주 작음)
   const makeView = (frame, lon0, lat0, scale) => {
@@ -163,7 +200,7 @@
     return v;
   };
   const centerOf = (fig, site) => {
-    const b = NATIONAL.includes(fig.kind) ? KOREA_BOX : U.bboxOf(site.features);
+    const b = NATIONAL.includes(fig.kind) ? KOREA_BOX : fig.kind === "lit" && fig.lit && fig.lit.grid ? fig.lit.grid.bounds : U.bboxOf(site.features);
     const X = (mx(b[0]) + mx(b[2])) / 2 + (fig.offset ? fig.offset[0] : 0);
     const Y = (my(b[1]) + my(b[3])) / 2 + (fig.offset ? fig.offset[1] : 0);
     return [ilon(X), ilat(Y)];
@@ -179,6 +216,14 @@
       const k = KOREA_BOX, lat = (k[1] + k[3]) / 2;
       const need = Math.max(((mx(k[2]) - mx(k[0])) * Math.cos(lat * RAD)) / (frame.w * 0.96), ((my(k[3]) - my(k[1])) * Math.cos(lat * RAD)) / (frame.h * 0.96)) * 1000;
       return NATIONAL_SCALES.find((v) => v >= need) || NATIONAL_SCALES[NATIONAL_SCALES.length - 1];
+    }
+    // 문헌조사 위치도: 9격자가 틀에 꽉 차게(500 단위로 올림)
+    if (fig.kind === "lit") {
+      const g = fig.lit && fig.lit.grid;
+      if (!g) return 50000;
+      const k = g.bounds, c = Math.cos(((k[1] + k[3]) / 2) * RAD);
+      const need = Math.max(((mx(k[2]) - mx(k[0])) * c) / (frame.w * 0.98), ((my(k[3]) - my(k[1])) * c) / (frame.h * 0.98)) * 1000;
+      return Math.ceil(need / 500) * 500;
     }
     const rings = ringsOn(fig) ? fig.rings : [];
     const padKm = rings.length ? Math.max(...rings) : fig.kind === "sat" ? 0.5 : 1;
@@ -542,6 +587,34 @@
   // 실폭하천·호수/저수지(국토지리정보원 연속수치지형도, tools/build_topo.py): 기본지도에 파랗게 칠해진 물 면의 원본
   const topoLayer = binLayer("data/topo");
   const waterZones = async (v) => { const d = await waterLayer(v); return { river: d.polys, small: d.grouped }; };
+
+  // ---------- 문헌조사 위치도: 1:25,000 도엽 E1~E9 칸과 도엽별 전국자연환경조사 문헌(data/lit, tools/build_lit.py) ----------
+  let litP = null;
+  const litData = () => litP || (litP = Promise.all(["sheets", "nes"].map((n) => fetch(`data/lit/${n}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })))
+    .then(([s, nes]) => ({ sheets: s.sheets, source: s.source, nes }))
+    .catch((err) => { litP = null; throw err; }));
+  // 경위도 한 점이 든 칸. 도엽([번호, 이름, 서, 남, 동, 북])을 3×3으로 똑같이 나눔(왼쪽 위 E1 → 오른쪽 아래 E9)
+  const cellAt = (sheets, lon, lat) => {
+    for (const [code, name, w, s, e, n] of sheets) {
+      if (lon < w || lon >= e || lat <= s || lat > n) continue;
+      const cw = (e - w) / 3, ch = (n - s) / 3;
+      const c = Math.min(2, Math.floor((lon - w) / cw)), r = Math.min(2, Math.floor((n - lat) / ch));
+      return { code, name, id: `E${r * 3 + c + 1}`, b: [w + c * cw, n - (r + 1) * ch, w + (c + 1) * cw, n - r * ch] };
+    }
+    return null;
+  };
+  // 사업지구 가운데가 든 칸과 둘레 8칸(9격자). 바다처럼 도엽이 없는 칸은 빠짐
+  const nineGrid = (sheets, lon, lat) => {
+    const c0 = cellAt(sheets, lon, lat);
+    if (!c0) return null;
+    const [w, s, e, n] = c0.b, cw = e - w, ch = n - s, cx = (w + e) / 2, cy = (s + n) / 2;
+    const cells = [];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+      const cell = cellAt(sheets, cx + (c - 1) * cw, cy - (r - 1) * ch);
+      if (cell) cells.push({ ...cell, r, c });
+    }
+    return { cells, bounds: [cx - 1.5 * cw, cy - 1.5 * ch, cx + 1.5 * cw, cy + 1.5 * ch], center: c0 };
+  };
   const landPolys = async (v) => (await landLayer(v)).polys;
 
   // ---------- 주변 범위(turf.buffer) ----------
@@ -683,7 +756,7 @@
     const topoJob = eco && fig.eco.topo ? topoLayer(v).then((d) => d.polys).catch((err) => { console.warn(err); warn.push("실폭하천·호수/저수지 자료를 받지 못했습니다."); return null; }) : null;
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
-    const natJob = nat ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
+    const natJob = nat || (fig.kind === "lit" && fig.lit.nat) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const api1Job = nat && fig.nat.dist1 && fig.ecoKey ? eco1Frame(v, fig.ecoKey).catch((err) => { console.warn(err); warn.push(`${err.message} 1등급 이격거리는 정기고시 원본 경계로 계산했습니다.`); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
     // 원본 경계(API)가 늦으면(미리보기) 단순화 경계로 먼저 그리고, 도착하면 onLate로 다시 그림
@@ -708,7 +781,9 @@
   const paint = (pen, fig, site, D) => {
     const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
-    const eco = fig.kind === "eco", nat = fig.kind === "nat";
+    const eco = fig.kind === "eco", nat = fig.kind === "nat", lit = fig.kind === "lit";
+    // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다)
+    const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : null;
     const P = (lon, lat) => v.fromLL(lon, lat);
     const PM = (X, Y) => v.fromM(X, Y);
     const inF = (x, y, pad = 0) => x >= F.x + pad && x <= F.x + F.w - pad && y >= F.y + pad && y <= F.y + F.h - pad;
@@ -758,11 +833,13 @@
     const sitePoly = site.features.some((f) => U.kindOf(f.geometry) === "polygon");
     const siteName = fig.siteText || "사업지구";
     legend.push({ type: natl ? "point" : sitePoly ? "outline" : site.features.some((f) => U.kindOf(f.geometry) === "line") ? "line" : "point", color: COLOR.site, label: siteName });
-    if (nat) {
-      if (fig.nat.g1) legend.push({ type: "fill", color: NAT.g1, opacity: NAT.op, label: "1등급" });
-      if (fig.nat.g2) legend.push({ type: "fill", color: NAT.g2, opacity: NAT.op, label: "2등급" });
-      legend.push({ type: "box", label: "3등급" });
-      if (fig.nat.sep) legend.push({ type: "fill", color: NAT.sep, opacity: 0.9, label: "별도관리지역" });
+    if (lit && fig.lit.grid) legend.push({ type: "outline", color: "#1f1f1f", label: "문헌조사 범위(9격자)" });
+    if (natOn && (nat || nd)) {
+      const pre = lit ? "생태·자연도 " : "";
+      if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: NAT.op, label: `${pre}1등급` });
+      if (natOn.g2) legend.push({ type: "fill", color: NAT.g2, opacity: NAT.op, label: `${pre}2등급` });
+      if (nat) legend.push({ type: "box", label: "3등급" });
+      if (natOn.sep) legend.push({ type: "fill", color: NAT.sep, opacity: 0.9, label: "별도관리지역" });
     }
     if (natl && cls) cls.classes.forEach((c) => legend.push({ type: "fill", color: c.color, opacity: 1, label: c.name }));
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
@@ -831,11 +908,11 @@
       return out;
     };
     // 생태·자연도: 2등급 → 1등급 → 별도관리지역 순으로 반투명하게(바탕 선이 비치게)
-    if (nat && nd) {
-      if (fig.nat.g2) pen.path(polyParts(nd[2], 0.3), { closed: true, fill: NAT.g2, fillOpacity: NAT.op });
-      if (fig.nat.g1) pen.path(polyParts(nd[1], 0.3), { closed: true, fill: NAT.g1, fillOpacity: NAT.op });
+    if (natOn && nd) {
+      if (natOn.g2) pen.path(polyParts(nd[2], 0.3), { closed: true, fill: NAT.g2, fillOpacity: NAT.op });
+      if (natOn.g1) pen.path(polyParts(nd[1], 0.3), { closed: true, fill: NAT.g1, fillOpacity: NAT.op });
       // 별도관리지역은 등급 위에 겹쳐 있어, 덜 비치게 칠해 녹색과 섞이지 않게 함
-      if (fig.nat.sep) pen.path(polyParts(nd[9], 0.3), { closed: true, fill: NAT.sep, fillOpacity: 0.9 });
+      if (natOn.sep) pen.path(polyParts(nd[9], 0.3), { closed: true, fill: NAT.sep, fillOpacity: 0.9 });
     }
     // 바다: 틀 사각형과 육지(시군구 경계, 해안선을 따름) 고리를 짝홀 규칙으로 한 번에 칠해 육지 밖만 칠함
     if (eco && land && fig.eco.sea) {
@@ -856,6 +933,77 @@
     if (eco && os && fig.eco.streams) {
       pen.path(wayPage.filter((w) => w.kind === "stream").map((w) => simplify(w.pp, 0.05)), { stroke: COLOR.water, width: 0.6 * e });
       pen.path(wayPage.filter((w) => w.kind === "river").map((w) => simplify(w.pp, 0.05)), { stroke: COLOR.water, width: 0.9 * e });
+    }
+
+    // 문헌조사 위치도: 9격자 밖을 옅게 덮고, 문헌 위치(면·선·점) → 칸 선·도엽 경계. 이름표·문헌 번호는 사업지구 위에 나중에
+    const litLater = [];
+    if (lit && fig.lit.grid) {
+      const g = fig.lit.grid;
+      const R = (b) => { const a = P(b[0], b[3]), c = P(b[2], b[1]); return [[a[0], a[1]], [c[0], a[1]], [c[0], c[1]], [a[0], c[1]]]; };
+      const fr = [[F.x - 5, F.y - 5], [F.x + F.w + 5, F.y - 5], [F.x + F.w + 5, F.y + F.h + 5], [F.x - 5, F.y + F.h + 5]];
+      pen.path([fr, R(g.bounds)], { closed: true, fill: "#ffffff", fillOpacity: 0.5 });
+      // 같은 위치를 쓰는 문헌(같은 조사지역의 여러 해 등)은 한 번만 그리고 번호를 모아 붙임
+      const marks = new Map();
+      const dot = (x, y, r, col) => pen.path([Array.from({ length: 25 }, (_, k) => [x + r * Math.cos((k / 24) * 2 * Math.PI), y + r * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: col, stroke: "#ffffff", width: 0.35 * e });
+      (fig.litRows || []).forEach((it) => {
+        if (!it.geo || !it.geo.parts.length) return;
+        const had = marks.get(it.geoKey);
+        if (had) { had.nums.push(it.n); return; }
+        const col = it.color || "#7b2cbf", kind = it.geo.kind;
+        const parts = it.geo.parts.map((p) => p.map(([lon, lat]) => P(lon, lat)));
+        let ax, ay;
+        if (kind === "area") {
+          pen.path(parts, { closed: true, fill: col, fillOpacity: 0.28, stroke: col, width: 0.45 * e });
+          const big = parts.reduce((a, b) => (Math.abs(ringArea(b)) > Math.abs(ringArea(a)) ? b : a));
+          ax = big.reduce((s, p) => s + p[0], 0) / big.length; ay = big.reduce((s, p) => s + p[1], 0) / big.length;
+        } else if (kind === "line") {
+          pen.path(parts, { stroke: "#ffffff", width: 1.7 * e, strokeOpacity: 0.8 });
+          pen.path(parts, { stroke: col, width: 1 * e });
+          const len = (p) => p.reduce((s, q, i) => (i ? s + Math.hypot(q[0] - p[i - 1][0], q[1] - p[i - 1][1]) : 0), 0);
+          const long = parts.reduce((a, b) => (len(b) > len(a) ? b : a));
+          [ax, ay] = long[Math.floor(long.length / 2)];
+        } else {
+          parts.forEach((p) => p.forEach(([x, y]) => dot(x, y, 1.5 * e, col)));
+          [ax, ay] = parts[0][0];
+        }
+        ax = Math.max(F.x + 4 * e, Math.min(F.x + F.w - 4 * e, ax));
+        ay = Math.max(F.y + 4 * e, Math.min(F.y + F.h - 4 * e, ay));
+        marks.set(it.geoKey, { nums: [it.n], x: ax, y: ay, col, kind });
+      });
+      // 칸 선(흰 테 위 검은 선), 도엽 경계는 굵게
+      const cellR = g.cells.map((c) => R(c.b));
+      pen.path(cellR, { closed: true, stroke: "#ffffff", width: 1.1 * e, strokeOpacity: 0.8, join: "miter" });
+      pen.path(cellR, { closed: true, stroke: "#1f1f1f", width: 0.35 * e, join: "miter" });
+      const sheets = new Map();
+      g.cells.forEach((c) => {
+        const s = sheets.get(c.code) || { code: c.code, name: c.name, b: [...c.b], top: c };
+        s.b = [Math.min(s.b[0], c.b[0]), Math.min(s.b[1], c.b[1]), Math.max(s.b[2], c.b[2]), Math.max(s.b[3], c.b[3])];
+        if (c.r < s.top.r || (c.r === s.top.r && c.c < s.top.c)) s.top = c;
+        sheets.set(c.code, s);
+      });
+      pen.path([...sheets.values()].map((s) => R(s.b)), { closed: true, stroke: "#1f1f1f", width: 0.9 * e, join: "miter" });
+      // 칸 이름(E1~E9)은 칸 왼쪽 위(아래 모서리의 축척 막대·범례를 피함), 도엽의 맨 왼쪽 위 칸에는 그 옆에 도엽 이름(번호)
+      g.cells.forEach((c) => {
+        const [x0, y0] = P(c.b[0], c.b[3]), fsE = 12 * e, fsS = 9.5 * e;
+        const s = sheets.get(c.code), first = fig.lit.sheetName && s.top === c;
+        const t = s.name && s.name !== s.code ? `${s.name}(${s.code})` : s.code;
+        litLater.push(() => {
+          pen.text(c.id, x0 + 2 * e, y0 + 1.8 * e, { size: fsE, weight: 800, align: "left", base: "top", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.7 * e });
+          if (first) pen.text(t, x0 + 3.2 * e + textW(c.id, fsE, 800), y0 + 1.8 * e + (fsE - fsS) * PT * 0.8, { size: fsS, weight: 700, align: "left", base: "top", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e });
+        });
+        occupied.push([x0, y0, x0 + 4 * e + textW(first ? `${c.id} ${t}` : c.id, fsE, 800), y0 + 2.5 * e + fsE * PT]);
+      });
+      // 문헌 번호표: 위치 가운데(점은 오른쪽), 다른 글자와 겹치면 위·아래·옆으로 비켜 봄
+      marks.forEach((m) => litLater.push(() => {
+        const t = `문헌${m.nums.join("·")}`, fs = 7.2 * e, w = textW(t, fs, 700) + 2.4 * e, h = fs * PT + 1.6 * e;
+        let x = m.kind === "point" ? m.x + 2.2 * e : m.x - w / 2, y = m.y - h / 2;
+        for (const [dx, dy] of [[0, 0], [0, -h - 1], [0, h + 1], [w * 0.6, 0], [-w * 0.6, 0]]) {
+          if (!boxHit([x + dx, y + dy, x + dx + w, y + dy + h], occupied)) { x += dx; y += dy; break; }
+        }
+        occupied.push([x, y, x + w, y + h]);
+        pen.path([[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]], { closed: true, fill: "#ffffff", fillOpacity: 0.95, stroke: m.col, width: 0.4 * e, join: "miter" });
+        pen.text(t, x + w / 2, y + h / 2, { size: fs, weight: 700, align: "center", base: "middle", color: m.col });
+      }));
     }
 
     // 좌표 격자 선
@@ -937,6 +1085,8 @@
     const sb0 = [Infinity, Infinity, -Infinity, -Infinity];
     [...sitePolys.flat(), ...siteLines.flat(), ...sitePts].forEach(([x, y]) => { sb0[0] = Math.min(sb0[0], x); sb0[1] = Math.min(sb0[1], y); sb0[2] = Math.max(sb0[2], x); sb0[3] = Math.max(sb0[3], y); });
     occupied.push([sb0[0] - 1, sb0[1] - 1, sb0[2] + 1, sb0[3] + 1]);
+
+    litLater.forEach((fn) => fn());
 
     // 축 화살표(산림축·수계축)
     (eco ? fig.arrows || [] : []).forEach((a) => {
@@ -1218,12 +1368,34 @@
     }
     // 틀
     pen.path([[[F.x, F.y], [F.x + F.w, F.y], [F.x + F.w, F.y + F.h], [F.x, F.y + F.h]]], { closed: true, stroke: "#1f1f1f", width: 0.35 * e, join: "miter" });
+    // 문헌 목록(문헌조사 위치도, 틀 아래): 위치가 있는 문헌은 도면과 같은 기호
+    const T = lit ? Lo.tab : null;
+    if (T) {
+      const x = F.x, y = F.y + F.h + 2.5 * e, w = F.w;
+      pen.path([[[x, y], [x + w, y], [x + w, y + T.h], [x, y + T.h]]], { closed: true, fill: "#ffffff", stroke: "#333333", width: 0.25 * e, join: "miter" });
+      pen.text("문 헌 자 료", x + w / 2, y + T.head / 2 + 0.2 * e, { size: 8.5 * e, weight: 700, align: "center", base: "middle", color: "#111" });
+      pen.path([[[x + T.pad * 0.6, y + T.head], [x + w - T.pad * 0.6, y + T.head]]], { stroke: "#333333", width: 0.2 * e });
+      [T.items.slice(0, T.split), T.items.slice(T.split)].forEach((col, ci) => {
+        let cy = y + T.head + T.pad * 0.3;
+        const cx = x + T.pad + ci * T.cw;
+        col.forEach((it) => {
+          const g = it.r.geo, c = it.r.color || "#7b2cbf", my0 = cy + T.lh / 2, s = T.sym - 2.2 * e;
+          if (g && g.kind === "area") pen.path([[[cx, my0 - 1.3 * e], [cx + s, my0 - 1.3 * e], [cx + s, my0 + 1.3 * e], [cx, my0 + 1.3 * e]]], { closed: true, fill: c, fillOpacity: 0.35, stroke: c, width: 0.35 * e, join: "miter" });
+          if (g && g.kind === "line") pen.path([[[cx, my0], [cx + s, my0]]], { stroke: c, width: 1 * e });
+          if (g && g.kind === "point") pen.path([Array.from({ length: 25 }, (_, k) => [cx + s / 2 + 1.3 * e * Math.cos((k / 24) * 2 * Math.PI), my0 + 1.3 * e * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: c });
+          it.lines.forEach((ln, li) => pen.text(ln, cx + T.sym, cy + T.lh * (li + 0.5), { size: T.fs, align: "left", base: "middle", color: "#1f1f1f" }));
+          cy += it.lines.length * T.lh;
+        });
+      });
+    }
     // 출처·축척
-    const fy = F.y + F.h + Lo.foot * 0.62;
+    const fy = F.y + F.h + (T ? T.h + 3 * e : 0) + Lo.foot * 0.62;
     if (fig.el.source) {
       const src = [BASES[baseKey].src || ""];
       if (labels) src.push(LABELS.src);
-      if (nat && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
+      if (lit && fig.lit.grid) src.push("도엽: BioGrid EIA 기준 1:25,000 도엽(국토지리정보원)");
+      if (lit && fig.lit.imported) src.push("문헌 위치: BioGrid EIA");
+      if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
       if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
@@ -1402,5 +1574,5 @@
     return { total, ...splitGrades(total, S1, S2, SS), source: nd.source, sepGeom: SS };
   };
 
-  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape };
+  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid };
 })();

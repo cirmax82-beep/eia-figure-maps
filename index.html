@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261026u">
+<link rel="stylesheet" href="css/style.css?v=20261026v">
 </head>
 <body>
 <header class="top">
@@ -79,7 +79,7 @@
       <h2><span class="num">2</span>도면</h2>
       <div class="seg wrap" id="fig-tabs">
         <button data-fig="sat" class="on">위성사진 현황도</button><button data-fig="eco">생태축 현황도</button><button data-fig="nat">생태·자연도</button>
-        <button data-fig="veg">식생기후대</button><button data-fig="flo">식물상 지역</button>
+        <button data-fig="veg">식생기후대</button><button data-fig="flo">식물상 지역</button><button data-fig="lit">문헌조사 위치도</button>
       </div>
 
       <div class="grid2">
@@ -127,6 +127,32 @@
         </div>
         <p class="hint" data-figpane="veg" hidden>CHELSA 월평균기온(1981–2010)으로 계산한 온량지수(WI)·한랭지수(CI)로 나눕니다.</p>
         <p class="hint" data-figpane="flo" hidden>Jung &amp; Cho(2020) 식물상 지역(약 12 km 격자).</p>
+      </div>
+
+      <div data-figpane="lit" hidden>
+        <p class="site-box small" id="l-grid-text">사업지구를 넣으면 9격자(1:25,000 도엽을 3×3으로 나눈 E1~E9 칸)를 잡습니다.</p>
+        <div class="drop">
+          <input type="file" id="l-file" accept=".zip">
+          <b>BioGrid EIA 공간자료 넣기(선택)</b>
+          <span>포털에서 이 사업지구로 받은 spatial_layers.zip — 조류센서스 조사지역·습지·생물측정망 위치와 포털의 문헌 번호가 들어옵니다</span>
+        </div>
+        <button class="link small" id="l-clear" hidden>넣은 공간자료 빼기</button>
+        <div class="checks">
+          <label><input type="checkbox" id="l-sheet" checked> 도엽 이름</label>
+          <label><input type="checkbox" id="l-table" checked> 문헌 목록(도면 아래)</label>
+          <label><input type="checkbox" id="l-nat"> 생태·자연도 1·2등급</label>
+        </div>
+        <div class="axis-tool">
+          <b>위치 직접 찍기(기타 평가서·연구자료)</b>
+          <div class="btns">
+            <button class="btn ghost" data-lit="lit-point">지점</button>
+            <button class="btn ghost" data-lit="lit-line">선</button>
+            <button class="btn ghost" data-lit="lit-area">구역</button>
+          </div>
+          <p class="hint">미리보기 도면 위를 눌러 찍고, 선·구역은 두 번 눌러 끝냅니다. 찍은 뒤 아래 목록에서 문헌 이름을 고치세요.</p>
+        </div>
+        <b class="small">문헌 목록 <span class="muted">(체크를 풀면 도면에서 빠지고 번호가 다시 매겨집니다)</span></b>
+        <div id="lit-list" class="lit-list"></div>
       </div>
 
       <div data-figpane="eco" hidden>
@@ -226,9 +252,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261026u"></script>
-<script src="js/input.js?v=20261026u"></script>
-<script src="js/render.js?v=20261026u"></script>
-<script src="js/app.js?v=20261026u"></script>
+<script src="js/util.js?v=20261026v"></script>
+<script src="js/input.js?v=20261026v"></script>
+<script src="js/render.js?v=20261026v"></script>
+<script src="js/app.js?v=20261026v"></script>
 </body>
 </html>

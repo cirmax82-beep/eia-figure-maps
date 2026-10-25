@@ -134,3 +134,9 @@ details .checks { margin-bottom: 8px; }
 /* 경계 지도: 백지도는 도면처럼 흑백으로 진하게, 흑백 선택 */
 .tiles-white { filter: grayscale(1) contrast(1.9) brightness(0.97); }
 #map.map-gray .leaflet-tile-pane { filter: grayscale(1); }
+/* 문헌조사 위치도: 문헌 목록(보이기·번호·이름·색·지우기) */
+.lit-list { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+.lit-row { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 6px; align-items: center; }
+.lit-row .input { padding: 4px 7px; font-size: 12.5px; }
+.lit-row.off .input { color: var(--muted); }
+.lit-row input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: #fff; cursor: pointer; }
