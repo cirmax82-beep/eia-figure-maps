@@ -397,7 +397,7 @@
     $("#p-xlsx").disabled = true;
     try {
       const { areas } = await Carto.paLoad(f.lit.grid.bounds, [...f.pa.layers]);
-      const list = Carto.paMeasure(site(), areas).sort((a, b) => a.dist - b.dist || a.order - b.order);
+      const list = Carto.paMeasure(site(), areas, f.lit.grid.bounds).sort((a, b) => a.dist - b.dist || a.order - b.order);
       await loadScript(LIB.xlsx, "XLSX");
       const name = $("#site-name").value.trim(), c = f.lit.grid.center;
       const aoa = [

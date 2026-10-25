@@ -664,20 +664,24 @@
     await pool(cand.map((a) => async () => {
       let fc;
       try { fc = await paArea(a[0]); } catch (_) { return; }
-      const rings = [];
+      // polys: 떨어진 조각(면)마다 [바깥 고리, 구멍…] — 이격거리는 조각마다 잼. rings: 그리기용으로 모든 고리
+      const polys = [];
       (fc.features || []).forEach((f) => {
         const g = f.geometry;
-        (g && g.type === "Polygon" ? [g.coordinates] : g && g.type === "MultiPolygon" ? g.coordinates : []).forEach((p) => p.forEach((r) => rings.push(r.map((q) => [q[0], q[1]]))));
+        (g && g.type === "Polygon" ? [g.coordinates] : g && g.type === "MultiPolygon" ? g.coordinates : []).forEach((p) => polys.push(p.map((r) => r.map((q) => [q[0], q[1]]))));
       });
+      const rings = polys.flat();
       if (!rings.some((r) => clipRect(r, w, s, e, n).length >= 3)) return;
       const L = d.layers[a[1]];
-      areas.push({ id: a[0], order: a[1], layer: L.id, layerName: L.name, color: L.color, law: L.law, name: a[2], sub: a[3], sido: a[4], sigg: a[5], notice: a[6], ha: a[7], rings });
+      areas.push({ id: a[0], order: a[1], layer: L.id, layerName: L.name, color: L.color, law: L.law, name: a[2], sub: a[3], sido: a[4], sigg: a[5], notice: a[6], ha: a[7], rings, polys });
     }), 8);
     areas.sort((x, y) => x.order - y.order || x.name.localeCompare(y.name, "ko"));
     return { areas };
   };
-  // 사업지구와 보호구역의 관계·최단 이격거리(EPSG:5186 평면, GIS에서 재는 값과 같은 방식)·방향(사업지구 가운데에서 가장 가까운 지점을 본 8방위)
-  const paMeasure = (site, areas) => {
+  // 사업지구와 보호구역의 관계·최단 이격거리(EPSG:5186 평면, GIS에서 재는 값과 같은 방식)·방향(사업지구 가운데에서 가장 가까운 지점을 본 8방위).
+  // 한 구역이 떨어진 조각 여럿이면(시군 단위로 묶인 야생생물보호구역 등) 조각마다 재어 parts에 두고(bounds 안에 든 조각 표시),
+  // 구역 값은 가장 가까운 조각
+  const paMeasure = (site, areas, bounds = null) => {
     const fwd = proj4("WGS84", crsDef("5186")), inv = proj4(crsDef("5186"), "WGS84");
     const sSegs = [], sPolys = [];
     const addLine = (line) => { const q = line.map((c) => fwd.forward([c[0], c[1]])); if (q.length === 1) sSegs.push([q[0], q[0]]); for (let i = 1; i < q.length; i++) sSegs.push([q[i - 1], q[i]]); return q; };
@@ -702,13 +706,15 @@
       const q = [a[0] + t * dx, a[1] + t * dy];
       return [(p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2, q];
     };
-    return areas.map((A) => {
-      const rings = A.rings.map((r) => r.map((c) => fwd.forward(c)));
+    const DIRS = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
+    // 조각 하나(바깥 고리와 구멍들)
+    const measurePart = (poly) => {
+      const rings = poly.map((r) => r.map((c) => fwd.forward(c)));
       const aSegs = [];
       rings.forEach((r) => { for (let i = 1; i < r.length; i++) aSegs.push([r[i - 1], r[i]]); });
       const hit = sv.some(([x, y]) => inRings(x, y, rings)) || sPolys.some((sp) => rings.some((r) => r.some(([x, y]) => inRings(x, y, sp))))
         || sSegs.some(([a, b]) => aSegs.some(([c, d]) => cross(a, b, c, d)));
-      if (hit) return { ...A, rel: "겹침", dist: 0, dir: "" };
+      if (hit) return { rel: "겹침", dist: 0, dir: "" };
       let best = null;
       for (const [a, b] of sSegs) {
         for (const [c, d] of aSegs) {
@@ -718,10 +724,51 @@
           }
         }
       }
-      if (!best) return { ...A, rel: "이격", dist: NaN, dir: "" };
+      if (!best) return { rel: "이격", dist: NaN, dir: "" };
       const ang = (Math.atan2(best.t[0] - cx, best.t[1] - cy) * 180) / Math.PI;
-      return { ...A, rel: "이격", dist: Math.sqrt(best.d2), dir: ["북", "북동", "동", "남동", "남", "남서", "서", "북서"][((Math.round(ang / 45) % 8) + 8) % 8], from: inv.forward(best.s), to: inv.forward(best.t) };
+      return { rel: "이격", dist: Math.sqrt(best.d2), dir: DIRS[((Math.round(ang / 45) % 8) + 8) % 8], from: inv.forward(best.s), to: inv.forward(best.t) };
+    };
+    const closer = (a, b) => (b.dist < a.dist || (Number.isFinite(b.dist) && !Number.isFinite(a.dist)) ? b : a);
+    // 두 바깥 고리가 tol(m) 안으로 맞닿거나 겹치는지(범위로 먼저 거르고, 꼭짓점-선분 거리·선분 교차로)
+    const touch = (r1, b1, r2, b2, tol) => {
+      if (b1[0] > b2[2] + tol || b2[0] > b1[2] + tol || b1[1] > b2[3] + tol || b2[1] > b1[3] + tol) return false;
+      const t2 = tol * tol, inB = (p, b) => p[0] >= b[0] - tol && p[0] <= b[2] + tol && p[1] >= b[1] - tol && p[1] <= b[3] + tol;
+      const segs = (r, b) => { const o = []; for (let i = 1; i < r.length; i++) if (inB(r[i - 1], b) || inB(r[i], b)) o.push([r[i - 1], r[i]]); return o; };
+      const s1 = segs(r1, b2), s2 = segs(r2, b1);
+      for (const p of r1) if (inB(p, b2)) for (const [a, b] of s2) if (near(p, a, b)[0] <= t2) return true;
+      for (const p of r2) if (inB(p, b1)) for (const [a, b] of s1) if (near(p, a, b)[0] <= t2) return true;
+      return s1.some(([a, b]) => s2.some(([c, d]) => cross(a, b, c, d)));
+    };
+    const out = areas.map((A) => {
+      const polys = A.polys || [A.rings];
+      const res = polys.map((poly) => ({ ...measurePart(poly), inGrid: !bounds || poly.some((r) => clipRect(r, ...bounds).length >= 3) }));
+      // 맞닿거나 겹친 조각(10 m 안, 강을 따라 이어진 띠 등)은 한 덩어리로 묶고, 덩어리마다 가장 가까운 값을 씀
+      const outer = polys.map((poly) => poly[0].map((c) => fwd.forward(c)));
+      const bb = outer.map((r) => [Math.min(...r.map((p) => p[0])), Math.min(...r.map((p) => p[1])), Math.max(...r.map((p) => p[0])), Math.max(...r.map((p) => p[1]))]);
+      const up = polys.map((_, i) => i), root = (i) => (up[i] === i ? i : (up[i] = root(up[i])));
+      for (let i = 0; i < polys.length; i++) for (let j = i + 1; j < polys.length; j++) if (root(i) !== root(j) && touch(outer[i], bb[i], outer[j], bb[j], 10)) up[root(j)] = root(i);
+      const groups = new Map();
+      res.forEach((r, i) => {
+        const g = groups.get(root(i));
+        groups.set(root(i), g ? { ...closer(g, r), inGrid: g.inGrid || r.inGrid, outer: [...g.outer, outer[i]], bb: [...g.bb, bb[i]] } : { ...r, outer: [outer[i]], bb: [bb[i]] });
+      });
+      const parts = [...groups.values()];
+      const best = parts.reduce(closer, parts[0] || { rel: "이격", dist: NaN, dir: "" });
+      return { ...A, parts, rel: best.rel, dist: best.dist, dir: best.dir, from: best.from, to: best.to };
     });
+    // 같은 종류의 다른 구역끼리 겹치거나 맞닿은 덩어리(같은 곳이 여러 자료로 중복 등재된 야생생물보호구역 등)는
+    // 9격자 안에서 가장 가까운 것 하나에만 치수선(draw)
+    const byLayer = new Map();
+    out.forEach((A) => A.parts.forEach((p) => { if (p.inGrid) { if (!byLayer.has(A.layer)) byLayer.set(A.layer, []); byLayer.get(A.layer).push(p); } }));
+    byLayer.forEach((ps) => {
+      const up = ps.map((_, i) => i), root = (i) => (up[i] === i ? i : (up[i] = root(up[i])));
+      const meet = (p, q) => p.outer.some((r1, a) => q.outer.some((r2, b) => touch(r1, p.bb[a], r2, q.bb[b], 10)));
+      for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (root(i) !== root(j) && meet(ps[i], ps[j])) up[root(j)] = root(i);
+      const keep = new Map();
+      ps.forEach((p, i) => { const k = root(i), had = keep.get(k); keep.set(k, had ? closer(had, p) : p); });
+      ps.forEach((p, i) => { p.draw = keep.get(root(i)) === p; });
+    });
+    return out;
   };
   const litData = () => litP || (litP = Promise.all(["sheets", "nes"].map((n) => fetch(`data/lit/${n}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })))
     .then(([s, nes]) => ({ sheets: s.sheets, source: s.source, nes }))
@@ -889,7 +936,7 @@
     const topoJob = eco && fig.eco.topo ? topoLayer(v).then((d) => d.polys).catch((err) => { console.warn(err); warn.push("실폭하천·호수/저수지 자료를 받지 못했습니다."); return null; }) : null;
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
-    const paJob = fig.kind === "pa" && fig.lit.grid ? paLoad(fig.lit.grid.bounds, [...fig.pa.layers]).then((r) => ({ areas: paMeasure(site, r.areas) })).catch((err) => { console.warn(err); warn.push("보호구역 자료(보호구역 종합포털)를 받지 못했습니다."); return null; }) : null;
+    const paJob = fig.kind === "pa" && fig.lit.grid ? paLoad(fig.lit.grid.bounds, [...fig.pa.layers]).then((r) => ({ areas: paMeasure(site, r.areas, fig.lit.grid.bounds) })).catch((err) => { console.warn(err); warn.push("보호구역 자료(보호구역 종합포털)를 받지 못했습니다."); return null; }) : null;
     const natJob = nat || (fig.kind === "lit" && fig.lit.nat) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const api1Job = nat && fig.nat.dist1 && fig.ecoKey ? eco1Frame(v, fig.ecoKey).catch((err) => { console.warn(err); warn.push(`${err.message} 1등급 이격거리는 정기고시 원본 경계로 계산했습니다.`); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
@@ -1172,35 +1219,29 @@
         pen.clip(gx0, gy0, gx1 - gx0, gy1 - gy0);
         list.forEach((A) => pen.path(A.rings.map((r) => r.map(([lon, lat]) => P(lon, lat))), { closed: true, fill: A.color, fillOpacity: 0.32, stroke: A.color, width: 0.45 * e }));
         pen.unclip();
-        // 이격거리(선택): 사업지구에서 가장 가까운 지점까지 치수선과 거리(1 m 단위, 1 km 넘으면 km 소수 둘째 자리)
-        if (fig.pa.dist) D.pa.areas.filter((A) => A.rel === "이격" && A.from).forEach((A) => litLater.push(() => {
-          const c = clipSegG(...P(...A.from), ...P(...A.to));
+        // 이격거리(선택): 9격자 안에 든 조각마다 사업지구에서 가장 가까운 지점까지 치수선과 거리(1 m 단위, 1 km 넘으면 km 소수 둘째 자리).
+        // 맞닿은 조각처럼 가까운 지점이 용지에서 1.5 mm 안이면 짧은 것 하나만
+        const ticks = [];
+        if (fig.pa.dist) D.pa.areas.forEach((A) => (A.parts || [A]).filter((pt) => pt.inGrid !== false && pt.draw !== false && pt.rel === "이격" && pt.from)
+          .sort((p, q) => p.dist - q.dist).forEach((pt) => {
+            const tp = P(...pt.to);
+            if (ticks.some((q) => Math.hypot(q[0] - tp[0], q[1] - tp[1]) < 1.5 * e)) return;
+            ticks.push(tp);
+            litLater.push(() => drawDist(A, pt));
+          }));
+        const drawDist = (A, pt) => {
+          const c = clipSegG(...P(...pt.from), ...P(...pt.to));
           if (!c) return;
           const a = [c[0], c[1]], b = [c[2], c[3]], ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
           pen.path([[a, b]], { stroke: "#ffffff", width: 1.1 * e });
           pen.path([[a, b]], { stroke: A.color, width: 0.45 * e, dash: [1.2 * e, 0.6 * e] });
           pen.path([Array.from({ length: 17 }, (_, k) => [b[0] + 0.7 * e * Math.cos((k / 16) * 2 * Math.PI), b[1] + 0.7 * e * Math.sin((k / 16) * 2 * Math.PI)])], { closed: true, fill: A.color, stroke: "#ffffff", width: 0.2 * e });
-          const t = A.dist >= 1000 ? `${(A.dist / 1000).toFixed(2)} km` : `${Math.round(A.dist).toLocaleString("ko-KR")} m`, fs = 6.6 * e;
+          const t = pt.dist >= 1000 ? `${(pt.dist / 1000).toFixed(2)} km` : `${Math.round(pt.dist).toLocaleString("ko-KR")} m`, fs = 6.6 * e;
           let deg = (ang * 180) / Math.PI;
           if (deg > 90) deg -= 180; else if (deg <= -90) deg += 180;
           const off = fs * PT * 0.8, nx = Math.sin(deg * RAD), ny = -Math.cos(deg * RAD);
           pen.text(t, (a[0] + b[0]) / 2 + nx * off, (a[1] + b[1]) / 2 + ny * off, { size: fs, weight: 700, align: "center", base: "middle", angle: deg, color: "#111", halo: "#ffffff", haloWidth: 0.55 * e });
-        }));
-        // 이름: 격자 안에 든 부분의 가운데(작은 구역부터 자리를 잡고, 다른 글자와 겹치면 위·아래로 비켜 보고 안 되면 뺌)
-        if (fig.pa.names) [...D.pa.areas].sort((a, b) => a.ha - b.ha).forEach((A) => {
-          let at = null;
-          A.rings.forEach((r) => { const c = labelPt(clipRing(r.map(([lon, lat]) => P(lon, lat)))); if (c && (!at || c[2] > at[2])) at = c; });
-          if (!at) return;
-          const fs = 6.8 * e, w = textW(A.name, fs, 700) + 1, h = fs * PT + 0.8;
-          let box = null;
-          for (const dy of [0, -h - 0.6, h + 0.6]) {
-            const x = Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, at[0] - w / 2)), y = Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, at[1] - h / 2 + dy));
-            if (!boxHit([x, y, x + w, y + h], occupied)) { box = [x, y, x + w, y + h]; break; }
-          }
-          if (!box) return;
-          occupied.push(box);
-          litLater.push(() => pen.text(A.name, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e }));
-        });
+        };
       }
       // 칸 선(흰 테 위 검은 선), 도엽 경계는 굵게
       const cellR = g.cells.map((c) => R(c.b));
@@ -1227,6 +1268,21 @@
           if (first) pen.text(t, x0 + 3.2 * e + textW(c.id, fsE, 800), y0 + 1.8 * e + (fsE - fsS) * PT * 0.8, { size: fsS, weight: 700, align: "left", base: "top", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e });
         });
         occupied.push([x0, y0, x0 + 4 * e + textW(first ? `${c.id} ${t}` : c.id, fsE, 800), y0 + 2.5 * e + fsE * PT]);
+      });
+      // 보호구역 이름(칸 이름 자리를 잡은 뒤): 격자 안에 든 부분의 가운데(작은 구역부터 자리를 잡고, 다른 글자와 겹치면 위·아래로 비켜 보고 안 되면 뺌)
+      if (pa && D.pa && fig.pa.names) [...D.pa.areas].sort((a, b) => a.ha - b.ha).forEach((A) => {
+        let at = null;
+        A.rings.forEach((r) => { const c = labelPt(clipRing(r.map(([lon, lat]) => P(lon, lat)))); if (c && (!at || c[2] > at[2])) at = c; });
+        if (!at) return;
+        const fs = 6.8 * e, w = textW(A.name, fs, 700) + 1, h = fs * PT + 0.8;
+        let box = null;
+        for (const dy of [0, -h - 0.6, h + 0.6]) {
+          const x = Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, at[0] - w / 2)), y = Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, at[1] - h / 2 + dy));
+          if (!boxHit([x, y, x + w, y + h], occupied)) { box = [x, y, x + w, y + h]; break; }
+        }
+        if (!box) return;
+        occupied.push(box);
+        litLater.push(() => pen.text(A.name, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e }));
       });
       // 문헌 번호표: 위치 가운데(점은 오른쪽), 다른 글자와 겹치면 위·아래·옆으로 비켜 봄
       marks.forEach((m) => litLater.push(() => {
