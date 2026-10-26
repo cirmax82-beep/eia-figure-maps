@@ -802,7 +802,8 @@
   // 법정보호종 목록(data/legal_species.json, tools/build_legal.py): 띄어쓰기·딱다구리/딱따구리 표기는 같게 봄
   let LEG = null, LEGP = null;
   const legNorm = (t) => String(t || "").replace(/\s+/g, "").replace(/딱다구리/g, "딱따구리");
-  const legalData = () => LEGP || (LEGP = fetch("data/legal_species.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
+  const LEGAL_VER = 2;   // tools/build_legal.py로 목록을 다시 만들면 올림(브라우저에 남은 예전 목록을 안 쓰게)
+  const legalData = () => LEGP || (LEGP = fetch(`data/legal_species.json?v=${LEGAL_VER}`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
     const map = new Map();
     d.species.forEach(([name, g, nm, taxon]) => map.set(legNorm(name), { name, g, nm: !!nm, taxon }));
     Object.entries(d.alias || {}).forEach(([a, b]) => { const m = map.get(legNorm(b)); if (m) map.set(legNorm(a), m); });
