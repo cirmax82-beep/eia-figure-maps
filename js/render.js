@@ -246,13 +246,12 @@
     const Y = (my(b[1]) + my(b[3])) / 2 + (fig.offset ? fig.offset[1] : 0);
     return [ilon(X), ilat(Y)];
   };
-  // 확대 그림(식생기후대·식물상 지역): 틀 왼쪽 아래 크기와, 사업지구 크기의 3배와 구분이 보일 만큼(식생기후대 1 km 화소라 15 km,
-  // 식물상 지역은 약 12 km 격자라 40 km) 중 큰 범위
+  // 확대 그림(식생기후대·식물상 지역): 틀 왼쪽 아래 크기, 사업지구가 꽉 차게(가로·세로 중 더 꽉 차는 쪽에 맞추고 여백 20%, 점이면 약 500 m)
   const insetSize = (F) => { const w = F.w * 0.4; return { w, h: Math.min(F.h * 0.26, w * 0.62) }; };
   const insetView = (fig, site, rect) => {
     const b = U.bboxOf(site.features), lon0 = (b[0] + b[2]) / 2, lat0 = (b[1] + b[3]) / 2, c = Math.cos(lat0 * RAD);
-    const span = Math.max((mx(b[2]) - mx(b[0])) * c * 3, (my(b[3]) - my(b[1])) * c * 3, fig.kind === "flo" ? 40000 : 15000);
-    return makeView(rect, lon0, lat0, (span / Math.min(rect.w, rect.h)) * 1000);
+    const dx = Math.max((mx(b[2]) - mx(b[0])) * c, 400), dy = Math.max((my(b[3]) - my(b[1])) * c, 400);
+    return makeView(rect, lon0, lat0, Math.max(dx / rect.w, dy / rect.h) * 1.2 * 1000);
   };
   // 주변 범위를 그리는지: 위성 현황도는 늘, 생태축·생태·자연도는 켰을 때
   const ringsOn = (fig) => fig.kind === "sat" || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
@@ -959,8 +958,6 @@
     const wzJob = eco && (fig.eco.rzone || fig.eco.szone) ? waterZones(v).catch((err) => { console.warn(err); warn.push("하천구역 자료를 받지 못했습니다."); return null; }) : null;
     const topoJob = eco && fig.eco.topo ? topoLayer(v).then((d) => d.polys).catch((err) => { console.warn(err); warn.push("실폭하천·호수/저수지 자료를 받지 못했습니다."); return null; }) : null;
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
-    // 확대 그림 바탕: 본 도면과 같은 바탕지도를 확대 범위로 따로 받음
-    const insetJob = natl && fig.natl.inset && baseSrc ? basemap(insetView(fig, site, { x: 0, y: 0, ...insetSize(L0.frame) }), k, null, alive, baseSrc, fig.gray).catch((err) => { console.warn(err); return null; }) : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
     const paJob = fig.kind === "pa" && fig.lit.grid ? paLoad(fig.lit.grid.bounds, [...fig.pa.layers]).then((r) => ({ areas: paMeasure(site, r.areas, fig.lit.grid.bounds) })).catch((err) => { console.warn(err); warn.push("보호구역 자료(보호구역 종합포털)를 받지 못했습니다."); return null; }) : null;
     const natJob = nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
@@ -977,11 +974,11 @@
         return null;
       });
     }
-    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo, paD, insetBase] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob, paJob, insetJob]);
+    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo, paD] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob, paJob]);
     // 안전장치: API가 1등급을 하나도 주지 않았는데 조각에는 틀 안에 1등급이 있으면 조각으로
     if (g1api && !g1api.length && nd && nd[1] && nd[1].length) { warn.push("API 응답에서 1등급 면을 찾지 못해 1등급 이격거리는 정기고시 원본 경계로 계산했습니다."); g1api = null; }
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, pa: paD, insetBase, warn };
+    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, pa: paD, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
@@ -1676,8 +1673,7 @@
       const iv = insetView(fig, site, inset);
       pen.clip(inset.x, inset.y, inset.w, inset.h);
       pen.path([[[inset.x, inset.y], [inset.x + inset.w, inset.y], [inset.x + inset.w, inset.y + inset.h], [inset.x, inset.y + inset.h]]], { closed: true, fill: "#ffffff" });
-      if (D.insetBase) pen.image(D.insetBase.canvas, inset.x, inset.y, inset.w, inset.h);
-      drawClasses(iv, D.insetBase ? 0.55 : 1);
+      drawClasses(iv);
       const ip = [], il = [], it = [];
       site.features.forEach((f) => {
         const g = f.geometry, P2 = (c) => iv.fromLL(c[0], c[1]);
@@ -1703,14 +1699,6 @@
           pen.path([ring], { closed: true, stroke: COLOR.site, width: 0.45 * e });
         }
       }
-      // 작은 축척 막대(왼쪽 아래)
-      const want = (inset.w * 0.3 * iv.scale) / 1000, len = [500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000].reverse().find((l) => l <= want) || 500;
-      const bw = (len * 1000) / iv.scale, bx = inset.x + 2.5 * e, by = inset.y + inset.h - 3.2 * e, fs2 = 6 * e;
-      const lbl = len >= 1000 ? `${fmtNum(len / 1000)} km` : `${len} m`;
-      pen.path([[[bx - 1 * e, by - 2.4 * e], [bx + bw + textW(lbl, fs2) + 2.6 * e, by - 2.4 * e], [bx + bw + textW(lbl, fs2) + 2.6 * e, by + 1.6 * e], [bx - 1 * e, by + 1.6 * e]]], { closed: true, fill: "#ffffff", fillOpacity: 0.85 });
-      pen.path([[[bx, by - 0.5 * e], [bx + bw / 2, by - 0.5 * e], [bx + bw / 2, by + 0.5 * e], [bx, by + 0.5 * e]]], { closed: true, fill: "#1f1f1f" });
-      pen.path([[[bx, by - 0.5 * e], [bx + bw, by - 0.5 * e], [bx + bw, by + 0.5 * e], [bx, by + 0.5 * e]]], { closed: true, stroke: "#1f1f1f", width: 0.2 * e });
-      pen.text(lbl, bx + bw + 1.2 * e, by, { size: fs2, align: "left", base: "middle", color: "#1f1f1f" });
       pen.unclip();
       pen.path([[[inset.x, inset.y], [inset.x + inset.w, inset.y], [inset.x + inset.w, inset.y + inset.h], [inset.x, inset.y + inset.h]]], { closed: true, stroke: "#111111", width: 0.3 * e, join: "miter" });
     }
