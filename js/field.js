@@ -2,7 +2,8 @@
 (() => {
   const RAD = Math.PI / 180, R = 6371008.8;
 
-  // ---------- 파일 읽기 → { lines: [[[lon, lat, t]]], pts: [{ name, lon, lat }] } (t: 초, 없으면 null) ----------
+  // ---------- 파일 읽기 → { lines: [[[lon, lat, t]]], pts: [{ name, desc, lon, lat }], feats: [{ name, desc, kind: point·line·area, pts: [[lon, lat]] }] } ----------
+  // lines·pts는 조사경로·조사지점용(t: 초, 없으면 null), feats는 출현 기록용(이름이 붙은 점·선·면)
   const xml = (text) => {
     const d = new DOMParser().parseFromString(text, "application/xml");
     if (d.getElementsByTagName("parsererror").length) throw new Error("경로 파일을 읽지 못했습니다.");
@@ -12,51 +13,79 @@
   const kids = (el, name) => Array.from(el.children).filter((c) => c.localName === name);
   const kidText = (el, name) => { const c = kids(el, name)[0]; return c ? c.textContent.trim() : ""; };
   const sec = (s) => { const t = Date.parse(s); return Number.isFinite(t) ? Math.round(t / 1000) : null; };
+  const xy = (l) => l.map((c) => [c[0], c[1]]);
   const fromGpx = (text) => {
-    const d = xml(text), lines = [], pts = [];
+    const d = xml(text), lines = [], pts = [], feats = [];
     const pt = (p) => [+p.getAttribute("lon"), +p.getAttribute("lat"), sec(kidText(p, "time"))];
-    tags(d, "trkseg").forEach((s) => lines.push(kids(s, "trkpt").map(pt)));
-    tags(d, "rte").forEach((r) => lines.push(kids(r, "rtept").map(pt)));
-    tags(d, "wpt").forEach((w) => { const [lon, lat] = pt(w); pts.push({ name: kidText(w, "name"), desc: kidText(w, "desc") || kidText(w, "cmt"), lon, lat }); });
-    return { lines, pts };
+    tags(d, "trk").forEach((t) => kids(t, "trkseg").forEach((s) => { const l = kids(s, "trkpt").map(pt); lines.push(l); feats.push({ name: kidText(t, "name"), desc: kidText(t, "desc"), kind: "line", pts: xy(l) }); }));
+    tags(d, "rte").forEach((r) => { const l = kids(r, "rtept").map(pt); lines.push(l); feats.push({ name: kidText(r, "name"), desc: kidText(r, "desc"), kind: "line", pts: xy(l) }); });
+    tags(d, "wpt").forEach((w) => {
+      const [lon, lat] = pt(w), name = kidText(w, "name"), desc = kidText(w, "desc") || kidText(w, "cmt");
+      pts.push({ name, desc, lon, lat });
+      feats.push({ name, desc, kind: "point", pts: [[lon, lat]] });
+    });
+    return { lines, pts, feats };
   };
   const fromKml = (text) => {
-    const d = xml(text), lines = [], pts = [];
+    const d = xml(text), lines = [], pts = [], feats = [];
     const cs = (s) => s.trim().split(/\s+/).map((t) => t.split(",").map(Number)).filter((c) => c.length >= 2).map((c) => [c[0], c[1], null]);
     tags(d, "Placemark").forEach((pm) => {
       const name = kidText(pm, "name");
-      tags(pm, "LineString").forEach((g) => { const c = tags(g, "coordinates")[0]; if (c) lines.push(cs(c.textContent)); });
+      const desc = kidText(pm, "description").replace(/<[^>]*>/g, " ").trim();
+      tags(pm, "LineString").forEach((g) => { const c = tags(g, "coordinates")[0]; if (c) { const l = cs(c.textContent); lines.push(l); feats.push({ name, desc, kind: "line", pts: xy(l) }); } });
+      tags(pm, "Polygon").forEach((g) => { const ob = tags(g, "outerBoundaryIs")[0], c = ob && tags(ob, "coordinates")[0]; if (c) feats.push({ name, desc, kind: "area", pts: xy(cs(c.textContent)) }); });
       // gx:Track: <when>과 <gx:coord>가 차례로 짝
       tags(pm, "Track").forEach((g) => {
         const when = kids(g, "when").map((w) => sec(w.textContent.trim()));
-        lines.push(kids(g, "coord").map((c, i) => { const [lon, lat] = c.textContent.trim().split(/\s+/).map(Number); return [lon, lat, when[i] == null ? null : when[i]]; }));
+        const l = kids(g, "coord").map((c, i) => { const [lon, lat] = c.textContent.trim().split(/\s+/).map(Number); return [lon, lat, when[i] == null ? null : when[i]]; });
+        lines.push(l);
+        feats.push({ name, desc, kind: "line", pts: xy(l) });
       });
-      const desc = kidText(pm, "description").replace(/<[^>]*>/g, " ").trim();
-      tags(pm, "Point").forEach((g) => { const c = tags(g, "coordinates")[0], q = c ? cs(c.textContent)[0] : null; if (q) pts.push({ name, desc, lon: q[0], lat: q[1] }); });
+      tags(pm, "Point").forEach((g) => { const c = tags(g, "coordinates")[0], q = c ? cs(c.textContent)[0] : null; if (q) { pts.push({ name, desc, lon: q[0], lat: q[1] }); feats.push({ name, desc, kind: "point", pts: [[q[0], q[1]]] }); } });
     });
-    return { lines, pts };
+    return { lines, pts, feats };
   };
-  const fromGeoJSON = (text) => {
-    const j = JSON.parse(text), lines = [], pts = [];
-    const fs = j.type === "FeatureCollection" ? j.features || [] : j.type === "Feature" ? [j] : [{ geometry: j }];
+  // GeoJSON(SHP를 바꾼 것도): 이름은 name·종명·국명 등 속성, 없으면 글 속성을 모두 이어 붙여 찾게 함
+  const fromGeoJSON = (text) => fromFeatures(JSON.parse(text));
+  const fromFeatures = (j) => {
+    const lines = [], pts = [], feats = [];
+    const fs = Array.isArray(j) ? j.flatMap((x) => x.features || []) : j.type === "FeatureCollection" ? j.features || [] : j.type === "Feature" ? [j] : [{ geometry: j }];
     const c3 = (c) => [c[0], c[1], null];
     fs.forEach((f) => {
       const g = f && f.geometry, p = (f && f.properties) || {};
       if (!g) return;
-      if (g.type === "LineString") lines.push(g.coordinates.map(c3));
-      if (g.type === "MultiLineString") g.coordinates.forEach((l) => lines.push(l.map(c3)));
-      if (g.type === "Point") pts.push({ name: String(p.name || p.Name || p.NAME || ""), desc: String(p.desc || p.description || ""), lon: g.coordinates[0], lat: g.coordinates[1] });
+      const key = Object.keys(p).find((k) => /^(name|종명|국명|종|species|출현종|이름)$/i.test(k.trim()));
+      const dk = Object.keys(p).find((k) => /^(desc|description|비고|note|내용|흔적)$/i.test(k.trim()));
+      const name = key ? String(p[key] ?? "") : Object.values(p).filter((v) => typeof v === "string").join(" "), desc = dk ? String(p[dk] ?? "") : "";
+      const add = (kind, cs) => feats.push({ name, desc, kind, pts: cs.map((c) => [c[0], c[1]]) });
+      if (g.type === "LineString") { lines.push(g.coordinates.map(c3)); add("line", g.coordinates); }
+      if (g.type === "MultiLineString") g.coordinates.forEach((l) => { lines.push(l.map(c3)); add("line", l); });
+      if (g.type === "Point") { pts.push({ name, desc, lon: g.coordinates[0], lat: g.coordinates[1] }); add("point", [g.coordinates]); }
+      if (g.type === "MultiPoint") g.coordinates.forEach((c) => add("point", [c]));
+      if (g.type === "Polygon") add("area", g.coordinates[0]);
+      if (g.type === "MultiPolygon") g.coordinates.forEach((pp) => add("area", pp[0]));
     });
-    return { lines, pts };
+    return { lines, pts, feats };
   };
   const parse = (name, text) => {
     const x = (name.split(".").pop() || "").toLowerCase();
     const r = x === "gpx" ? fromGpx(text) : x === "kml" ? fromKml(text) : x === "geojson" || x === "json" ? fromGeoJSON(text) : null;
     if (!r) throw new Error(`${name}: GPX·KML·KMZ·GeoJSON만 읽습니다.`);
     if (r.lines.some((l) => l.some((c) => Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90))) throw new Error(`${name}: 경위도(WGS84) 좌표가 아닙니다.`);
-    const ok = (c) => Number.isFinite(c[0]) && Number.isFinite(c[1]);
-    return { lines: r.lines.map((l) => l.filter(ok)).filter((l) => l.length >= 2), pts: r.pts.filter((p) => ok([p.lon, p.lat])) };
+    return tidy(r);
   };
+  // 좌표가 아닌 점은 빼고, 면은 닫는 점을 빼서 꼭짓점만, 선 2점·면 3점 미만은 버림
+  const tidy = (r) => {
+    const ok = (c) => Number.isFinite(c[0]) && Number.isFinite(c[1]);
+    const feats = r.feats.map((f) => {
+      let q = f.pts.filter(ok);
+      if (f.kind === "area" && q.length > 1 && q[0][0] === q[q.length - 1][0] && q[0][1] === q[q.length - 1][1]) q = q.slice(0, -1);
+      return { ...f, name: (f.name || "").trim(), desc: (f.desc || "").trim(), pts: q };
+    }).filter((f) => f.pts.length >= (f.kind === "area" ? 3 : f.kind === "line" ? 2 : 1));
+    return { lines: r.lines.map((l) => l.filter(ok)).filter((l) => l.length >= 2), pts: r.pts.filter((p) => ok([p.lon, p.lat])), feats };
+  };
+  // SHP(shpjs가 바꾼 GeoJSON) → parse와 같은 꼴
+  const parseFeatures = (geo) => tidy(fromFeatures(geo));
 
   // ---------- 평면(m) ----------
   // 사업지 둘레 몇 km 안이라 등장방형으로 충분(1 m 미만 차이)
@@ -218,15 +247,24 @@
     return out;
   };
 
-  // 사업지구에서 각 점(경위도)까지 거리(m, 면 안은 0)
-  const siteDist = (features, lls) => {
-    if (!lls.length) return [];
-    const P = plane(lls[0]), G = siteGeom(features, P);
-    return lls.map((ll) => {
-      const p = P.fwd(ll);
-      if (G.polys.some((rings) => inRings(p, rings))) return 0;
+  // 사업지구와 출현 기록(점·선·면 { kind, pts }) 사이 가장 가까운 거리(m). 겹치거나 안에 들면 0
+  const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const crosses = (a, b, c, d) => side(c, d, a) * side(c, d, b) < 0 && side(a, b, c) * side(a, b, d) < 0;
+  const geoDist = (features, recs) => {
+    if (!recs.length) return [];
+    const P = plane(recs[0].pts[0]), G = siteGeom(features, P);
+    return recs.map((r) => {
+      const q = r.pts.map(P.fwd);
+      if (q.some((p) => G.polys.some((rings) => inRings(p, rings)))) return 0;
+      if (r.kind === "area" && G.segs.some(([a]) => inRings(a, [q]))) return 0;
+      const segs = q.length === 1 ? [[q[0], q[0]]] : q.slice(1).map((p, i) => [q[i], p]).concat(r.kind === "area" ? [[q[q.length - 1], q[0]]] : []);
       let best = Infinity;
-      G.segs.forEach(([a, c]) => { best = Math.min(best, segNear(p, a, c)[0]); });
+      for (const [a, b] of segs) {
+        for (const [c, d] of G.segs) {
+          if (crosses(a, b, c, d)) return 0;
+          best = Math.min(best, segNear(a, c, d)[0], segNear(b, c, d)[0], segNear(c, a, b)[0], segNear(d, a, b)[0]);
+        }
+      }
       return Math.sqrt(best);
     });
   };
@@ -354,5 +392,5 @@
     return S.map((x) => ({ g: x.g, lines: x.lines.map((l) => l.map(P.inv)) }));
   };
 
-  window.Field = { parse, build, applyEdits, lengthLL, siteDist };
+  window.Field = { parse, parseFeatures, build, applyEdits, lengthLL, geoDist };
 })();

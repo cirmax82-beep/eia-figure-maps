@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261028f">
+<link rel="stylesheet" href="css/style.css?v=20261028g">
 </head>
 <body>
 <header class="top">
@@ -79,7 +79,7 @@
       <h2><span class="num">2</span>도면</h2>
       <div class="seg wrap" id="fig-tabs">
         <button data-fig="sat" class="on">위성사진 현황도</button><button data-fig="eco">생태축 현황도</button><button data-fig="nat">생태·자연도</button>
-        <button data-fig="veg">식생기후대</button><button data-fig="flo">식물상 지역</button><button data-fig="lit">문헌조사 위치도</button><button data-fig="sp">법정보호종(문헌조사)</button><button data-fig="pa">보호구역 위치도</button><button data-fig="field">현지조사 위치도</button><button data-fig="fsp">법정보호종(현지조사)</button>
+        <button data-fig="veg">식생기후대</button><button data-fig="flo">식물상 지역</button><button data-fig="lit">문헌조사 위치도</button><button data-fig="sp">법정보호종(문헌조사)</button><button data-fig="pa">보호구역 위치도</button><button data-fig="field">현지조사 위치도</button><button data-fig="fsp">법정보호종(현지조사)</button><button data-fig="inv">생태계교란생물(현지조사)</button>
       </div>
 
       <div class="grid2">
@@ -209,37 +209,9 @@
         <p class="hint">경로 파일·조사범위·고친 것·조사지점을 .json 파일로 저장합니다. 경계를 넣기 전에 불러오면 파일에 있던 경계도 넣습니다.</p>
       </div>
 
-      <div data-figpane="fsp" id="fsp-pane" hidden>
-        <div class="grid2">
-          <label title="분류군과 상관없이 가장 큰 조사범위 하나. 비우면 현지조사 위치도에서 켠 조사범위 중 가장 큰 거리">조사범위(m) <input id="q-ring" class="input" type="number" min="10" max="5000" step="10" placeholder="자동"></label>
-          <label title="범위를 조금 벗어난 출현 지점도 넣을 때">범위 밖 지점 <select id="q-out" class="input">
-            <option value="all">모두 그림</option><option value="500">범위 밖 500 m까지</option><option value="200">범위 밖 200 m까지</option><option value="100">범위 밖 100 m까지</option><option value="0">범위 안만</option>
-          </select></label>
-          <label>지점 이름표 <select id="q-label" class="input"><option value="name">종명</option><option value="none">없음(범례로만)</option></select></label>
-          <div class="checks"><label><input type="checkbox" id="q-routes"> 조사경로 함께</label></div>
-        </div>
-        <div class="drop">
-          <input type="file" id="q-file" multiple accept=".gpx,.kml,.kmz,.geojson,.json,.csv,.xlsx,.xls,.zip">
-          <b>출현 기록 넣기(GPX·KML 지점, 엑셀·CSV)</b>
-          <span>지점 이름에서 법정보호종 이름을 찾아 넣습니다(「수달 배설물」 → 수달, 비고 배설물). 엑셀·CSV는 종명과 위도·경도(또는 X·Y, EPSG:5186) 열</span>
-        </div>
-        <div class="axis-tool">
-          <b>지도에 찍기</b>
-          <div class="search">
-            <input id="q-name" class="input" list="q-names" placeholder="종명(예: 수달)" autocomplete="off">
-            <button class="btn ghost" id="q-pick">지도에 찍기</button>
-          </div>
-          <datalist id="q-names"></datalist>
-          <p class="hint">종명을 적고 미리보기 도면을 누를 때마다 하나씩 찍힙니다. 법정보호종 목록(멸종위기 야생생물 2023 고시·천연기념물)에 있으면 등급·분류군이 붙습니다.</p>
-        </div>
-        <b class="small">출현 지점 <span class="muted">(종마다 다른 기호, 범례는 분류군 차례)</span></b>
-        <div id="q-list" class="q-list"></div>
-        <div class="btns">
-          <button class="btn ghost" id="q-save">저장(파일)</button>
-          <label class="btn ghost">불러오기<input type="file" id="q-load" accept=".json,application/json" hidden></label>
-          <button class="btn ghost" id="q-xlsx" title="출현 기록(좌표·사업지구와 거리·범위 안/밖)과 종별 요약">출현 기록 받기(엑셀)</button>
-        </div>
-      </div>
+      <!-- 출현위치도 설정 칸은 app.js(occPaneHtml)가 채움 -->
+      <div data-figpane="fsp" id="fsp-pane" class="occ-pane" hidden></div>
+      <div data-figpane="inv" id="inv-pane" class="occ-pane" hidden></div>
 
       <div data-figpane="sp" hidden>
         <div class="drop">
@@ -388,10 +360,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261028f"></script>
-<script src="js/input.js?v=20261028f"></script>
-<script src="js/render.js?v=20261028f"></script>
-<script src="js/field.js?v=20261028f"></script>
-<script src="js/app.js?v=20261028f"></script>
+<script src="js/util.js?v=20261028g"></script>
+<script src="js/input.js?v=20261028g"></script>
+<script src="js/render.js?v=20261028g"></script>
+<script src="js/field.js?v=20261028g"></script>
+<script src="js/app.js?v=20261028g"></script>
 </body>
 </html>

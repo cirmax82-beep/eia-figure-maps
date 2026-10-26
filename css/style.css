@@ -170,6 +170,8 @@ details .checks { margin-bottom: 8px; }
 .q-group { border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 .q-head { display: grid; grid-template-columns: auto 110px 1fr auto auto; gap: 6px; align-items: center; }
 .q-head .input, .q-rec .input { padding: 4px 7px; font-size: 12.5px; }
-.q-rec { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding-left: 22px; }
+.q-rec { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center; padding-left: 22px; }
+.q-kind { white-space: nowrap; }
+.occ-pane .axis-tool > .input { margin: 4px 0; }
 .q-rec.off .input { color: var(--muted); }
 .q-sym { width: 14px; height: 14px; }

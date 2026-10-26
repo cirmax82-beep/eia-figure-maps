@@ -258,7 +258,7 @@
     return makeView(rect, lon0, lat0, Math.max(dx / rect.w, dy / rect.h) * 1.2 * 1000);
   };
   // 주변 범위를 그리는지: 위성 현황도는 늘, 생태축·생태·자연도는 켰을 때
-  const FIELD_KINDS = ["field", "fsp"];
+  const FIELD_KINDS = ["field", "fsp", "inv"];
   const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
   // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m)
   const ringKms = (fig) => (FIELD_KINDS.includes(fig.kind) ? (fig.fieldRings || []).map((r) => r.m / 1000) : fig.rings);
@@ -670,6 +670,18 @@
     return paFiles.get(id);
   };
   // 고리를 축에 나란한 사각형으로 자름(서덜랜드-호지먼, 좌표계는 상관없음)
+  // 면 이름 자리: 무게중심(면 밖이면 가장 가까운 꼭짓점)과 넓이. 2점 이하면 null
+  const labelPt = (pts) => {
+    if (pts.length < 3) return null;
+    let a = 0, cx = 0, cy = 0;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const f = pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1]; a += f; cx += (pts[j][0] + pts[i][0]) * f; cy += (pts[j][1] + pts[i][1]) * f; }
+    if (Math.abs(a) < 1e-9) return null;
+    cx /= 3 * a; cy /= 3 * a;
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) if ((pts[i][1] > cy) !== (pts[j][1] > cy) && cx < ((pts[j][0] - pts[i][0]) * (cy - pts[i][1])) / (pts[j][1] - pts[i][1]) + pts[i][0]) inside = !inside;
+    if (!inside) [cx, cy] = pts.reduce((b, p) => (Math.hypot(p[0] - cx, p[1] - cy) < Math.hypot(b[0] - cx, b[1] - cy) ? p : b));
+    return [cx, cy, Math.abs(a / 2)];
+  };
   const clipRect = (pts, x0, y0, x1, y1) => {
     let out = pts;
     const E = [
@@ -1022,7 +1034,7 @@
     const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
     // sp(법정보호종 출현위치도)는 문헌조사 위치도(lit) 위에 종 이름을 더한 것
-    const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", fsp = fig.kind === "fsp", fld = fig.kind === "field" || fsp;
+    const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", occ = fig.kind === "fsp" || fig.kind === "inv", fld = fig.kind === "field" || occ;
     // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다)
     const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : null;
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -1099,8 +1111,8 @@
     if (fld) {
       if (rings) (fig.fieldRings || []).forEach((r, i) => legend.push({ type: "ring", color: FIELD.rings[i % FIELD.rings.length], label: r.label }));
       (fig.fieldRoutes || []).forEach((r) => legend.push({ type: "route", color: r.color, label: r.name }));
-      if (!fsp) Object.entries(FIELD_PT_NAME).forEach(([k, name]) => { if ((fig.field.points || []).some((q) => q.kind === k)) legend.push({ type: "fpt", kind: k, label: name }); });
-      if (fsp) (fig.fspSpecies || []).forEach((q) => legend.push({ type: "ssym", sym: q.sym, label: q.label }));
+      if (!occ) Object.entries(FIELD_PT_NAME).forEach(([k, name]) => { if ((fig.field.points || []).some((q) => q.kind === k)) legend.push({ type: "fpt", kind: k, label: name }); });
+      if (occ) (fig.occSpecies || []).forEach((q) => legend.push({ type: "occ", sym: q.sym, kinds: q.kinds, label: q.label }));
     }
     let lg = null;
     const legendTitle = { nat: "생태·자연도", veg: "한국 식생기후 분포도", flo: "한국 식물상 지역" }[fig.kind] || "범   례";
@@ -1223,17 +1235,6 @@
         return out;
       };
       // 잘린 고리의 무게중심(굽은 강처럼 중심이 면 밖이면 중심에서 가장 가까운 꼭짓점)과 넓이
-      const labelPt = (pts) => {
-        if (pts.length < 3) return null;
-        let a = 0, cx = 0, cy = 0;
-        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const f = pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1]; a += f; cx += (pts[j][0] + pts[i][0]) * f; cy += (pts[j][1] + pts[i][1]) * f; }
-        if (Math.abs(a) < 1e-9) return null;
-        cx /= 3 * a; cy /= 3 * a;
-        let inside = false;
-        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) if ((pts[i][1] > cy) !== (pts[j][1] > cy) && cx < ((pts[j][0] - pts[i][0]) * (cy - pts[i][1])) / (pts[j][1] - pts[i][1]) + pts[i][0]) inside = !inside;
-        if (!inside) [cx, cy] = pts.reduce((b, p) => (Math.hypot(p[0] - cx, p[1] - cy) < Math.hypot(b[0] - cx, b[1] - cy) ? p : b));
-        return [cx, cy, Math.abs(a / 2)];
-      };
       // 선분을 격자 사각형으로 자름(리앙-바스키)
       const clipSegG = (ax, ay, bx, by) => {
         let t0 = 0, t1 = 1;
@@ -1507,6 +1508,19 @@
       pen.path(parts, { stroke: r.color, width: 0.75 * e, dash: [1.8 * e, 1 * e] });
     });
 
+    // 출현 기록 면·선(종 색): 사업지구 아래. 점은 사업지구 위
+    const occRecs = occ ? fig.occRecs || [] : [];
+    occRecs.filter((r) => r.kind === "area").forEach((r) => {
+      const ring = r.pts.map(([lon, lat]) => P(lon, lat));
+      pen.path([ring], { closed: true, fill: r.sym.color, fillOpacity: 0.35, stroke: "#ffffff", width: 1.1 * e, strokeOpacity: 0.7 });
+      pen.path([ring], { closed: true, stroke: r.sym.color, width: 0.55 * e });
+    });
+    occRecs.filter((r) => r.kind === "line").forEach((r) => {
+      const l = r.pts.map(([lon, lat]) => P(lon, lat));
+      pen.path([l], { stroke: "#ffffff", width: 1.9 * e, strokeOpacity: 0.8 });
+      pen.path([l], { stroke: r.sym.color, width: 1 * e });
+    });
+
     // 사업지구
     const sitePolys = [], siteLines = [], sitePts = [];
     site.features.forEach((f) => {
@@ -1538,16 +1552,30 @@
       pen.text(t, at[0], at[1] + h / 2, { size: fs, weight: 700, align: "left", base: "middle", color: "#111111", halo: "#ffffff", haloWidth: 0.55 * e });
     };
     // 현지조사 지점(St.·W.): 기호를 모두 그린 뒤 이름
-    if (fld && !fsp) {
+    if (fld && !occ) {
       const pts = (fig.field.points || []).map((q) => ({ q, at: P(q.pt[0], q.pt[1]) })).filter(({ at }) => inF(at[0], at[1]));
       pts.forEach(({ q, at }) => { fieldSym(pen, q.kind, at[0], at[1], e); occupied.push([at[0] - 2.1 * e, at[1] - 2.1 * e, at[0] + 2.1 * e, at[1] + 2.1 * e]); });
       pts.forEach(({ q, at }) => ptLabel(q.label, at[0], at[1]));
     }
-    // 법정보호종 출현 지점: 종마다 기호(범례), 고르면 종명 이름표
-    if (fsp) {
-      const pts = (fig.fspRecs || []).map((q) => ({ q, at: P(q.pt[0], q.pt[1]) })).filter(({ at }) => inF(at[0], at[1]));
+    // 출현 기록 점: 종마다 기호(범례). 고르면 종명 이름표 — 점은 기호 옆, 면은 틀 안 부분의 가운데, 선은 길이 가운데
+    if (occ) {
+      const pts = occRecs.filter((r) => r.kind === "point").map((q) => ({ q, at: P(q.pts[0][0], q.pts[0][1]) })).filter(({ at }) => inF(at[0], at[1]));
       pts.forEach(({ q, at }) => { speciesSym(pen, q.sym, at[0], at[1], e); occupied.push([at[0] - 2.1 * e, at[1] - 2.1 * e, at[0] + 2.1 * e, at[1] + 2.1 * e]); });
-      if (fig.fsp.label === "name") pts.forEach(({ q, at }) => ptLabel(q.name, at[0], at[1]));
+      if (fig.occ.label === "name") {
+        pts.forEach(({ q, at }) => ptLabel(q.name, at[0], at[1]));
+        occRecs.forEach((q) => {
+          const pp = q.pts.map(([lon, lat]) => P(lon, lat));
+          if (q.kind === "area") {
+            const c = labelPt(clipRect(pp, F.x, F.y, F.x + F.w, F.y + F.h));
+            if (c && inF(c[0], c[1])) ptLabel(q.name, c[0], c[1]);
+          } else if (q.kind === "line") {
+            let L = 0;
+            const cum = pp.map((p, i) => (L += i ? Math.hypot(p[0] - pp[i - 1][0], p[1] - pp[i - 1][1]) : 0));
+            const i = Math.max(0, cum.findIndex((v) => v >= L / 2));
+            if (inF(pp[i][0], pp[i][1])) ptLabel(q.name, pp[i][0], pp[i][1]);
+          }
+        });
+      }
     }
 
     litLater.forEach((fn) => fn());
@@ -1848,7 +1876,12 @@
           pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.75 * e, dash: [1.8 * e, 1 * e], cap: "butt" });
         }
         if (it.type === "fpt") fieldSym(pen, it.kind, sx + sym / 2, cy, e);
-        if (it.type === "ssym") speciesSym(pen, it.sym, sx + sym / 2, cy, e);
+        if (it.type === "occ") {
+          const k = new Set(it.kinds);
+          if (k.has("area")) pen.path([r], { closed: true, fill: it.sym.color, fillOpacity: 0.4, stroke: it.sym.color, width: 0.55 * e, join: "miter" });
+          if (k.has("line")) pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.sym.color, width: 1 * e, cap: "butt" });
+          if (k.has("point")) speciesSym(pen, it.sym, sx + sym / 2, cy, e);
+        }
         if (it.type === "arrow") pen.path([arrowShape([[sx, cy], [sx + sym, cy]], 2.2 * e)], { closed: true, fill: it.color, fillOpacity: 0.85 });
         if (it.type === "flow") pen.path([flowArrow(sx + sym / 2, cy, 0, 5 * e)], { closed: true, fill: it.color });
         if (it.type === "peak") { const s = 1.8 * e, px = sx + sym / 2; pen.path([[[px, cy - s], [px + s * 0.95, cy + s * 0.62], [px - s * 0.95, cy + s * 0.62]]], { closed: true, fill: it.color }); }
@@ -1871,7 +1904,7 @@
       if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
       if (fld && (fig.fieldRoutes || []).length) src.push("조사경로: 현지조사 GPS 기록");
-      if (fsp && (fig.fspRecs || []).length) src.push("출현 기록: 현지조사", ...(fig.legalSource ? [`등급: ${fig.legalSource}`] : []));
+      if (occ && occRecs.length) src.push("출현 기록: 현지조사", ...(fig.listSource ? [fig.listSource] : []));
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
       if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
       if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
