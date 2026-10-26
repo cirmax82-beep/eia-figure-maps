@@ -293,8 +293,8 @@
   };
   const arrowMsg = () => {
     const n = needPts(A.mode);
-    const pickName = A.mode === "lit-pick" ? ((litItems(S.figs.lit.lit).find((x) => x.id === A.target) || {}).text || "문헌").slice(0, 24) : "";
-    $("#arrow-msg").textContent = A.mode === "lit-pick" ? `「${pickName}」 위치를 도면 위에서 누르세요` : A.mode === "lit-sp" ? "법정보호종 출현 지점을 도면 위에서 누르세요" : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
+    const pickName = A.mode === "lit-pick" || (A.mode === "lit-sp" && A.target) ? ((litItems(S.figs.lit.lit).find((x) => x.id === A.target) || {}).text || "문헌").slice(0, 24) : "";
+    $("#arrow-msg").textContent = A.mode === "lit-pick" ? `「${pickName}」 위치를 도면 위에서 누르세요` : A.mode === "lit-sp" ? `${pickName ? `「${pickName}」의 ` : ""}법정보호종 출현 지점을 도면 위에서 누르세요` : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
       : `${arrowName(A.mode)} 점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상 찍으세요${isLit(A.mode) ? "" : "(마지막 점이 화살 머리)"}` : ""}`;
   };
   const finishArrow = () => {
@@ -311,9 +311,9 @@
     if (A.mode === "lit-sp") {
       const L = S.figs.lit.lit, pt = A.pts[0];
       if (!L.sp) L.sp = { entries: [], seq: 0 };
-      const k = L.sp.entries.filter((x) => x.kind === "point").length + 1;
+      const k = L.sp.entries.filter((x) => x.kind === "point").length + 1, lit = A.target, r = lit && spAll().find((x) => x.id === lit);
       stopArrow();
-      spAdd({ kind: "point", point: pt, where: `직접 찍은 지점 ${k}` });
+      spAdd({ kind: "point", point: pt, ...(lit ? { lit } : {}), where: `직접 찍은 지점 ${k}${r ? ` — 문헌${r.n}` : ""}` });
       return;
     }
     if (isLit(A.mode)) {
@@ -510,28 +510,35 @@
     return { n: L.sp.entries.reduce((k, en) => k + en.items.length, 0), places: L.sp.entries.length, lost };
   };
   // 도면에 넣을 종 글자(f.spRows)와 위치 미기재 주석(f.spNote): 지금 보이는 문헌 번호로, 뺀 문헌만 가리키는 종은 뺌
-  const spNums = () => new Map((S.figs.sp.litRows || []).map((r) => [r.id, r.n]));
+  const spAll = () => S.figs.sp.litAll || S.figs.sp.litRows || [];
+  const spNums = () => new Map(spAll().map((r) => [r.id, r.n]));
   const spItemsText = (items, num) => items.map((it) => {
     const ns = [...new Set(it.refs.map((id) => num.get(id)).filter(Boolean))].sort((a, b) => a - b);
     if (it.refs.length && !ns.length) return null;
     return { taxon: it.taxon || "기타", t: ns.length ? `${it.name}(${ns.map((n) => `문${n}`).join(",")})` : it.name };
   }).filter(Boolean);
   const prepSp = (f) => {
-    const sp = f.lit.sp, num = new Map((f.litRows || []).map((r) => [r.id, r.n]));
-    const geoOk = new Set((f.litRows || []).filter((r) => r.geo).map((r) => r.geoKey));
-    const geoCol = new Map((f.litRows || []).filter((r) => r.geo).map((r) => [r.geoKey, r.color]));
+    const sp = f.lit.sp, all = f.litRows || [], num = new Map(all.map((r) => [r.id, r.n]));
+    const geoOk = new Set(all.filter((r) => r.geo).map((r) => r.geoKey));
+    const geoCol = new Map(all.filter((r) => r.geo).map((r) => [r.geoKey, r.color]));
+    const litCol = new Map(all.map((r) => [r.id, r.color]));
+    const used = new Set();
     const noteBy = new Map();
     const toNote = (toks) => toks.forEach((x) => { if (!noteBy.has(x.taxon)) noteBy.set(x.taxon, []); noteBy.get(x.taxon).push(x.t); });
     f.spRows = [];
     (sp ? sp.entries : []).forEach((en) => {
       const toks = spItemsText(en.items, num);
       if (!toks.length) return;
+      en.items.forEach((it) => it.refs.forEach((id) => { if (num.has(id)) used.add(id); }));
       if (en.kind === "note" || (en.kind === "geo" && !geoOk.has(en.geoKey))) return toNote(toks);
       // 상자 색: 문헌 종류에 맞춤(문헌 위치는 그 문헌 기호 색, 전국자연환경조사 칸은 빨강, 직접 찍은 지점은 진분홍)
-      const color = en.kind === "geo" ? (geoCol.get(en.geoKey) || SP_COLORS.cell) : SP_COLORS[en.kind] || SP_COLORS.cell;
+      const color = en.kind === "geo" ? (geoCol.get(en.geoKey) || SP_COLORS.cell) : en.kind === "point" && en.lit && litCol.get(en.lit) ? litCol.get(en.lit) : SP_COLORS[en.kind] || SP_COLORS.cell;
       f.spRows.push({ kind: en.kind, code: en.code, cell: en.cell, geoKey: en.geoKey, point: en.point, text: toks.map((x) => x.t).join(", "), color });
     });
     f.spNote = [...noteBy].map(([k, ts]) => `${k}: ${ts.join(", ")}`);
+    // 법정보호종이 없는 문헌은 이 도면의 기호·문헌자료 표에서 뺌(번호는 문헌조사 위치도 그대로라 빈 번호가 생김). 9격자는 늘 그림
+    f.litAll = all;
+    f.litRows = all.filter((r) => used.has(r.id));
   };
   // 목록의 글자(지금 번호) ↔ 종. 위치 미기재는 「분류군: 종(문n), …」 줄, 나머지는 「종(문n), …」. 번호 없는 종은 평가서처럼 직접 넣은
   // 문헌 위치면 그 문헌으로
@@ -543,11 +550,11 @@
     return [...by].map(([k, ts]) => `${k}: ${ts.join(", ")}`).join("\n");
   };
   const spParse = (en, text) => {
-    const toId = new Map((S.figs.sp.litRows || []).map((r) => [r.n, r.id]));
+    const toId = new Map(spAll().map((r) => [r.n, r.id]));
     // 직접 넣은 문헌(man:)·지도에 위치를 찍은 문헌(pick:문헌 id) 자리면 번호 없는 종은 그 문헌으로
-    const gk = en.kind === "geo" ? en.geoKey || "" : "", own = gk.startsWith("man:") ? gk : gk.startsWith("pick:") ? gk.slice(5) : null;
+    const gk = en.kind === "geo" ? en.geoKey || "" : "", own = en.kind === "point" && en.lit ? en.lit : gk.startsWith("man:") ? gk : gk.startsWith("pick:") ? gk.slice(5) : null;
     // 지금 목록에서 빠져 있는 문헌을 가리키던 번호는 그대로 둠
-    const hidden = (name) => { const had = en.items.find((x) => x.name === name); return had ? had.refs.filter((id) => !(S.figs.sp.litRows || []).some((r) => r.id === id)) : []; };
+    const hidden = (name) => { const had = en.items.find((x) => x.name === name); return had ? had.refs.filter((id) => !spAll().some((r) => r.id === id)) : []; };
     const items = [];
     String(text).split("\n").forEach((line) => {
       let taxon = "", body = line;
@@ -574,8 +581,9 @@
     // 넣을 위치: 9격자 칸, 위치가 있는 문헌, 위치 미기재, 지도에 직접
     const opts = [];
     if (g) [...g.cells].sort((a, b) => a.r - b.r || a.c - b.c).forEach((c) => opts.push([`cell|${c.code}|${c.id}`, `칸: ${c.name && c.name !== c.code ? c.name : c.code} ${c.id}`]));
-    (f.litRows || []).filter((r) => r.geo).forEach((r) => { if (!opts.some((o) => o[0] === `geo|${r.geoKey}`)) opts.push([`geo|${r.geoKey}`, `문헌${r.n}: ${spWhere(r).slice(0, 30)}`]); });
-    opts.push(["note", "위치 미기재(주석)"], ["point", "지도에 직접 찍기"]);
+    spAll().filter((r) => r.geo).forEach((r) => { if (!opts.some((o) => o[0] === `geo|${r.geoKey}`)) opts.push([`geo|${r.geoKey}`, `문헌${r.n}: ${spWhere(r).slice(0, 30)}`]); });
+    opts.push(["note", "위치 미기재(주석)"], ["point", "지도에 직접 찍기(번호는 직접)"]);
+    spAll().forEach((r) => opts.push([`pointlit|${r.id}`, `지도에 찍기 — 문헌${r.n}: ${r.text.slice(0, 26)}`]));
     const sel = $("#s-where"), keep = sel.value;
     sel.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
     if (keep && opts.some((o) => o[0] === keep)) sel.value = keep;
@@ -619,14 +627,14 @@
     $("#s-add").addEventListener("click", () => {
       if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
       const v = $("#s-where").value;
-      if (v === "point") { startArrow("lit-sp"); return; }
+      if (v === "point" || v.startsWith("pointlit|")) { A.target = v === "point" ? null : v.slice(9); startArrow("lit-sp"); return; }
       if (v === "note") return spAdd({ kind: "note", where: "위치 미기재(주석)" });
       const [k, a, b] = v.split("|");
       if (k === "cell") {
         const c = S.figs.lit.lit.grid.cells.find((q) => q.code === a && q.id === b);
         return spAdd({ kind: "cell", code: a, cell: b, where: `${c && c.name && c.name !== c.code ? c.name : a} ${b}` });
       }
-      const gk = v.slice(4), r = (S.figs.sp.litRows || []).find((x) => x.geoKey === gk);
+      const gk = v.slice(4), r = spAll().find((x) => x.geoKey === gk);
       spAdd({ kind: "geo", geoKey: gk, where: r ? spWhere(r) : gk });
     });
     const box = $("#sp-list");
