@@ -3,7 +3,7 @@
   const { $, $$, esc, fmt, debounce, toast, LIB, loadScript, saveBlob, safeName } = U;
   const { IN } = Input;
 
-  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도" };
+  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도", field: "현지조사 위치도" };
   // 보호구역 종합포털의 종류(tools/layers.py 순서). on: 동식물상 관련이라 처음부터 켬
   const PA_LAYERS = [
     ["nature", "자연·생태 보호구역", [["wildlife-special", "야생생물특별보호구역", 1], ["wildlife", "야생생물보호구역", 1], ["wetland-coast", "연안습지보호지역", 1], ["wetland", "습지보호지역", 1],
@@ -19,7 +19,7 @@
     kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || ["lit", "sp", "pa"].includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
     basemap: kind === "nat" ? "vwhite" : ["lit", "sp", "pa"].includes(kind) && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
     title: TITLES[kind],
-    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa"].includes(kind), grid: "none" },
+    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field"].includes(kind), grid: "none" },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
@@ -28,6 +28,9 @@
     lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, picked: new Map(), manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
     // 보호구역 위치도: 그릴 종류, 이름, 이격거리 치수선, 도엽 이름(9격자는 lit.grid를 같이 씀)
     pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true },
+    // 현지조사 위치도: 사업 종류(auto·area·line), 조사범위([{m, name, on}], null이면 사업 종류의 처음 값), 경로 파일, 겹친 길 합치기 거리(m), 차량 이동 빼기, 다듬기(m), 자를 먼 거리(m),
+    // 분류군별 색, 고친 것(지우개·그린 길), 조사지점(St.·W.)
+    field: { type: "auto", ranges: null, rangesEdited: false, tracks: [], tseq: 0, tol: 15, car: true, soft: 12, far: 2000, byGroup: false, edits: [], points: [], pseq: 0, stats: null },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
@@ -46,6 +49,7 @@
     "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"], "p-names": ["pa", "names"], "p-dist": ["pa", "dist"], "p-sheet": ["pa", "sheetName"] };
   const scaleOptions = () => {
     const f = fig();
+    if (f.kind === "field") prepField(f);
     const auto = site() ? ` (1:${fmt(Carto.autoScale(f, site()))})` : "";
     $("#o-scale").innerHTML = `<option value="auto">자동${auto}</option>` + Carto.scalesFor(f).map((s) => `<option value="${s}">1:${fmt(s)}</option>`).join("");
     $("#o-scale").value = f.scaleMode === "auto" ? "auto" : String(f.scale);
@@ -71,6 +75,7 @@
     $$("[data-figpane]").forEach((p) => { p.hidden = !p.dataset.figpane.split(" ").includes(f.kind); });
     $$("#fig-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.fig === S.cur));
     renderArrowList();
+    renderFieldPane();
     syncMapBase();
   };
   // 경계 지도 바탕도 고른 도면의 바탕·흑백·지명 겹치기를 따름
@@ -138,6 +143,7 @@
     if (f.kind === "lit" || f.kind === "sp") await prepLit(f);
     if (f.kind === "sp") prepSp(f);
     if (f.kind === "pa") await prepGrid(f);
+    if (f.kind === "field") prepField(f);
     resolveScale(f);
     scaleOptions();
     const Lo = Carto.layout(f);
@@ -181,6 +187,7 @@
       if ((f.kind === "lit" || f.kind === "sp") && !page2) { S.litOut = new Set(out.litOut || []); renderLitList(); }
       if (f.kind === "sp" && !document.activeElement.matches("#sp-list textarea")) renderSpList();
       if (f.kind === "pa") paSummary(out.pa);
+      if (f.kind === "field") fieldStats();
       drawArrowTemp();
       renderLabelList(out.labels);
       // 1등급 이격거리 결과(생태·자연도, 켰을 때)
@@ -266,9 +273,10 @@
   // ---------- 축 화살표 그리기(문헌조사 위치도의 지점·선·구역 찍기도 같이 씀: 모드 lit-point·lit-line·lit-area) ----------
   const A = { mode: null, pts: [] };
   const isLit = (m) => !!m && m.startsWith("lit-");
-  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점", "lit-pick": "문헌 위치" };
+  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점", "lit-pick": "문헌 위치",
+    "fld-line": "조사경로", "fld-erase": "지우개", "fld-veg": "식생 조사지점", "fld-water": "육수 조사지점", "fld-etc": "기타 조사지점" };
   const arrowName = (k) => LIT_NAME[k] || (k === "forest" ? "산림축" : "수계축");
-  const ONE_PT = ["lit-point", "lit-sp", "lit-pick"];
+  const ONE_PT = ["lit-point", "lit-sp", "lit-pick", "fld-veg", "fld-water", "fld-etc"];
   const needPts = (m) => (ONE_PT.includes(m) ? 1 : m === "lit-area" ? 3 : 2);
   const startArrow = (kind) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
@@ -280,6 +288,7 @@
     $("#arrow-bar").hidden = false;
     $$("[data-arrow]").forEach((b) => b.classList.toggle("on", b.dataset.arrow === kind));
     $$("[data-lit]").forEach((b) => b.classList.toggle("on", b.dataset.lit === kind));
+    $$("[data-fld]").forEach((b) => b.classList.toggle("on", b.dataset.fld === kind));
     arrowMsg();
     drawArrowTemp();
   };
@@ -288,18 +297,38 @@
     A.pts = [];
     $("#pv-over").classList.remove("drawing");
     $("#arrow-bar").hidden = true;
-    $$("[data-arrow], [data-lit]").forEach((b) => b.classList.remove("on"));
+    $$("[data-arrow], [data-lit], [data-fld]").forEach((b) => b.classList.remove("on"));
     drawArrowTemp();
   };
   const arrowMsg = () => {
+    if (A.mode === "fld-erase") { $("#arrow-msg").textContent = "지울 경로를 누르거나 문지르세요(빨간 원 크기만큼 지움)"; return; }
+    if (FLD_PT[A.mode]) { $("#arrow-msg").textContent = `${LIT_NAME[A.mode]}: 누를 때마다 하나씩 찍습니다(다음 ${nextLabel(FLD_PT[A.mode])})`; return; }
     const n = needPts(A.mode);
     const pickName = A.mode === "lit-pick" || (A.mode === "lit-sp" && A.target) ? ((litItems(S.figs.lit.lit).find((x) => x.id === A.target) || {}).text || "문헌").slice(0, 24) : "";
     $("#arrow-msg").textContent = A.mode === "lit-pick" ? `「${pickName}」 위치를 도면 위에서 누르세요` : A.mode === "lit-sp" ? `${pickName ? `「${pickName}」의 ` : ""}법정보호종 출현 지점을 도면 위에서 누르세요` : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
-      : `${arrowName(A.mode)} 점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상 찍으세요${isLit(A.mode) ? "" : "(마지막 점이 화살 머리)"}` : ""}`;
+      : `${arrowName(A.mode)} 점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상 찍으세요${isLit(A.mode) || A.mode === "fld-line" ? "" : "(마지막 점이 화살 머리)"}` : ""}`;
   };
   const finishArrow = () => {
+    // 현지조사 지점은 그만둘 때까지 누를 때마다 하나씩
+    if (A.mode === "fld-erase") { stopArrow(); return; }
+    if (FLD_PT[A.mode]) {
+      if (!A.pts.length) { stopArrow(); return; }
+      addPoint(FLD_PT[A.mode], A.pts[0]);
+      A.pts = [];
+      arrowMsg();
+      renderFieldPane();
+      renderPreview();
+      return;
+    }
     const n = needPts(A.mode);
     if (A.pts.length < n) { toast(`점을 ${n}개 이상 찍으세요.`); return; }
+    if (A.mode === "fld-line") {
+      FF().edits.push({ t: "add", g: $("#f-add-group").value || "etc", pts: A.pts.map(([lon, lat]) => [+lon.toFixed(7), +lat.toFixed(7)]), snap: Math.round(3 * fig().scale) / 1000 });
+      stopArrow();
+      fieldStats();
+      renderPreview();
+      return;
+    }
     if (A.mode === "lit-pick") {
       const L = S.figs.lit.lit;
       L.picked.set(A.target, { geo: { kind: "point", parts: [[A.pts[0]]] }, color: MAN_COLORS[L.picked.size % MAN_COLORS.length] });
@@ -337,8 +366,8 @@
     const { view, k } = S.last;
     const pp = A.pts.map(([lon, lat]) => view.fromLL(lon, lat));
     c.setTransform(k, 0, 0, k, 0, 0);
-    if (isLit(A.mode)) {
-      const col = MAN_COLORS[S.figs.lit.lit.seq % MAN_COLORS.length];
+    if (isLit(A.mode) || A.mode === "fld-line") {
+      const col = A.mode === "fld-line" ? "#ff3fd2" : MAN_COLORS[S.figs.lit.lit.seq % MAN_COLORS.length];
       c.beginPath();
       pp.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
       if (A.mode === "lit-area") { c.closePath(); c.globalAlpha = 0.3; c.fillStyle = col; c.fill(); c.globalAlpha = 1; }
@@ -364,7 +393,7 @@
   const initArrow = () => {
     const over = $("#pv-over");
     over.addEventListener("click", (e) => {
-      if (!A.mode || !S.last || !S.last.view) return;
+      if (!A.mode || !S.last || !S.last.view || A.mode === "fld-erase") return;
       const [px, py] = toPage(e);
       const ll = S.last.view.toLL(px, py);
       const last = A.pts[A.pts.length - 1];
@@ -381,7 +410,14 @@
     $$("[data-arrow]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.arrow ? stopArrow() : startArrow(b.dataset.arrow))));
     $$("[data-lit]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.lit ? stopArrow() : startArrow(b.dataset.lit))));
     $("#arrow-done").addEventListener("click", finishArrow);
-    $("#arrow-undo").addEventListener("click", () => { A.pts.pop(); arrowMsg(); drawArrowTemp(); });
+    $("#arrow-undo").addEventListener("click", () => {
+      const F = FF();
+      if (A.mode === "fld-erase") { const i = F.edits.map((x) => x.t).lastIndexOf("erase"); if (i >= 0) { F.edits.splice(i, 1); fieldStats(); renderPreview(); } return; }
+      if (FLD_PT[A.mode]) { const i = F.points.map((x) => x.kind).lastIndexOf(FLD_PT[A.mode]); if (i >= 0) { F.points.splice(i, 1); arrowMsg(); renderFieldPane(); renderPreview(); } return; }
+      A.pts.pop();
+      arrowMsg();
+      drawArrowTemp();
+    });
     $("#arrow-cancel").addEventListener("click", stopArrow);
     $("#arrow-list").addEventListener("click", (e) => {
       const b = e.target.closest("button[data-del]");
@@ -395,6 +431,348 @@
     const list = fig().arrows;
     const n = { forest: 0, water: 0 };
     $("#arrow-list").innerHTML = list.map((a, i) => `<div class="arrow-row"><i class="sw sw-${a.kind}"></i>${arrowName(a.kind)} ${++n[a.kind]} <span class="muted small">점 ${a.pts.length}개</span><button class="link" data-del="${i}">지우기</button></div>`).join("");
+  };
+  // ---------- 현지조사 위치도 ----------
+  // 조사범위 처음 값(표 6.1.1-3 조사항목별 현지조사 범위): 면사업은 사업지구 경계에서, 선형사업은 중심선(식물)·경계(양서·파충류·곤충)에서.
+  // 보호지역·생태·자연도 1등급이 가까우면 500 m까지 넓히기도 함(필수 아님 — 꺼 둔 줄). 거리·이름은 직접 고쳐 씀
+  const FIELD_RANGES = {
+    area: [[100, "식물상·식생, 양서·파충류·육상곤충", true], [300, "포유류·조류", true], [500, "보호지역 인접 확대", false]],
+    line: [[150, "식물상·식생, 양서·파충류·육상곤충", true], [500, "포유류·조류", true]],
+  };
+  // 경로 분류군: [키, 이름, 색, 파일 이름으로 짐작]
+  const ROUTE_GROUPS = [
+    ["etc", "공통", "#ff3fd2", null],
+    ["flora", "식물상·식생", "#51cf66", /식물|식생|plant|flora|veg/i],
+    ["mammal", "포유류", "#ff922b", /포유|mammal/i],
+    ["bird", "조류", "#4dabf7", /조류|bird/i],
+    ["herp", "양서·파충류", "#cc5de8", /양서|파충|양파|herp|amphib|reptil/i],
+    ["insect", "육상곤충", "#fcc419", /곤충|insect/i],
+    ["water", "육수생물", "#22b8cf", /어류|저서|육수|fish|benth/i],
+  ];
+  const FIELD_PTS = { veg: ["식생", "St."], water: ["육수", "W."], etc: ["기타", "P."] };
+  const FLD_PT = { "fld-veg": "veg", "fld-water": "water", "fld-etc": "etc" };
+  const FF = () => S.figs.field.field;
+  const fext = (n) => (n.split(".").pop() || "").toLowerCase();
+  const siteKind = () => { const k = new Set((site() ? site().features : []).map((f) => U.kindOf(f.geometry))); return !k.has("polygon") && k.has("line") ? "line" : "area"; };
+  const fieldType = (F) => (F.type === "auto" ? siteKind() : F.type);
+  const fieldRanges = (F) => { if (!F.ranges) F.ranges = FIELD_RANGES[fieldType(F)].map(([m, name, on]) => ({ m, name, on })); return F.ranges; };
+  const fieldOrigin = () => { const b = U.bboxOf(site().features); return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; };
+  let FR = { key: "", val: null };
+  const prepField = (f) => {
+    const F = f.field;
+    // 같은 거리의 범위는 선 하나로(이름은 이어 씀)
+    const by = new Map();
+    fieldRanges(F).filter((r) => r.on && r.m > 0).forEach((r) => { if (!by.has(r.m)) by.set(r.m, []); if (r.name.trim()) by.get(r.m).push(r.name.trim()); });
+    f.fieldRings = [...by].sort((a, b) => a[0] - b[0]).map(([m, ns]) => ({ m, label: `${ns.length ? `${ns.join(", ")} ` : ""}조사범위(${fmt(m)} m)` }));
+    // 경로: 분류군별 색이 아니면 모두 한 묶음으로 합침(무거운 합치기는 같은 조건이면 다시 하지 않음)
+    const on = F.tracks.filter((t) => t.on), gOf = (g) => (F.byGroup ? g : "all");
+    const origin = site() ? fieldOrigin() : on.length ? on[0].lines[0][0].slice(0, 2) : [127, 37];
+    const key = JSON.stringify([on.map((t) => [t.id, gOf(t.group)]), F.tol, F.car, F.soft, F.far, site() ? U.bboxOf(site().features) : origin]);
+    if (FR.key !== key) {
+      const sets = new Map();
+      on.forEach((t) => { const g = gOf(t.group); if (!sets.has(g)) sets.set(g, []); sets.get(g).push(...t.lines); });
+      FR = { key, val: Field.build([...sets].map(([g, lines]) => ({ g, lines })), { origin, tol: F.tol, car: F.car, soft: F.soft, site: site() && site().features, far: F.far }) };
+    }
+    F.stats = on.length ? FR.val.stats : null;
+    const sets = Field.applyEdits(FR.val.sets, F.edits.map((ed) => (ed.t === "add" ? { ...ed, g: gOf(ed.g) } : ed)), origin);
+    const meta = new Map(ROUTE_GROUPS.map(([k, name, color], i) => [k, { name: `${name} 조사경로`, color, i }]));
+    f.fieldRoutes = sets.filter((x) => x.lines.length)
+      .map((x) => (x.g === "all" ? { name: "조사경로", color: ROUTE_GROUPS[0][2], i: 0, lines: x.lines } : { ...(meta.get(x.g) || meta.get("etc")), lines: x.lines }))
+      .sort((a, b) => a.i - b.i);
+  };
+  const guessGroup = (name) => (ROUTE_GROUPS.find((g) => g[3] && g[3].test(name)) || ROUTE_GROUPS[0])[0];
+  const guessPtKind = (t) => (/(^|\s)st\.?\s*\d|식생|veg/i.test(t) ? "veg" : /(^|\s)w\.?\s*\d|육수|어류|저서|water|fish/i.test(t) ? "water" : "etc");
+  // 다음 번호: 같은 종류 이름 끝 숫자 중 가장 큰 것 + 1
+  const nextLabel = (kind) => {
+    const used = FF().points.filter((p) => p.kind === kind).map((p) => { const m = /(\d+)\s*$/.exec(p.label); return m ? +m[1] : 0; });
+    return `${FIELD_PTS[kind][1]}${Math.max(0, ...used) + 1}`;
+  };
+  const addPoint = (kind, pt, label) => {
+    const F = FF();
+    F.points.push({ id: `p${++F.pseq}`, kind, label: label || nextLabel(kind), pt: [+pt[0].toFixed(7), +pt[1].toFixed(7)] });
+  };
+  // 조사원 경로 파일(여러 개, KMZ·zip은 풀어서). 경로 없이 지점만 든 파일(조사지점 KML 등)은 조사지점으로
+  const importTracks = async (files) => {
+    const F = FF(), items = [], bad = [];
+    for (const file of files) {
+      const x = fext(file.name);
+      if (x === "kmz" || x === "zip") {
+        await loadScript(LIB.jszip, "JSZip");
+        const z = await JSZip.loadAsync(file);
+        for (const en of Object.values(z.files)) {
+          if (en.dir || !/\.(kml|gpx|geojson)$/i.test(en.name) || /(^|\/)__MACOSX\//.test(en.name)) continue;
+          const inner = en.name.split("/").pop();
+          items.push({ name: x === "kmz" && /^doc\.kml$/i.test(inner) ? file.name.replace(/\.kmz$/i, ".kml") : inner, text: await en.async("string") });
+        }
+      } else items.push({ name: file.name, text: await file.text() });
+    }
+    let nt = 0, np = 0;
+    items.forEach(({ name, text }) => {
+      let r;
+      try { r = Field.parse(name, text); } catch (err) { bad.push(err.message); return; }
+      const stem = name.replace(/\.[^.]+$/, "");
+      if (r.lines.length) {
+        const lines = r.lines.map((l) => l.map(([lon, lat, t]) => [+lon.toFixed(7), +lat.toFixed(7), t]));
+        F.tracks.push({ id: `t${++F.tseq}`, name: stem, group: guessGroup(name), on: true, km: lines.reduce((a, l) => a + Field.lengthLL(l), 0) / 1000, lines });
+        nt++;
+      } else if (r.pts.length) {
+        r.pts.forEach((p) => addPoint(guessPtKind(`${p.name} ${stem}`), [p.lon, p.lat], p.name.trim()));
+        np += r.pts.length;
+      } else bad.push(`${name}: 경로나 지점이 없습니다.`);
+    });
+    return { nt, np, bad };
+  };
+  const renderFieldPane = () => {
+    const F = FF(), auto = siteKind() === "line" ? "선형사업" : "면사업";
+    $("#f-type").options[0].textContent = `자동(${site() ? auto : "경계 모양"})`;
+    $("#f-type").value = F.type;
+    $("#f-tol").value = String(F.tol);
+    $("#f-soft").value = String(F.soft);
+    $("#f-far").value = String(F.far);
+    $("#f-car").checked = F.car;
+    $("#f-group").checked = F.byGroup;
+    $("#f-ranges").innerHTML = fieldRanges(F).map((r, i) => `<div class="fr-row" data-i="${i}"><input type="checkbox" data-k="on" ${r.on ? "checked" : ""} title="도면에 그리기">`
+      + `<input class="input" type="number" data-k="m" min="1" max="5000" step="10" value="${r.m}"><span class="muted small">m</span>`
+      + `<input class="input" data-k="name" value="${esc(r.name)}" placeholder="조사 항목"><button class="link" data-del="${i}" title="이 범위 빼기">빼기</button></div>`).join("");
+    const col = (t) => (F.byGroup ? (ROUTE_GROUPS.find((g) => g[0] === t.group) || ROUTE_GROUPS[0])[2] : ROUTE_GROUPS[0][2]);
+    $("#f-tracks").innerHTML = F.tracks.map((t) => `<div class="lit-row f-track${t.on ? "" : " off"}" data-id="${t.id}"><input type="checkbox" data-k="on" ${t.on ? "checked" : ""}>`
+      + `<i class="f-sw" style="background:${col(t)}"></i><span class="f-name" title="${esc(t.name)}">${esc(t.name)} <span class="muted small">${fmt(t.km, 1)} km</span></span>`
+      + `<select class="input" data-k="group" title="분류군(분류군별 색일 때 색이 나뉨)">${ROUTE_GROUPS.map(([k, n]) => `<option value="${k}" ${k === t.group ? "selected" : ""}>${n}</option>`).join("")}</select>`
+      + `<button class="link" data-del>빼기</button></div>`).join("");
+    $("#f-add-group").innerHTML = ROUTE_GROUPS.map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
+    $("#f-add-group").hidden = !F.byGroup;
+    $("#f-points").innerHTML = F.points.map((p) => `<div class="lit-row f-pt" data-id="${p.id}"><i class="f-sym f-sym-${p.kind}"></i>`
+      + `<input class="input" data-k="label" value="${esc(p.label)}"><span class="muted small">${FIELD_PTS[p.kind][0]}</span><button class="link" data-del>지우기</button></div>`).join("");
+    fieldStats();
+  };
+  const fieldStats = () => {
+    const F = FF(), st = F.stats, er = F.edits.filter((x) => x.t === "erase").length, ad = F.edits.length - er;
+    $("#f-stats").hidden = !st;
+    if (st) $("#f-stats").textContent = `경로 ${F.tracks.filter((t) => t.on).length}개 · 기록 ${fmt(st.raw, 1)} km${st.car ? ` · 차량 이동 ${fmt(st.car, 1)} km 뺌` : ""}${st.far ? ` · ${fmt(F.far / 1000, 1)} km 밖 ${fmt(st.far, 1)} km 뺌` : ""} → 도면 ${fmt(st.out, 1)} km${F.tol ? "(겹친 길 합침)" : ""}`;
+    $("#f-edit-text").textContent = F.edits.length ? `고친 것: 지운 곳 ${er} · 그린 길 ${ad}` : "";
+    $("#f-undo").disabled = $("#f-reset").disabled = !F.edits.length;
+  };
+  // 지우개: 미리보기에서 누르거나 문지른 곳(용지 지름 5 mm)을 한 번의 고친 것으로
+  const ERASE_MM = 2.5;
+  const drawEraseTemp = (stroke, cur) => {
+    const over = $("#pv-over"), c = over.getContext("2d");
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, over.width, over.height);
+    if (!S.last || !S.last.view) return;
+    c.setTransform(S.last.k, 0, 0, S.last.k, 0, 0);
+    if (stroke) { c.fillStyle = "rgba(240, 62, 62, 0.35)"; stroke.forEach((p) => { c.beginPath(); c.arc(p.px, p.py, ERASE_MM, 0, 2 * Math.PI); c.fill(); }); }
+    if (cur) { c.beginPath(); c.arc(cur.px, cur.py, ERASE_MM, 0, 2 * Math.PI); c.lineWidth = 0.3; c.strokeStyle = "#f03e3e"; c.stroke(); }
+  };
+  const initErase = () => {
+    const over = $("#pv-over");
+    let stroke = null;
+    const at = (e) => { const [px, py] = toPage(e); return { px, py, ll: S.last.view.toLL(px, py) }; };
+    const on = () => A.mode === "fld-erase" && S.last && S.last.view;
+    over.addEventListener("pointerdown", (e) => { if (!on()) return; stroke = [at(e)]; over.setPointerCapture(e.pointerId); drawEraseTemp(stroke); });
+    // 빨리 움직여도 지나간 길이 빈틈없이 지워지게 마지막 점과 사이를 반지름 절반 간격으로 채움
+    const fill = (p) => {
+      const l = stroke[stroke.length - 1], n = Math.floor(Math.hypot(p.px - l.px, p.py - l.py) / (ERASE_MM * 0.5));
+      for (let i = 1; i <= n; i++) { const px = l.px + ((p.px - l.px) * i) / n, py = l.py + ((p.py - l.py) * i) / n; stroke.push({ px, py, ll: S.last.view.toLL(px, py) }); }
+    };
+    over.addEventListener("pointermove", (e) => {
+      if (!on()) return;
+      const p = at(e);
+      if (stroke) fill(p);
+      drawEraseTemp(stroke, p);
+    });
+    over.addEventListener("pointerleave", () => { if (on() && !stroke) drawEraseTemp(null); });
+    const end = (e) => {
+      if (!stroke) return;
+      if (e.type === "pointerup") fill(at(e));
+      const st = stroke;
+      stroke = null;
+      FF().edits.push({ t: "erase", c: st.map((q) => [+q.ll[0].toFixed(7), +q.ll[1].toFixed(7)]), r: Math.round(((ERASE_MM * S.last.fig.scale) / 1000) * 10) / 10 });
+      fieldStats();
+      renderPreview();
+    };
+    over.addEventListener("pointerup", end);
+    over.addEventListener("pointercancel", end);
+  };
+  // 파일(.json): 조사범위·경로·고친 것·조사지점과 경계(불러올 때 경계가 없으면 씀)
+  const FIELD_FILE = "eia-figure-maps/field";
+  const saveField = () => {
+    const F = FF();
+    if (!F.tracks.length && !F.points.length && !F.edits.length) { toast("저장할 것이 없습니다. 경로를 넣거나 조사지점을 찍은 뒤 저장하세요."); return; }
+    const name = $("#site-name").value.trim();
+    const data = {
+      type: FIELD_FILE, version: 1, saved: new Date().toISOString(), project: name, siteText: siteText(), site: site() ? site().features : null,
+      options: { type: F.type, tol: F.tol, car: F.car, soft: F.soft, far: F.far, byGroup: F.byGroup }, ranges: F.ranges, tracks: F.tracks, edits: F.edits, points: F.points,
+    };
+    saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "현지조사위치도"].filter(Boolean).join("_"))}.json`);
+    toast(`경로 ${F.tracks.length}개, 고친 것 ${F.edits.length}건, 조사지점 ${F.points.length}곳을 파일로 저장했습니다.`);
+  };
+  const loadField = async (file) => {
+    let d;
+    try { d = JSON.parse(await file.text()); } catch (_) { throw new Error("현지조사 위치도 파일(.json)을 읽지 못했습니다."); }
+    if (!d || d.type !== FIELD_FILE) throw new Error("이 도구에서 저장한 현지조사 위치도 파일이 아닙니다.");
+    let note = "";
+    if (!site() && Array.isArray(d.site) && d.site.length && Input.setSite(d.site, "현지조사 위치도 파일의 경계")) note = " 파일에 있던 경계도 넣었습니다.";
+    const F = FF(), arr = (a) => (Array.isArray(a) ? a : []), isPt = (p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]);
+    const o = d.options || {};
+    if (["auto", "area", "line"].includes(o.type)) F.type = o.type;
+    if (Number.isFinite(o.tol)) F.tol = o.tol;
+    if (Number.isFinite(o.soft)) F.soft = o.soft;
+    if (Number.isFinite(o.far)) F.far = o.far;
+    ["car", "byGroup"].forEach((k) => { if (typeof o[k] === "boolean") F[k] = o[k]; });
+    const rs = arr(d.ranges).filter((r) => r && Number.isFinite(r.m)).map((r) => ({ m: r.m, name: String(r.name || ""), on: !!r.on }));
+    F.ranges = rs.length ? rs : null;
+    F.rangesEdited = !!rs.length;
+    F.tracks = arr(d.tracks).filter((t) => t && typeof t.id === "string").map((t) => ({ id: t.id, name: String(t.name || ""), group: ROUTE_GROUPS.some((g) => g[0] === t.group) ? t.group : "etc", on: t.on !== false, km: +t.km || 0,
+      lines: arr(t.lines).filter((l) => Array.isArray(l) && l.length >= 2 && l.every(isPt)) })).filter((t) => t.lines.length);
+    F.edits = arr(d.edits).filter((ed) => ed && ((ed.t === "add" && arr(ed.pts).length >= 2 && ed.pts.every(isPt)) || (ed.t === "erase" && arr(ed.c).length && ed.c.every(isPt) && ed.r > 0)));
+    F.points = arr(d.points).filter((p) => p && FIELD_PTS[p.kind] && isPt(p.pt)).map((p) => ({ id: String(p.id), kind: p.kind, label: String(p.label || ""), pt: p.pt }));
+    F.tseq = Math.max(0, ...F.tracks.map((t) => +t.id.slice(1) || 0));
+    F.pseq = Math.max(0, ...F.points.map((p) => +String(p.id).slice(1) || 0));
+    if (typeof d.project === "string" && d.project && !$("#site-name").value.trim()) $("#site-name").value = d.project;
+    const st = $("#site-text");
+    if (typeof d.siteText === "string" && d.siteText && !st.dataset.edited) { st.value = d.siteText; st.dataset.edited = "1"; }
+    FR.key = "";
+    return { t: F.tracks.length, p: F.points.length, e: F.edits.length, note };
+  };
+  // 조사지점 좌표 엑셀(보고서 조사지점 표): 경위도(십진·도분초)와 EPSG:5186
+  const dms = (v, pos, neg) => { const a = Math.abs(v), d = Math.floor(a), m = Math.floor((a - d) * 60), s = (a - d - m / 60) * 3600; return `${v < 0 ? neg : pos} ${d}°${String(m).padStart(2, "0")}′${s.toFixed(1).padStart(4, "0")}″`; };
+  const fieldExcel = async () => {
+    const F = FF();
+    if (!F.points.length) { toast("찍은 조사지점이 없습니다."); return; }
+    await loadScript(LIB.xlsx, "XLSX");
+    const tm = proj4("WGS84", U.crsDef("5186")), name = $("#site-name").value.trim(), order = Object.keys(FIELD_PTS);
+    const rows = [...F.points].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind)).map((p) => {
+      const [x, y] = tm.forward(p.pt);
+      return [FIELD_PTS[p.kind][0], p.label, dms(p.pt[1], "N", "S"), dms(p.pt[0], "E", "W"), +p.pt[1].toFixed(6), +p.pt[0].toFixed(6), Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+    });
+    const aoa = [["현지조사 지점 좌표"], [], ["사업명", name || "-"], [], ["구분", "지점", "위도", "경도", "위도(십진)", "경도(십진)", "동향 E(EPSG:5186, m)", "북향 N(EPSG:5186, m)"], ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{ wch: 8 }, { wch: 10 }, { wch: 16 }, { wch: 17 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "조사지점");
+    saveBlob(new Blob([XLSX.write(wb, { type: "array", bookType: "xlsx" })], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${safeName([name, "현지조사지점_좌표"].filter(Boolean).join("_"))}.xlsx`);
+  };
+  // 정리한 경로·조사지점 KML(GIS·구글어스에서 다시 쓰기)
+  const fieldKml = () => {
+    const f = S.figs.field, F = f.field;
+    prepField(f);
+    const routes = f.fieldRoutes || [];
+    if (!routes.length && !F.points.length) { toast("받을 경로·조사지점이 없습니다."); return; }
+    const name = $("#site-name").value.trim(), c = (l) => l.map(([lon, lat]) => `${lon.toFixed(7)},${lat.toFixed(7)}`).join(" ");
+    const pm = routes.flatMap((r) => r.lines.map((l, i) => `<Placemark><name>${esc(r.name)} ${i + 1}</name><LineString><tessellate>1</tessellate><coordinates>${c(l)}</coordinates></LineString></Placemark>`));
+    const pp = F.points.map((p) => `<Placemark><name>${esc(p.label)}</name><description>${FIELD_PTS[p.kind][0]} 조사지점</description><Point><coordinates>${p.pt[0]},${p.pt[1]}</coordinates></Point></Placemark>`);
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${esc(name || "현지조사")}</name>${pm.join("")}${pp.join("")}</Document></kml>`;
+    saveBlob(new Blob([kml], { type: "application/vnd.google-earth.kml+xml" }), `${safeName([name, "현지조사_정리경로"].filter(Boolean).join("_"))}.kml`);
+  };
+  const initField = () => {
+    $("#f-type").addEventListener("change", (e) => { const F = FF(); F.type = e.target.value; F.ranges = null; F.rangesEdited = false; renderFieldPane(); scaleOptions(); renderPreview(); });
+    const rb = $("#f-ranges");
+    const upd = (e) => {
+      const row = e.target.closest(".fr-row");
+      if (!row) return false;
+      const r = FF().ranges[+row.dataset.i], k = e.target.dataset.k;
+      if (k === "on") r.on = e.target.checked;
+      if (k === "m") r.m = Math.max(0, Math.min(5000, Math.round(+e.target.value || 0)));
+      if (k === "name") r.name = e.target.value;
+      FF().rangesEdited = true;
+      return true;
+    };
+    rb.addEventListener("input", (e) => { if (e.target.dataset.k !== "on" && upd(e)) { scaleOptions(); rerender(); } });
+    rb.addEventListener("change", (e) => { if (e.target.dataset.k === "on" && upd(e)) { scaleOptions(); renderPreview(); } });
+    rb.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-del]");
+      if (!b) return;
+      FF().ranges.splice(+b.dataset.del, 1);
+      FF().rangesEdited = true;
+      renderFieldPane();
+      scaleOptions();
+      renderPreview();
+    });
+    $("#f-range-add").addEventListener("click", () => {
+      const F = FF(), rs = fieldRanges(F);
+      rs.push({ m: rs.some((r) => r.m === 500) ? 1000 : 500, name: "", on: true });
+      F.rangesEdited = true;
+      renderFieldPane();
+      scaleOptions();
+      renderPreview();
+    });
+    $("#f-file").addEventListener("change", async (e) => {
+      const files = [...e.target.files];
+      e.target.value = "";
+      if (!files.length) return;
+      try {
+        toast("경로 파일을 읽는 중…", 1500);
+        const r = await importTracks(files);
+        if (S.cur !== "field") { stopArrow(); S.cur = "field"; syncControls(); }
+        renderFieldPane();
+        if (site()) setView("preview");
+        if (!r.nt && !r.np) { toast(r.bad.join(" / ") || "읽을 수 있는 경로가 없습니다.", 6000); return; }
+        toast(`경로 ${r.nt}개${r.np ? `, 조사지점 ${r.np}곳` : ""}을 넣었습니다.${site() ? "" : " 사업지구 경계를 넣으면 도면에 그립니다."}${r.bad.length ? ` 못 읽은 파일: ${r.bad.join(" / ")}` : ""}`, r.bad.length ? 7000 : 3500);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "경로 파일을 읽지 못했습니다.", 5000);
+      }
+    });
+    const tb = $("#f-tracks");
+    tb.addEventListener("change", (e) => {
+      const row = e.target.closest("[data-id]"), t = row && FF().tracks.find((x) => x.id === row.dataset.id);
+      if (!t) return;
+      if (e.target.dataset.k === "on") t.on = e.target.checked;
+      if (e.target.dataset.k === "group") t.group = e.target.value;
+      renderFieldPane();
+      renderPreview();
+    });
+    tb.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-del]"), row = b && b.closest("[data-id]");
+      if (!row) return;
+      const F = FF();
+      F.tracks = F.tracks.filter((x) => x.id !== row.dataset.id);
+      renderFieldPane();
+      renderPreview();
+    });
+    $("#f-tol").addEventListener("change", (e) => { FF().tol = +e.target.value; renderPreview(); });
+    $("#f-soft").addEventListener("change", (e) => { FF().soft = +e.target.value; renderPreview(); });
+    $("#f-far").addEventListener("change", (e) => { FF().far = +e.target.value; renderPreview(); });
+    $("#f-car").addEventListener("change", (e) => { FF().car = e.target.checked; renderPreview(); });
+    $("#f-group").addEventListener("change", (e) => { FF().byGroup = e.target.checked; renderFieldPane(); renderPreview(); });
+    $$("[data-fld]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.fld ? stopArrow() : startArrow(b.dataset.fld))));
+    $("#f-undo").addEventListener("click", () => { FF().edits.pop(); fieldStats(); renderPreview(); });
+    $("#f-reset").addEventListener("click", () => { const n = FF().edits.length; FF().edits = []; fieldStats(); renderPreview(); toast(`고친 것 ${n}건을 모두 취소했습니다.`); });
+    const pb = $("#f-points");
+    pb.addEventListener("input", (e) => {
+      const row = e.target.closest("[data-id]"), p = row && FF().points.find((x) => x.id === row.dataset.id);
+      if (!p || e.target.dataset.k !== "label") return;
+      p.label = e.target.value;
+      rerender();
+    });
+    pb.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-del]"), row = b && b.closest("[data-id]");
+      if (!row) return;
+      const F = FF();
+      F.points = F.points.filter((x) => x.id !== row.dataset.id);
+      renderFieldPane();
+      renderPreview();
+    });
+    $("#f-save").addEventListener("click", saveField);
+    $("#f-load").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const r = await loadField(file);
+        stopArrow();
+        S.cur = "field";
+        syncControls();
+        if (site()) setView("preview");
+        toast(`경로 ${r.t}개, 고친 것 ${r.e}건, 조사지점 ${r.p}곳을 불러왔습니다.${r.note}`, 4000);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "현지조사 위치도 파일을 읽지 못했습니다.");
+      }
+    });
+    $("#f-xlsx").addEventListener("click", () => fieldExcel().catch((err) => { console.error(err); toast(err.message || "엑셀을 만들지 못했습니다."); }));
+    $("#f-kml").addEventListener("click", () => { try { fieldKml(); } catch (err) { console.error(err); toast(err.message || "KML을 만들지 못했습니다."); } });
+    initErase();
   };
 
   // ---------- 보호구역 위치도 ----------
@@ -1125,6 +1503,7 @@
     if (f.kind === "lit" || f.kind === "sp") await prepLit(f);
     if (f.kind === "sp") prepSp(f);
     if (f.kind === "pa") await prepGrid(f);
+    if (f.kind === "field") prepField(f);
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;
@@ -1202,6 +1581,9 @@
     const L = S.figs.lit.lit;
     if (L.imported || L.xls || L.sp) { L.imported = null; L.xls = null; L.sp = null; L.hide.clear(); toast("경계가 바뀌어 넣었던 BioGrid EIA 자료(문헌 엑셀·공간자료·법정보호종)를 뺐습니다. 새 경계로 받은 자료를 다시 넣어 주세요.", 5000); }
     L.gridKey = "";
+    const FD = S.figs.field.field;
+    if (!FD.rangesEdited) FD.ranges = null;
+    renderFieldPane();
     renderLitList();
     scaleOptions();
     if (s) setView("preview"); else renderPreview();
@@ -1215,7 +1597,7 @@
   }));
   $$("#view-tabs button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $$(".side select, .side input[type=checkbox]").forEach((el) => {
-    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.id === "s-where" || el.closest("#label-list") || el.closest("#lit-list") || el.type === "file") return;
+    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.id === "s-where" || el.closest("#label-list") || el.closest("#lit-list") || el.closest("#field-pane") || el.type === "file") return;
     el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); if (/^o-(basemap|gray|labels)$/.test(el.id)) syncMapBase(); renderPreview(); });
   });
   $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
@@ -1233,6 +1615,7 @@
   paSummary(null);
   initSp();
   renderSpList();
+  initField();
   $$("#page-tabs button").forEach((b) => b.addEventListener("click", () => {
     S.page = +b.dataset.page;
     syncPageTabs();

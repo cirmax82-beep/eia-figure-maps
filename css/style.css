@@ -150,3 +150,18 @@ details .checks { margin-bottom: 8px; }
 .sp-head { display: flex; align-items: center; gap: 6px; }
 .sp-head .link { margin-left: auto; }
 .sp-row textarea { font-family: inherit; font-size: 12.5px; color: #c62828; }
+/* 현지조사 위치도 */
+.f-ranges { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 2px; }
+.fr-row { display: grid; grid-template-columns: auto 74px auto 1fr auto; gap: 6px; align-items: center; }
+.fr-row .input { padding: 4px 7px; font-size: 12.5px; }
+.f-track { grid-template-columns: auto auto 1fr auto auto; }
+.f-track .f-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.f-track select { width: auto; }
+.f-pt { grid-template-columns: auto 1fr auto auto; }
+.f-sw { display: inline-block; width: 16px; height: 4px; border-radius: 2px; }
+.f-sym { display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
+.f-sym-veg { background: #2f9e44; }
+.f-sym-water { background: #1c7ed6; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.f-sym-etc { background: #f76707; border-radius: 50%; }
+.f-add-group { width: auto; }
+.f-edit { align-items: center; }

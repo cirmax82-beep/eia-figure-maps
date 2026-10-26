@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261027s">
+<link rel="stylesheet" href="css/style.css?v=20261028a">
 </head>
 <body>
 <header class="top">
@@ -79,7 +79,7 @@
       <h2><span class="num">2</span>도면</h2>
       <div class="seg wrap" id="fig-tabs">
         <button data-fig="sat" class="on">위성사진 현황도</button><button data-fig="eco">생태축 현황도</button><button data-fig="nat">생태·자연도</button>
-        <button data-fig="veg">식생기후대</button><button data-fig="flo">식물상 지역</button><button data-fig="lit">문헌조사 위치도</button><button data-fig="sp">법정보호종 출현위치도</button><button data-fig="pa">보호구역 위치도</button>
+        <button data-fig="veg">식생기후대</button><button data-fig="flo">식물상 지역</button><button data-fig="lit">문헌조사 위치도</button><button data-fig="sp">법정보호종 출현위치도</button><button data-fig="pa">보호구역 위치도</button><button data-fig="field">현지조사 위치도</button>
       </div>
 
       <div class="grid2">
@@ -143,6 +143,64 @@
         </details>
         <div class="btns"><button class="btn ghost" id="p-xlsx">9격자 안 보호구역 목록 받기(엑셀)</button></div>
         <p class="hint">보호구역 종합포털(protect.biogrideia.com)에서 9격자에 걸치는 구역의 경계만 받아 격자 안쪽을 그립니다. 경계는 참고 자료이며 법적 효력이 없습니다.</p>
+      </div>
+
+      <div data-figpane="field" id="field-pane" hidden>
+        <label class="row">사업 종류 <select id="f-type" class="input">
+          <option value="auto">자동(경계 모양)</option><option value="area">면사업</option><option value="line">선형사업</option>
+        </select></label>
+        <b class="small">조사범위 <span class="muted">(사업지구 경계에서 잰 거리 — 직접 고치고, 같은 거리는 선 하나로)</span></b>
+        <div id="f-ranges" class="f-ranges"></div>
+        <button class="link small" id="f-range-add" type="button">범위 추가</button>
+        <div class="drop">
+          <input type="file" id="f-file" multiple accept=".gpx,.kml,.kmz,.geojson,.json,.zip">
+          <b>조사경로 넣기(GPX·KML, 여러 개)</b>
+          <span>조사원들이 등산·경로 앱에서 받은 파일을 한꺼번에 — 겹친 길은 하나로 합치고, 튀는 점·차량 이동·사업지구에서 먼 길은 뺍니다(지점만 든 파일은 조사지점으로)</span>
+        </div>
+        <div id="f-tracks" class="lit-list"></div>
+        <p class="site-box small" id="f-stats" hidden></p>
+        <div class="grid2">
+          <label title="다른 경로(갔다가 되돌아온 길 포함)에서 이 거리 안을 지나는 부분은 같은 길로 보고 하나만 그림">겹친 길 합치기 <select id="f-tol" class="input">
+            <option value="0">합치지 않음</option><option value="8">8 m 안</option><option value="15">15 m 안</option><option value="25">25 m 안</option><option value="40">40 m 안</option>
+          </select></label>
+          <label title="GPS 잔떨림을 펴는 정도(앞뒤 이 거리 안 점들을 평균) — 큰 굽이는 남습니다">경로 다듬기 <select id="f-soft" class="input">
+            <option value="0">그대로</option><option value="6">약하게</option><option value="12">보통</option><option value="25">강하게</option>
+          </select></label>
+          <label title="사업지구 경계에서 이 거리보다 먼 경로는 자동으로 잘라 냄(앱을 끄지 않고 돌아간 길 등)">먼 경로 자르기 <select id="f-far" class="input">
+            <option value="0">자르지 않음</option><option value="1000">1 km 밖</option><option value="2000">2 km 밖</option><option value="3000">3 km 밖</option><option value="5000">5 km 밖</option>
+          </select></label>
+          <div class="checks">
+            <label title="시각이 기록된 경로에서 앞뒤 15초 평균 시속 15 km가 넘는 구간"><input type="checkbox" id="f-car" checked> 차량 이동 빼기</label>
+            <label><input type="checkbox" id="f-group"> 분류군별 색</label>
+          </div>
+        </div>
+        <div class="axis-tool">
+          <b>경로 고치기</b>
+          <div class="btns">
+            <button class="btn ghost" data-fld="fld-erase">지우개</button>
+            <button class="btn ghost" data-fld="fld-line">경로 그리기</button>
+            <select id="f-add-group" class="input f-add-group" title="그릴 경로의 분류군" hidden></select>
+          </div>
+          <div class="btns f-edit"><button class="link small" id="f-undo" type="button">하나 되돌리기</button><button class="link small" id="f-reset" type="button">고친 것 모두 취소</button><span class="muted small" id="f-edit-text"></span></div>
+          <p class="hint">지우개: 미리보기에서 잘못 찍힌 길을 누르거나 문질러 지웁니다. 경로 그리기: 차례로 누르고 두 번 눌러 끝냅니다(꺾인 곳은 둥글게, 끝이 기존 길 가까이면 붙임). 고친 것은 경로를 더 넣거나 합치기 거리를 바꿔도 그대로 남습니다.</p>
+        </div>
+        <div class="axis-tool">
+          <b>조사지점 찍기 <span class="muted">(식생·육수는 지점 조사)</span></b>
+          <div class="btns">
+            <button class="btn ghost" data-fld="fld-veg"><i class="f-sym f-sym-veg"></i>식생 St.</button>
+            <button class="btn ghost" data-fld="fld-water"><i class="f-sym f-sym-water"></i>육수 W.</button>
+            <button class="btn ghost" data-fld="fld-etc"><i class="f-sym f-sym-etc"></i>기타</button>
+          </div>
+          <div id="f-points" class="lit-list"></div>
+          <p class="hint">미리보기 도면을 누를 때마다 St.1, St.2 … 차례로 찍힙니다. 이름은 목록에서 고칩니다.</p>
+        </div>
+        <div class="btns">
+          <button class="btn ghost" id="f-save">저장(파일)</button>
+          <label class="btn ghost">불러오기<input type="file" id="f-load" accept=".json,application/json" hidden></label>
+          <button class="btn ghost" id="f-xlsx">조사지점 좌표(엑셀)</button>
+          <button class="btn ghost" id="f-kml" title="합치고 고친 경로와 조사지점을 GIS·구글어스용 KML로">정리한 경로(KML)</button>
+        </div>
+        <p class="hint">경로 파일·조사범위·고친 것·조사지점을 .json 파일로 저장합니다. 경계를 넣기 전에 불러오면 파일에 있던 경계도 넣습니다.</p>
       </div>
 
       <div data-figpane="sp" hidden>
@@ -292,9 +350,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261027s"></script>
-<script src="js/input.js?v=20261027s"></script>
-<script src="js/render.js?v=20261027s"></script>
-<script src="js/app.js?v=20261027s"></script>
+<script src="js/util.js?v=20261028a"></script>
+<script src="js/input.js?v=20261028a"></script>
+<script src="js/render.js?v=20261028a"></script>
+<script src="js/field.js?v=20261028a"></script>
+<script src="js/app.js?v=20261028a"></script>
 </body>
 </html>

@@ -14,6 +14,8 @@
     flow: "#1864ab", arrowForest: "#1f8a37", arrowWater: "#1c7ed6",
     rings: ["#ffe14d", "#ffffff", "#7fd3ff", "#ff9f40", "#d0bfff"],
   };
+  // 현지조사 위치도: 조사범위 선 색(가까운 범위부터), 조사지점 기호(식생 네모·육수 세모·기타 동그라미)
+  const FIELD = { rings: ["#ffe14d", "#7fd3ff", "#ff9f40", "#d0bfff", "#ffffff"], pts: { veg: "#2f9e44", water: "#1c7ed6", etc: "#f76707" } };
   // 생태·자연도 색(1·2등급·별도관리지역)과 투명도
   const NAT = { g1: "#2f9a41", g2: "#9fd58f", sep: "#f2bfa6", op: 0.62 };
   const SCALES = [1000, 2000, 2500, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000];
@@ -254,7 +256,9 @@
     return makeView(rect, lon0, lat0, Math.max(dx / rect.w, dy / rect.h) * 1.2 * 1000);
   };
   // 주변 범위를 그리는지: 위성 현황도는 늘, 생태축·생태·자연도는 켰을 때
-  const ringsOn = (fig) => fig.kind === "sat" || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
+  const ringsOn = (fig) => fig.kind === "sat" || fig.kind === "field" || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
+  // 주변 범위(km). 현지조사 위치도는 켠 조사범위(fieldRings, m)
+  const ringKms = (fig) => (fig.kind === "field" ? (fig.fieldRings || []).map((r) => r.m / 1000) : fig.rings);
   // 자동 축척: 위성 현황도는 가장 큰 주변 범위, 생태축·생태·자연도는 사업지구 둘레 1 km(주변 범위를 켜면 그 범위)가 틀에 들도록
   const autoScale = (fig, site) => {
     const { frame } = layout(fig);
@@ -273,8 +277,8 @@
       const need = Math.max(((mx(k[2]) - mx(k[0])) * c) / (frame.w * 0.98), ((my(k[3]) - my(k[1])) * c) / (frame.h * 0.98)) * 1000;
       return Math.ceil(need / 500) * 500;
     }
-    const rings = ringsOn(fig) ? fig.rings : [];
-    const padKm = rings.length ? Math.max(...rings) : fig.kind === "sat" ? 0.5 : 1;
+    const rings = ringsOn(fig) ? ringKms(fig) : [];
+    const padKm = rings.length ? Math.max(...rings) : fig.kind === "sat" ? 0.5 : fig.kind === "field" ? 0.3 : 1;
     const wM = (mx(b[2]) - mx(b[0])) * Math.cos(lat0 * RAD) + 2 * padKm * 1000;
     const hM = (my(b[3]) - my(b[1])) * Math.cos(lat0 * RAD) + 2 * padKm * 1000;
     const need = Math.max(wM / (frame.w * 0.95), hM / (frame.h * 0.95)) * 1000;
@@ -837,6 +841,15 @@
     return val;
   };
 
+  // 현지조사 지점 기호: 식생 네모, 육수 세모, 기타 동그라미(흰 테두리)
+  const FIELD_PT_NAME = { veg: "식생 조사지점", water: "육수 조사지점", etc: "기타 조사지점" };
+  const fieldSym = (pen, kind, x, y, e) => {
+    const c = FIELD.pts[kind] || FIELD.pts.etc, st = { closed: true, fill: c, stroke: "#ffffff", width: 0.35 * e, join: "miter" };
+    if (kind === "veg") { const a = 1.45 * e; pen.path([[[x - a, y - a], [x + a, y - a], [x + a, y + a], [x - a, y + a]]], st); }
+    else if (kind === "water") { const a = 1.9 * e; pen.path([[[x, y - a], [x + a * 0.95, y + a * 0.7], [x - a * 0.95, y + a * 0.7]]], st); }
+    else pen.path([Array.from({ length: 25 }, (_, k) => [x + 1.5 * e * Math.cos((k / 24) * 2 * Math.PI), y + 1.5 * e * Math.sin((k / 24) * 2 * Math.PI)])], st);
+  };
+
   // ---------- 도형 도구(용지 mm) ----------
   const ringArea = (r) => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return a / 2; };
   // 더글러스-포이커 줄이기
@@ -942,7 +955,7 @@
       labels: labelsOn ? basemap(v, k, null, alive, LABELS).catch((err) => { console.warn(err); return null; }) : null,
       lc: eco && (fig.eco.forest || fig.eco.water || fig.eco.tidal) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
       osm: eco && (fig.eco.peaks || fig.eco.wnames || fig.eco.flow || fig.eco.streams) ? osm(v).catch((err) => { console.warn(err); warn.push("이름·하천 자료를 받지 못했습니다."); return null; }) : null,
-      rings: wantRings && fig.rings.length ? ringGeoms(site, fig.rings).catch((err) => { console.warn(err); warn.push("주변 범위를 계산하지 못했습니다."); return null; }) : null,
+      rings: wantRings && ringKms(fig).length ? ringGeoms(site, ringKms(fig)).catch((err) => { console.warn(err); warn.push("주변 범위를 계산하지 못했습니다."); return null; }) : null,
     };
     // 이름·하천 자료가 늦으면(미리보기) 먼저 그리고, 도착하면 onLate로 다시 그리게 함
     let osmJob = jobs.osm;
@@ -986,7 +999,7 @@
     const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
     // sp(법정보호종 출현위치도)는 문헌조사 위치도(lit) 위에 종 이름을 더한 것
-    const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa";
+    const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", fld = fig.kind === "field";
     // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다)
     const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : null;
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -1058,7 +1071,13 @@
     if (eco && (fig.arrows || []).some((a) => a.kind === "water")) legend.push({ type: "arrow", color: COLOR.arrowWater, label: "수계축" });
     if (eco && os && fig.eco.flow && os.ways.length) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
     if (eco && os && fig.eco.peaks && os.peaks.length) legend.push({ type: "peak", color: COLOR.peak, label: "산봉우리" });
-    if (rings) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: `${fmtNum(r.km)} km 범위` }));
+    if (rings && !fld) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: `${fmtNum(r.km)} km 범위` }));
+    // 현지조사 위치도: 조사범위 → 조사경로 → 조사지점
+    if (fld) {
+      if (rings) (fig.fieldRings || []).forEach((r, i) => legend.push({ type: "ring", color: FIELD.rings[i % FIELD.rings.length], label: r.label }));
+      (fig.fieldRoutes || []).forEach((r) => legend.push({ type: "route", color: r.color, label: r.name }));
+      Object.entries(FIELD_PT_NAME).forEach(([k, name]) => { if ((fig.field.points || []).some((q) => q.kind === k)) legend.push({ type: "fpt", kind: k, label: name }); });
+    }
     let lg = null;
     const legendTitle = { nat: "생태·자연도", veg: "한국 식생기후 분포도", flo: "한국 식물상 지역" }[fig.kind] || "범   례";
     if (fig.el.legend) {
@@ -1441,18 +1460,26 @@
     const ringLabels = [];
     if (rings) {
       rings.forEach((r, i) => {
-        const col = COLOR.rings[i % COLOR.rings.length];
+        const col = fld ? FIELD.rings[i % FIELD.rings.length] : COLOR.rings[i % COLOR.rings.length];
         const parts = r.rings.map((ring) => ring.map(([lon, lat]) => P(lon, lat)));
-        pen.path(parts, { closed: true, stroke: "#000000", width: 0.9 * e, strokeOpacity: 0.35 });
-        pen.path(parts, { closed: true, stroke: col, width: 0.55 * e, dash: [2.4 * e, 1.3 * e] });
+        pen.path(parts, { closed: true, stroke: "#000000", width: 0.9 * e, strokeOpacity: fld ? 0.45 : 0.35 });
+        // 현지조사 위치도는 조사경로(점선)와 헷갈리지 않게 실선
+        pen.path(parts, fld ? { closed: true, stroke: col, width: 0.6 * e } : { closed: true, stroke: col, width: 0.55 * e, dash: [2.4 * e, 1.3 * e] });
         // 이름: 범위 고리의 가장 위(북쪽) 점, 틀 밖이면 틀 안에서 가장 위 점
         const all = parts.flat().filter(([x, y]) => inF(x, y, 6 * e));
         if (all.length) {
           const top = all.reduce((a, b) => (b[1] < a[1] ? b : a));
-          ringLabels.push({ t: `${fmtNum(r.km)} km`, x: top[0], y: top[1] + 1.2 * e, color: col });
+          ringLabels.push({ t: fld ? `${fmtNum(Math.round(r.km * 1000))} m` : `${fmtNum(r.km)} km`, x: top[0], y: top[1] + 1.2 * e, color: col });
         }
       });
     }
+
+    // 현지조사 경로(겹친 길은 합친 것): 어두운 테두리 위에 점선
+    if (fld) (fig.fieldRoutes || []).forEach((r) => {
+      const parts = r.lines.map((l) => simplify(l.map(([lon, lat]) => P(lon, lat)), 0.05)).filter((l) => l.length >= 2);
+      pen.path(parts, { stroke: "#000000", width: 1.35 * e, strokeOpacity: 0.4 });
+      pen.path(parts, { stroke: r.color, width: 0.75 * e, dash: [1.8 * e, 1 * e] });
+    });
 
     // 사업지구
     const sitePolys = [], siteLines = [], sitePts = [];
@@ -1475,6 +1502,20 @@
     const sb0 = [Infinity, Infinity, -Infinity, -Infinity];
     [...sitePolys.flat(), ...siteLines.flat(), ...sitePts].forEach(([x, y]) => { sb0[0] = Math.min(sb0[0], x); sb0[1] = Math.min(sb0[1], y); sb0[2] = Math.max(sb0[2], x); sb0[3] = Math.max(sb0[3], y); });
     occupied.push([sb0[0] - 1, sb0[1] - 1, sb0[2] + 1, sb0[3] + 1]);
+
+    // 현지조사 지점(St.·W.): 기호를 모두 그린 뒤 이름을 오른쪽부터 빈자리에
+    if (fld) {
+      const pts = (fig.field.points || []).map((q) => ({ q, at: P(q.pt[0], q.pt[1]) })).filter(({ at }) => inF(at[0], at[1]));
+      pts.forEach(({ q, at }) => { fieldSym(pen, q.kind, at[0], at[1], e); occupied.push([at[0] - 1.8 * e, at[1] - 1.8 * e, at[0] + 1.8 * e, at[1] + 1.8 * e]); });
+      const fs = 7 * e, h = fs * PT * 1.15;
+      pts.forEach(({ q, at: [x, y] }) => {
+        const w = textW(q.label, fs, 700), g = 2.2 * e;
+        const cands = [[x + g, y - h / 2], [x - g - w, y - h / 2], [x - w / 2, y - g - h], [x - w / 2, y + g], [x + g, y - g - h], [x + g, y + g], [x - g - w, y - g - h], [x - g - w, y + g]];
+        const at = cands.find(([bx, by]) => !boxHit([bx, by, bx + w, by + h], occupied)) || cands[0];
+        occupied.push([at[0], at[1], at[0] + w, at[1] + h]);
+        pen.text(q.label, at[0], at[1] + h / 2, { size: fs, weight: 700, align: "left", base: "middle", color: "#111111", halo: "#ffffff", haloWidth: 0.55 * e });
+      });
+    }
 
     litLater.forEach((fn) => fn());
 
@@ -1765,6 +1806,15 @@
           pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: "#5f6368", width: 0.95 * e, cap: "butt" });
           pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.55 * e, dash: [2.1 * e, 1.1 * e], cap: "butt" });
         }
+        if (it.type === "ring") {
+          pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: "#5f6368", width: 1 * e, cap: "butt" });
+          pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.6 * e, cap: "butt" });
+        }
+        if (it.type === "route") {
+          pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: "#5f6368", width: 1.35 * e, cap: "butt" });
+          pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.75 * e, dash: [1.8 * e, 1 * e], cap: "butt" });
+        }
+        if (it.type === "fpt") fieldSym(pen, it.kind, sx + sym / 2, cy, e);
         if (it.type === "arrow") pen.path([arrowShape([[sx, cy], [sx + sym, cy]], 2.2 * e)], { closed: true, fill: it.color, fillOpacity: 0.85 });
         if (it.type === "flow") pen.path([flowArrow(sx + sym / 2, cy, 0, 5 * e)], { closed: true, fill: it.color });
         if (it.type === "peak") { const s = 1.8 * e, px = sx + sym / 2; pen.path([[[px, cy - s], [px + s * 0.95, cy + s * 0.62], [px - s * 0.95, cy + s * 0.62]]], { closed: true, fill: it.color }); }
@@ -1786,6 +1836,7 @@
       if (lit && fig.lit.imported) src.push("문헌 위치: BioGrid EIA");
       if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
+      if (fld && (fig.fieldRoutes || []).length) src.push("조사경로: 현지조사 GPS 기록");
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
       if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
       if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
