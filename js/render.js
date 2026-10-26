@@ -773,7 +773,7 @@
       const groups = new Map();
       res.forEach((r, i) => {
         const g = groups.get(root(i));
-        groups.set(root(i), g ? { ...closer(g, r), inGrid: g.inGrid || r.inGrid, outer: [...g.outer, outer[i]], bb: [...g.bb, bb[i]] } : { ...r, outer: [outer[i]], bb: [bb[i]] });
+        groups.set(root(i), g ? { ...closer(g, r), inGrid: g.inGrid || r.inGrid, outer: [...g.outer, outer[i]], bb: [...g.bb, bb[i]], polys: [...g.polys, polys[i]] } : { ...r, outer: [outer[i]], bb: [bb[i]], polys: [polys[i]] });
       });
       const parts = [...groups.values()];
       const best = parts.reduce(closer, parts[0] || { rel: "이격", dist: NaN, dir: "" });
@@ -1294,12 +1294,21 @@
         });
         occupied.push([x0, y0, x0 + 4 * e + textW(first ? `${c.id} ${t}` : c.id, fsE, 800), y0 + 2.5 * e + fsE * PT]);
       });
-      // 보호구역 이름(칸 이름 자리를 잡은 뒤): 격자 안에 든 부분의 가운데(작은 구역부터 자리를 잡고, 다른 글자와 겹치면 위·아래로 비켜 보고 안 되면 뺌)
-      if (pa && D.pa && fig.pa.names) [...D.pa.areas].sort((a, b) => a.ha - b.ha).forEach((A) => {
+      // 보호구역 이름(칸 이름 자리를 잡은 뒤): 격자 안에 든 부분의 가운데(작은 것부터 자리를 잡고, 겹치면 위·아래로 비켜 보고 안 되면 뺌).
+      // 야생생물보호구역·산림보호구역(산림유전자원보호림 포함)은 시군 단위로 묶여 이름이 쓸모없어, 떨어진 덩어리마다 범례처럼 종류 이름
+      // (같은 자리에 겹쳐 등재된 덩어리는 하나만)
+      const GENERIC = { wildlife: "야생생물보호구역", forest: "산림보호구역", "forest-genetic": "산림유전자원보호림" };
+      const nameJobs = [];
+      if (pa && D.pa && fig.pa.names) D.pa.areas.forEach((A) => {
+        if (!GENERIC[A.layer]) return nameJobs.push({ text: A.name, rings: A.rings, size: A.ha });
+        (A.parts || []).filter((p) => p.inGrid && p.draw !== false && p.polys).forEach((p) =>
+          nameJobs.push({ text: GENERIC[A.layer], rings: p.polys.flat(), size: p.bb.reduce((n, b) => n + ((b[2] - b[0]) * (b[3] - b[1])) / 1e4, 0) }));
+      });
+      nameJobs.sort((a, b) => a.size - b.size).forEach((J) => {
         let at = null;
-        A.rings.forEach((r) => { const c = labelPt(clipRing(r.map(([lon, lat]) => P(lon, lat)))); if (c && (!at || c[2] > at[2])) at = c; });
+        J.rings.forEach((r) => { const c = labelPt(clipRing(r.map(([lon, lat]) => P(lon, lat)))); if (c && (!at || c[2] > at[2])) at = c; });
         if (!at) return;
-        const fs = 6.8 * e, w = textW(A.name, fs, 700) + 1, h = fs * PT + 0.8;
+        const fs = 6.8 * e, w = textW(J.text, fs, 700) + 1, h = fs * PT + 0.8;
         let box = null;
         for (const dy of [0, -h - 0.6, h + 0.6]) {
           const x = Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, at[0] - w / 2)), y = Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, at[1] - h / 2 + dy));
@@ -1307,7 +1316,7 @@
         }
         if (!box) return;
         occupied.push(box);
-        litLater.push(() => pen.text(A.name, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e }));
+        litLater.push(() => pen.text(J.text, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e }));
       });
       // 문헌 번호표: 위치 가운데(점은 오른쪽), 다른 글자와 겹치면 위·아래·옆으로 비켜 봄
       marks.forEach((m) => litLater.push(() => {
