@@ -1987,6 +1987,11 @@
   };
 
   // ---------- 시작 ----------
+  // 이 도구에는 로그인 칸이 없음: 브라우저가 글자 칸을 아이디 칸으로 보고 저장된 계정·주소를 띄우지 않게 자동 채우기를 끔
+  // (나중에 그리는 목록 칸도 누를 때 끔)
+  const noFill = (el) => { if (el.matches && el.matches("input:not([type=checkbox]):not([type=file]):not([type=radio])")) { el.setAttribute("autocomplete", "off"); el.setAttribute("data-lpignore", "true"); el.setAttribute("data-form-type", "other"); } };
+  $$("input").forEach(noFill);
+  document.addEventListener("focusin", (e) => noFill(e.target), true);
   Input.init();
   IN.onTab = (t) => { if (t === "draw" && S.view !== "map") setView("map"); };
   // 경계 이름(범례·글자): 직접 고치지 않았으면 모양에 맞춰(면 사업지구, 선 사업노선, 점 조사지점)
