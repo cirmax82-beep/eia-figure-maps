@@ -32,7 +32,7 @@
     // 분류군별 색, 고친 것(지우개·그린 길), 조사지점(St.·W.)
     field: { type: "auto", ranges: null, rangesEdited: false, tracks: [], tseq: 0, tol: 15, car: true, soft: 12, far: 2000, byGroup: false, edits: [], points: [], pseq: 0, stats: null },
     // 현지조사시 법정보호종 출현위치도: 조사범위(m, 0이면 현지조사 위치도의 가장 큰 범위), 범위 밖 지점(all·m), 이름표, 조사경로 겹치기, 출현 지점, 종별 기호
-    fsp: { ring: 0, out: "all", label: "none", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
+    fsp: { ring: 0, out: "all", label: "name", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
@@ -824,7 +824,7 @@
     });
     if (!best) return null;
     // 남은 글은 비고로(원문에서 띄어쓰기를 무시하고 이름을 뺌)
-    const re = new RegExp(best.k.split("").map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*").replace("딱따구리", "딱[따다]구리"));
+    const re = new RegExp(best.k.split("").map((c) => (c === "따" ? "[따다]" : c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))).join("\\s*"));
     return { name: best.m.name, note: String(text).replace(re, "").replace(/^[\s\-_:;,.·()/]+|[\s\-_:;,.·()/]+$/g, "") };
   };
   const prepFsp = (f) => {

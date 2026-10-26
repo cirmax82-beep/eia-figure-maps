@@ -53,22 +53,25 @@ def main():
     sp = {}
     for grade, lst in (("I", s1), ("II", s2)):
         for n, tax in split(lst, STARTS[grade]):
-            if n not in sp:   # 두 등급에 다 적힌 종(그물공말·삼나무말)은 앞(I급)
+            # 두 등급에 다 적힌 종(그물공말·삼나무말)은 II급(사용자 확인)
+            if n in sp:
+                sp[n][1] = grade
+            else:
                 sp[n] = [n, grade, 0, tax]
     for n, tax in split(nm, STARTS["NM"]):
         if n in sp:
             sp[n][2] = 1
         else:
             sp[n] = [n, "", 1, tax]
-    # 같은 종 다른 표기: II급 「까막딱다구리」 = 천연기념물 「까막딱따구리」(표준 표기로 씀), I급 「물범」 = 천연기념물 「점박이물범」(고시 이름으로 씀)
-    for keep, drop in (("까막딱따구리", "까막딱다구리"), ("물범", "점박이물범")):
+    # 같은 종 다른 표기: II급 「까막딱다구리」 = 천연기념물 「까막딱따구리」, I급 「물범」 = 천연기념물 「점박이물범」(둘 다 멸종위기 고시 이름으로 씀)
+    for keep, drop in (("까막딱다구리", "까막딱따구리"), ("물범", "점박이물범")):
         if keep in sp and drop in sp:
             sp[keep][1] = sp[keep][1] or sp[drop][1]
             sp[keep][2] = 1
             del sp[drop]
     out = {
         "source": "멸종위기 야생생물 종목록(2023 고시)·천연기념물 — BioGrid EIA 정리 목록",
-        "alias": {"까막딱다구리": "까막딱따구리", "점박이물범": "물범"},
+        "alias": {"까막딱따구리": "까막딱다구리", "점박이물범": "물범"},
         "species": list(sp.values()),
     }
     dst = Path(__file__).resolve().parent.parent / "data" / "legal_species.json"
