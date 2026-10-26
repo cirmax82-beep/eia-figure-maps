@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261028i">
+<link rel="stylesheet" href="css/style.css?v=20261028j">
 </head>
 <body>
 <header class="top">
@@ -94,11 +94,17 @@
           <label><input type="checkbox" id="o-gray"> 흑백</label>
           <label title="브이월드 하이브리드(지명·도로)를 바탕 위에 겹침"><input type="checkbox" id="o-labels"> 지명 겹치기</label>
         </div>
-        <label title="도면의 글자·지점 기호·제목·축척 막대를 같이 키우거나 줄임(범례·여백·지도 틀은 그대로, 도면마다 따로)">글자·기호 크기 <select id="e-size" class="input">
+        <label title="도면의 글자·지점 기호·제목을 같이 키우거나 줄임(범례·축척 막대·방위표·여백·지도 틀은 그대로, 도면마다 따로)">글자·기호 크기 <select id="e-size" class="input">
           <option value="0.85">작게</option><option value="1">보통</option><option value="1.15">조금 크게</option><option value="1.3">크게</option><option value="1.5">아주 크게</option><option value="1.7">가장 크게</option>
         </select></label>
         <label title="범례 상자만 따로 키우거나 줄임(도면마다 따로)">범례 크기 <select id="e-lsize" class="input">
-          <option value="0.7">아주 작게</option><option value="0.85">작게</option><option value="1">보통</option><option value="1.15">크게</option><option value="1.3">아주 크게</option>
+          <option value="0.7">아주 작게</option><option value="0.85">작게</option><option value="1">보통</option><option value="1.15">크게</option><option value="1.3">아주 크게</option><option value="1.5">가장 크게</option>
+        </select></label>
+        <label title="축척 막대만 따로 키우거나 줄임(숫자가 겹치면 막대를 늘리거나 숫자를 건너뜀)">축척 막대 크기 <select id="e-sbsize" class="input">
+          <option value="0.7">아주 작게</option><option value="0.85">작게</option><option value="1">보통</option><option value="1.15">크게</option><option value="1.3">아주 크게</option><option value="1.5">가장 크게</option>
+        </select></label>
+        <label title="방위표만 따로 키우거나 줄임">방위표 크기 <select id="e-nsize" class="input">
+          <option value="0.7">아주 작게</option><option value="0.85">작게</option><option value="1">보통</option><option value="1.15">크게</option><option value="1.3">아주 크게</option><option value="1.5">가장 크게</option>
         </select></label>
       </div>
       <label class="row">제목 <input id="o-title" class="input"></label>
@@ -360,10 +366,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261028i"></script>
-<script src="js/input.js?v=20261028i"></script>
-<script src="js/render.js?v=20261028i"></script>
-<script src="js/field.js?v=20261028i"></script>
-<script src="js/app.js?v=20261028i"></script>
+<script src="js/util.js?v=20261028j"></script>
+<script src="js/input.js?v=20261028j"></script>
+<script src="js/render.js?v=20261028j"></script>
+<script src="js/field.js?v=20261028j"></script>
+<script src="js/app.js?v=20261028j"></script>
 </body>
 </html>

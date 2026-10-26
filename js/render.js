@@ -1047,27 +1047,37 @@
     // 종이
     pen.path([[[0, 0], [W, 0], [W, H], [0, H]]], { closed: true, fill: "#ffffff" });
 
-    // 도면 요소 자리(이름표가 피하도록 먼저 계산)
-    const north = fig.el.north ? { cx: F.x + F.w - 9 * e, top: F.y + 4 * e, h: 13 * e } : null;
-    if (north) occupied.push([north.cx - 5 * e, F.y, F.x + F.w, north.top + north.h + 3 * e]);
+    // 도면 요소 자리(이름표가 피하도록 먼저 계산). 틀 모서리 요소(방위표·축척 막대·범례·확대 그림)는 크기와 상관없이
+    // 틀에서 같은 거리(cm, 용지 배율 × 3 mm)에 두고, 크기는 글자·기호 크기를 따르지 않고 저마다(nsize·sbsize·lsize)
+    const e0 = Lo.e / ((fig.el && fig.el.size) || 1), cm = 3 * e0;
+    const elE = (k) => e0 * ((fig.el && fig.el[k]) || 1);
+    const en = elE("nsize");
+    const north = fig.el.north ? { cx: F.x + F.w - cm - 3.6 * en, top: F.y + cm, h: 13 * en, e: en } : null;
+    if (north) occupied.push([north.cx - 5 * en, F.y, F.x + F.w, north.top + north.h + 2 * en]);
 
-    // 축척 막대
+    // 축척 막대: 틀 폭의 24% 안에서 가장 긴 막대. 숫자끼리 겹치면 더 긴 막대(틀 폭의 42%까지) → 한 칸 건너 숫자 → 양 끝 숫자만
     let sb = null;
     if (fig.el.scalebar) {
-      const target = (F.w * 0.24 * v.scale) / 1000;   // m
+      const es = elE("sbsize"), fs = 6.8 * es, pad = 2.4 * es, bh = 9.2 * es;
       const NICE = [[50, 5], [100, 4], [200, 4], [250, 5], [400, 4], [500, 5], [1000, 4], [1500, 3], [2000, 4], [2500, 5], [3000, 3], [4000, 4], [5000, 5], [10000, 4], [20000, 4],
         [25000, 5], [50000, 5], [100000, 4], [200000, 4]];
-      const [len, seg] = [...NICE].reverse().find(([l]) => l <= target) || NICE[0];
-      const km = len >= 2000;
-      const barW = (len * 1000) / v.scale;
-      const labels = Array.from({ length: seg + 1 }, (_, i) => { const val = (len * i) / seg; return km ? fmtNum(val / 1000) : fmtNum(val); });
-      const unit = km ? "km" : "m";
-      const fs = 6.8 * e, pad = 2.4 * e;
-      const lastW = textW(`${labels[seg]} ${unit}`, fs);
-      const bw = barW + pad * 2 + lastW / 2 + textW(` ${unit}`, fs) / 2 + textW(labels[0], fs) / 2;
-      const bh = 9.2 * e;
-      const x = F.x + 3 * e, y = F.y + F.h - 3 * e - bh;
-      sb = { x, y, bw, bh, barW, seg, labels, unit, fs, pad, len };
+      const cands = NICE.map(([len, seg]) => {
+        const km = len >= 2000;
+        return { len, seg, km, barW: (len * 1000) / v.scale, labels: Array.from({ length: seg + 1 }, (_, i) => { const val = (len * i) / seg; return km ? fmtNum(val / 1000) : fmtNum(val); }) };
+      });
+      const target = F.w * 0.24, maxW = F.w * 0.42;
+      const base = cands.filter((c) => c.barW <= target).pop() || cands[0];
+      const tries = [[base, 1], ...cands.filter((c) => c.barW > base.barW && c.barW <= maxW).map((c) => [c, 1])];
+      if (base.seg % 2 === 0) tries.push([base, 2]);
+      tries.push([base, base.seg]);
+      const shown = (c, k) => c.labels.map((_, i) => i).filter((i) => i % k === 0 || i === c.seg);
+      const fits = ([c, k]) => { const idx = shown(c, k); return idx.every((i, j) => !j || ((i - idx[j - 1]) * c.barW) / c.seg >= (textW(c.labels[idx[j - 1]], fs) + textW(c.labels[i], fs)) / 2 + 1.5 * es); };
+      const [c, k] = tries.find(fits) || tries[tries.length - 1];
+      const { barW, seg, len } = c, unit = c.km ? "km" : "m", keep = new Set(shown(c, k));
+      const labels = c.labels.map((t, i) => (keep.has(i) ? t : ""));
+      const bw = barW + pad * 2 + textW(`${labels[seg]} ${unit}`, fs) / 2 + textW(` ${unit}`, fs) / 2 + textW(labels[0], fs) / 2;
+      const x = F.x + cm, y = F.y + F.h - cm - bh;
+      sb = { x, y, bw, bh, barW, seg, labels, unit, fs, pad, len, e: es };
       occupied.push([x - 1, y - 1, x + bw + 1, y + bh + 1]);
     }
 
@@ -1076,8 +1086,8 @@
     if (natl && fig.natl.inset) {
       // 제주를 가리지 않게 제주 북쪽(북위 33.9도) 위에 둠
       const { w, h } = insetSize(F);
-      const bottom = Math.min(sb ? sb.y - 3 * e : F.y + F.h - 3 * e, v.fromLL(126, 33.9)[1] - 2 * e);
-      inset = { x: F.x + 3 * e, y: bottom - h, w, h };
+      const bottom = Math.min(sb ? sb.y - cm : F.y + F.h - cm, v.fromLL(126, 33.9)[1] - 2 * e);
+      inset = { x: F.x + cm, y: bottom - h, w, h };
       occupied.push([inset.x - 1, inset.y - 1, inset.x + w + 1, inset.y + h + 1]);
     }
 
@@ -1118,12 +1128,12 @@
     const legendTitle = { nat: "생태·자연도", veg: "한국 식생기후 분포도", flo: "한국 식물상 지역" }[fig.kind] || "범   례";
     if (fig.el.legend) {
       // 범례는 글자·기호 크기를 따르지 않고 범례 크기(el.lsize)로 따로
-      const e = (Lo.e / ((fig.el && fig.el.size) || 1)) * ((fig.el && fig.el.lsize) || 1);
+      const e = elE("lsize");
       const fs = 8.2 * e, rowH = 5.4 * e, sym = 9 * e, pad = 3 * e, titleH = 7.4 * e;
       // 글꼴이 없는 프로그램(SVG를 맑은 고딕으로 열 때 등)에서도 넘치지 않게 여유를 둠
       const tw = Math.max(textW(legendTitle, 9.5 * e, 700), ...legend.map((it) => textW(it.label, fs))) * 1.12;
       const bw = Math.max(34 * e, pad * 2 + sym + 2.6 * e + tw), bh = titleH + legend.length * rowH + pad * 0.9;
-      const x = F.x + F.w - 3 * e - bw, y = F.y + F.h - 3 * e - bh;
+      const x = F.x + F.w - cm - bw, y = F.y + F.h - cm - bh;
       lg = { x, y, bw, bh, fs, rowH, sym, pad, titleH, e };
       occupied.push([x - 1, y - 1, x + bw + 1, y + bh + 1]);
     }
@@ -1830,7 +1840,7 @@
 
     // 방위표
     if (north) {
-      const { cx, top, h } = north, w = 3.3 * e, ty = top + 4.4 * e, by = top + h, notch = ty + (by - ty) * 0.7;
+      const { cx, top, h, e } = north, w = 3.3 * e, ty = top + 4.4 * e, by = top + h, notch = ty + (by - ty) * 0.7;
       pen.text("N", cx, top + 3.4 * e, { size: 9.5 * e, weight: 700, align: "center", color: "#111", halo, haloWidth: 0.55 * e });
       pen.path([[[cx, ty], [cx + w, by], [cx, notch], [cx - w, by]]], { closed: true, stroke: "#ffffff", width: 1 * e });
       pen.path([[[cx, ty], [cx, notch], [cx - w, by]]], { closed: true, fill: "#1f1f1f" });
@@ -1839,7 +1849,7 @@
     }
     // 축척 막대
     if (sb) {
-      const { x, y, bw, bh, barW, seg, labels, unit, fs, pad } = sb;
+      const { x, y, bw, bh, barW, seg, labels, unit, fs, pad, e } = sb;
       pen.path([[[x, y], [x + bw, y], [x + bw, y + bh], [x, y + bh]]], { closed: true, fill: "#ffffff", fillOpacity: 0.92, stroke: "#333333", width: 0.2 * e });
       const bx = x + pad + textW(labels[0], fs) / 2, by = y + 2.2 * e, bH = 1.7 * e;
       for (let i = 0; i < seg; i++) {
@@ -1847,7 +1857,7 @@
         pen.path([[[sx, by], [sx + barW / seg, by], [sx + barW / seg, by + bH], [sx, by + bH]]], { closed: true, fill: i % 2 ? "#ffffff" : "#1f1f1f" });
       }
       pen.path([[[bx, by], [bx + barW, by], [bx + barW, by + bH], [bx, by + bH]]], { closed: true, stroke: "#1f1f1f", width: 0.25 * e });
-      labels.forEach((t, i) => pen.text(i === seg ? `${t} ${unit}` : t, bx + (barW * i) / seg + (i === seg ? textW(` ${unit}`, fs) / 2 : 0), by + bH + 1.2 * e, { size: fs, align: "center", base: "top", color: "#1f1f1f" }));
+      labels.forEach((t, i) => { if (t) pen.text(i === seg ? `${t} ${unit}` : t, bx + (barW * i) / seg + (i === seg ? textW(` ${unit}`, fs) / 2 : 0), by + bH + 1.2 * e, { size: fs, align: "center", base: "top", color: "#1f1f1f" }); });
     }
     // 범례
     if (lg) {
