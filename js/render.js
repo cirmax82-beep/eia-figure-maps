@@ -1350,36 +1350,47 @@
           return out;
         };
         const keepIn = (bx, by, w, h) => [Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, bx)), Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, by))];
-        const placeBox = (lines, cands, col = SPC) => {
+        // 처음 몇 자리(cands)가 다른 글자·상자와 겹치면 기준점(anchor) 둘레를 2.5 mm씩 넓혀 가며(16방향, 45 mm까지) 빈자리를 찾고,
+        // 기준점에서 떨어지면 가는 이음선으로 잇음. 끝까지 없으면 첫 자리(겹침)
+        const placeBox = (lines, cands, col = SPC, anchor = null) => {
           const w = Math.max(...lines.map((l) => textW(l, fs, 600))) + 2 * padX, h = lines.length * lh + 2 * padY;
           const list = cands(w, h);
+          if (anchor) for (let rr = 4 * e; rr <= 45 * e; rr += 2.5 * e) for (let k = 0; k < 16; k++) { const a = (k / 16) * 2 * Math.PI; list.push([anchor[0] + rr * Math.cos(a) - w / 2, anchor[1] + rr * Math.sin(a) - h / 2]); }
           let pos = null;
           for (const [cx, cy] of list) { const [bx, by] = keepIn(cx, cy, w, h); if (!boxHit([bx, by, bx + w, by + h], occupied)) { pos = [bx, by]; break; } }
           if (!pos) pos = keepIn(list[0][0], list[0][1], w, h);
           const [x, y] = pos;
           occupied.push([x, y, x + w, y + h]);
+          if (anchor) {
+            const qx = Math.max(x, Math.min(x + w, anchor[0])), qy = Math.max(y, Math.min(y + h, anchor[1]));
+            if (Math.hypot(qx - anchor[0], qy - anchor[1]) > 3 * e) pen.path([[anchor, [qx, qy]]], { stroke: col, width: 0.25 * e, strokeOpacity: 0.85 });
+          }
           pen.path([[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]], { closed: true, fill: "#ffffff", fillOpacity: 0.9, stroke: col, width: 0.3 * e, join: "miter" });
           lines.forEach((ln, i) => pen.text(ln, x + padX, y + padY + lh * (i + 0.5), { size: fs, weight: 600, align: "left", base: "middle", color: col }));
         };
         fig.spRows.forEach((r) => litLater.push(() => {
           if (r.kind === "cell") {
-            // 칸 왼쪽 위, 칸 이름 아래
+            // 칸 왼쪽 위, 칸 이름 아래(막히면 칸 안에서 3 mm씩 내려가며, 오른쪽으로도)
             const c = g.cells.find((q) => q.code === r.code && q.id === r.cell);
             if (!c) return;
             const [x0, y0] = P(c.b[0], c.b[3]), [x1, y1] = P(c.b[2], c.b[1]);
             const lines = wrapTok(r.text, x1 - x0 - 6 * e - 2 * padX), top = Math.max(y0, gy0) + 2 * e + 12 * e * PT + 1.2 * e;
-            placeBox(lines, (w, h) => [[x0 + 2 * e, top], [x0 + 2 * e, top + 6 * e], [x0 + 2 * e, y1 - 2 * e - h]], r.color);
+            placeBox(lines, (w, h) => {
+              const out = [[x0 + 2 * e, top]];
+              for (let yy = top + 3 * e; yy + h <= y1 - 1 * e; yy += 3 * e) out.push([x0 + 2 * e, yy], [x1 - 2 * e - w, yy]);
+              return out;
+            }, r.color);
           } else if (r.kind === "geo") {
-            // 문헌 번호표 아래(안 되면 위·오른쪽·왼쪽)
+            // 문헌 번호표 아래(안 되면 위·오른쪽·왼쪽, 그래도 막히면 둘레에서 찾고 이음선)
             const m = marks.get(r.geoKey);
             if (!m) return;
             const b = m.box || [m.x - 5 * e, m.y - 2 * e, m.x + 5 * e, m.y + 2 * e];
-            placeBox(wrapTok(r.text, 52 * e), (w, h) => [[b[0], b[3] + 0.6 * e], [b[0], b[1] - 0.6 * e - h], [b[2] + 0.8 * e, b[1]], [b[0] - 0.8 * e - w, b[1]]], r.color);
+            placeBox(wrapTok(r.text, 52 * e), (w, h) => [[b[0], b[3] + 0.6 * e], [b[0], b[1] - 0.6 * e - h], [b[2] + 0.8 * e, b[1]], [b[0] - 0.8 * e - w, b[1]]], r.color, [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]);
           } else if (r.kind === "point") {
             const [px, py] = P(...r.point);
             if (!inG(px, py)) return;
             pen.path([Array.from({ length: 25 }, (_, k) => [px + 1.3 * e * Math.cos((k / 24) * 2 * Math.PI), py + 1.3 * e * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: r.color || SPC, stroke: "#ffffff", width: 0.35 * e });
-            placeBox(wrapTok(r.text, 52 * e), (w, h) => [[px + 2.2 * e, py - h / 2], [px - 2.2 * e - w, py - h / 2], [px - w / 2, py + 2.2 * e], [px - w / 2, py - 2.2 * e - h]], r.color);
+            placeBox(wrapTok(r.text, 52 * e), (w, h) => [[px + 2.2 * e, py - h / 2], [px - 2.2 * e - w, py - h / 2], [px - w / 2, py + 2.2 * e], [px - w / 2, py - 2.2 * e - h]], r.color, [px, py]);
           }
         }));
       }
