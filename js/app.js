@@ -19,7 +19,7 @@
     kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || ["lit", "sp", "pa"].includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
     basemap: kind === "nat" ? "vwhite" : ["lit", "sp", "pa"].includes(kind) && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
     title: TITLES[kind],
-    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp"].includes(kind), grid: "none" },
+    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp"].includes(kind), grid: "none", size: 1, lsize: 1 },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
@@ -72,6 +72,8 @@
     $("#o-water-name").value = f.eco.waterName;
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { $(`#${id}`).checked = !!(g ? f[g][k] : f[k]); });
     $("#e-grid").value = f.el.grid;
+    $("#e-size").value = String(f.el.size || 1);
+    $("#e-lsize").value = String(f.el.lsize || 1);
     $("#l-table").value = f.lit.table;
     syncPageTabs();
     scaleOptions();
@@ -103,6 +105,8 @@
     f.eco.waterName = $("#o-water-name").value.trim() || "수생태계";
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { if (g) f[g][k] = $(`#${id}`).checked; else f[k] = $(`#${id}`).checked; });
     f.el.grid = $("#e-grid").value;
+    f.el.size = +$("#e-size").value || 1;
+    f.el.lsize = +$("#e-lsize").value || 1;
     f.lit.table = $("#l-table").value;
     syncPageTabs();
     const sv = $("#o-scale").value;

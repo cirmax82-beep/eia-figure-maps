@@ -144,8 +144,10 @@
   const layout = (fig) => {
     const [a, b] = PAPER[fig.paper] || PAPER.A4;
     const W = fig.orient === "port" ? a : b, H = fig.orient === "port" ? b : a;
-    const e = fig.paper === "A3" ? 1.3 : 1;   // 도면 요소 크기 배율
-    const m = 10 * e;
+    const e0 = fig.paper === "A3" ? 1.3 : 1;   // 용지 배율(여백)
+    // 도면 요소 크기 배율: 용지 배율 × 고른 글자·기호 크기(el.size). 글자·기호·범례·축척 막대가 같이 커지고 여백은 그대로
+    const e = e0 * ((fig.el && fig.el.size) || 1);
+    const m = 10 * e0;
     const top = fig.el.title && fig.title ? 13 * e : 0;
     const foot = 6 * e;
     // 문헌조사 위치도·법정보호종 출현위치도: 문헌자료 표를 틀 아래에 둘 때(둘째 쪽·넣지 않음이면 도면만). 법정보호종 위치 미기재 주석은
@@ -850,9 +852,9 @@
   const FIELD_PT_NAME = { veg: "식생 조사지점", water: "육수 조사지점", etc: "기타 조사지점" };
   const fieldSym = (pen, kind, x, y, e) => {
     const c = FIELD.pts[kind] || FIELD.pts.etc, st = { closed: true, fill: c, stroke: "#ffffff", width: 0.35 * e, join: "miter" };
-    if (kind === "veg") { const a = 1.45 * e; pen.path([[[x - a, y - a], [x + a, y - a], [x + a, y + a], [x - a, y + a]]], st); }
-    else if (kind === "water") { const a = 1.9 * e; pen.path([[[x, y - a], [x + a * 0.95, y + a * 0.7], [x - a * 0.95, y + a * 0.7]]], st); }
-    else pen.path([Array.from({ length: 25 }, (_, k) => [x + 1.5 * e * Math.cos((k / 24) * 2 * Math.PI), y + 1.5 * e * Math.sin((k / 24) * 2 * Math.PI)])], st);
+    if (kind === "veg") { const a = 1.7 * e; pen.path([[[x - a, y - a], [x + a, y - a], [x + a, y + a], [x - a, y + a]]], st); }
+    else if (kind === "water") { const a = 2.2 * e; pen.path([[[x, y - a], [x + a * 0.95, y + a * 0.7], [x - a * 0.95, y + a * 0.7]]], st); }
+    else pen.path([Array.from({ length: 25 }, (_, k) => [x + 1.75 * e * Math.cos((k / 24) * 2 * Math.PI), y + 1.75 * e * Math.sin((k / 24) * 2 * Math.PI)])], st);
   };
 
   // 법정보호종 기호: 모양(동그라미·세모·네모·마름모·역세모·오각·별·육각) × 색, 반지름 1 기준 꼭짓점
@@ -867,7 +869,7 @@
   // 종 차례(i)마다 다른 기호(모양 8 × 색 10, 40종까지 겹치지 않음)
   const symOf = (i) => ({ shape: SYM_SHAPES[i % SYM_SHAPES.length], color: SYM_COLORS[i % SYM_COLORS.length] });
   const speciesSym = (pen, sym, x, y, e) => {
-    const r = 1.6 * e;
+    const r = 1.9 * e;
     pen.path([symPts(sym.shape).map(([a, b]) => [x + a * r, y + b * r])], { closed: true, fill: sym.color, stroke: "#ffffff", width: 0.35 * e, join: "miter" });
   };
 
@@ -1103,12 +1105,14 @@
     let lg = null;
     const legendTitle = { nat: "생태·자연도", veg: "한국 식생기후 분포도", flo: "한국 식물상 지역" }[fig.kind] || "범   례";
     if (fig.el.legend) {
+      // 범례는 글자·기호 크기를 따르지 않고 범례 크기(el.lsize)로 따로
+      const e = (Lo.e / ((fig.el && fig.el.size) || 1)) * ((fig.el && fig.el.lsize) || 1);
       const fs = 8.2 * e, rowH = 5.4 * e, sym = 9 * e, pad = 3 * e, titleH = 7.4 * e;
       // 글꼴이 없는 프로그램(SVG를 맑은 고딕으로 열 때 등)에서도 넘치지 않게 여유를 둠
       const tw = Math.max(textW(legendTitle, 9.5 * e, 700), ...legend.map((it) => textW(it.label, fs))) * 1.12;
       const bw = Math.max(34 * e, pad * 2 + sym + 2.6 * e + tw), bh = titleH + legend.length * rowH + pad * 0.9;
       const x = F.x + F.w - 3 * e - bw, y = F.y + F.h - 3 * e - bh;
-      lg = { x, y, bw, bh, fs, rowH, sym, pad, titleH };
+      lg = { x, y, bw, bh, fs, rowH, sym, pad, titleH, e };
       occupied.push([x - 1, y - 1, x + bw + 1, y + bh + 1]);
     }
 
@@ -1526,8 +1530,8 @@
     occupied.push([sb0[0] - 1, sb0[1] - 1, sb0[2] + 1, sb0[3] + 1]);
 
     // 지점 이름표: 기호 둘레 여덟 자리 중 빈 곳(오른쪽부터, 다 막히면 오른쪽)
-    const ptLabel = (t, x, y, size = 7) => {
-      const fs = size * e, h = fs * PT * 1.15, w = textW(t, fs, 700), g = 2.2 * e;
+    const ptLabel = (t, x, y, size = 7.5) => {
+      const fs = size * e, h = fs * PT * 1.15, w = textW(t, fs, 700), g = 2.6 * e;
       const cands = [[x + g, y - h / 2], [x - g - w, y - h / 2], [x - w / 2, y - g - h], [x - w / 2, y + g], [x + g, y - g - h], [x + g, y + g], [x - g - w, y - g - h], [x - g - w, y + g]];
       const at = cands.find(([bx, by]) => !boxHit([bx, by, bx + w, by + h], occupied)) || cands[0];
       occupied.push([at[0], at[1], at[0] + w, at[1] + h]);
@@ -1536,14 +1540,14 @@
     // 현지조사 지점(St.·W.): 기호를 모두 그린 뒤 이름
     if (fld && !fsp) {
       const pts = (fig.field.points || []).map((q) => ({ q, at: P(q.pt[0], q.pt[1]) })).filter(({ at }) => inF(at[0], at[1]));
-      pts.forEach(({ q, at }) => { fieldSym(pen, q.kind, at[0], at[1], e); occupied.push([at[0] - 1.8 * e, at[1] - 1.8 * e, at[0] + 1.8 * e, at[1] + 1.8 * e]); });
+      pts.forEach(({ q, at }) => { fieldSym(pen, q.kind, at[0], at[1], e); occupied.push([at[0] - 2.1 * e, at[1] - 2.1 * e, at[0] + 2.1 * e, at[1] + 2.1 * e]); });
       pts.forEach(({ q, at }) => ptLabel(q.label, at[0], at[1]));
     }
     // 법정보호종 출현 지점: 종마다 기호(범례), 고르면 종명 이름표
     if (fsp) {
       const pts = (fig.fspRecs || []).map((q) => ({ q, at: P(q.pt[0], q.pt[1]) })).filter(({ at }) => inF(at[0], at[1]));
-      pts.forEach(({ q, at }) => { speciesSym(pen, q.sym, at[0], at[1], e); occupied.push([at[0] - 1.8 * e, at[1] - 1.8 * e, at[0] + 1.8 * e, at[1] + 1.8 * e]); });
-      if (fig.fsp.label === "name") pts.forEach(({ q, at }) => ptLabel(q.name, at[0], at[1], 6.8));
+      pts.forEach(({ q, at }) => { speciesSym(pen, q.sym, at[0], at[1], e); occupied.push([at[0] - 2.1 * e, at[1] - 2.1 * e, at[0] + 2.1 * e, at[1] + 2.1 * e]); });
+      if (fig.fsp.label === "name") pts.forEach(({ q, at }) => ptLabel(q.name, at[0], at[1]));
     }
 
     litLater.forEach((fn) => fn());
@@ -1819,7 +1823,7 @@
     }
     // 범례
     if (lg) {
-      const { x, y, bw, bh, fs, rowH, sym, pad, titleH } = lg;
+      const { x, y, bw, bh, fs, rowH, sym, pad, titleH, e } = lg;
       pen.path([[[x, y], [x + bw, y], [x + bw, y + bh], [x, y + bh]]], { closed: true, fill: "#ffffff", fillOpacity: 0.95, stroke: "#333333", width: 0.25 * e });
       pen.text(legendTitle, x + bw / 2, y + titleH / 2 + 0.3 * e, { size: 9.5 * e, weight: 700, align: "center", base: "middle", color: "#111" });
       pen.path([[[x + pad * 0.6, y + titleH], [x + bw - pad * 0.6, y + titleH]]], { stroke: "#333333", width: 0.2 * e });
