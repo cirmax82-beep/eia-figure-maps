@@ -16,8 +16,9 @@
   };
   // 현지조사 위치도: 조사범위 선 색(가까운 범위부터), 조사지점 기호(식생 네모·육수 세모·기타 동그라미)
   const FIELD = { rings: ["#ffe14d", "#7fd3ff", "#ff9f40", "#d0bfff", "#ffffff"], pts: { veg: "#2f9e44", water: "#1c7ed6", etc: "#f76707" } };
-  // 생태·자연도 색(1·2등급·별도관리지역)과 투명도
-  const NAT = { g1: "#2f9a41", g2: "#9fd58f", sep: "#f2bfa6", op: 0.62 };
+  // 생태·자연도 색: 에코뱅크 기준(1등급 #1ea725, 2등급 #cfe3c9, 3등급 #FFFFFF, 별도관리지역 #F37E16).
+  // 흑백 바탕(백지도)·흰 바탕이면 불투명하게 칠하고 바탕 선을 위에 다시 얹음(lines), 위성·컬러 바탕이면 바탕이 비치게 op만큼
+  const NAT = { g1: "#1ea725", g2: "#cfe3c9", g3: "#ffffff", sep: "#f37e16", op: 0.7 };
   const SCALES = [1000, 2000, 2500, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000];
   // 전국 도면(식생기후대·식물상 지역): 남한 본토·제주가 틀에 드는 축척
   const NATIONAL = ["veg", "flo"];
@@ -328,7 +329,8 @@
     await Promise.all(Array.from({ length: Math.min(n, jobs.length) }, async () => { while (i < jobs.length) await jobs[i++](); }));
   };
   // 틀 범위를 출력 해상도(k 화소/mm)에 맞는 확대 단계 타일로 이어 붙여 캔버스 하나로
-  const basemap = async (v, k, onProgress, alive, src = BASES.sat, gray = false) => {
+  // lines: 흑백 바탕이면 선만 뗀 그림(흰색은 투명, 어두운 만큼 검게)도 만듦 — 불투명한 생태·자연도 등급 위에 바탕 선을 다시 얹을 때
+  const basemap = async (v, k, onProgress, alive, src = BASES.sat, gray = false, lines = false) => {
     const pxW = Math.max(1, Math.round(v.frame.w * k)), pxH = Math.max(1, Math.round(v.frame.h * k));
     const mPerPx = (v.mBox[2] - v.mBox[0]) / pxW;
     let z = Math.max(6, Math.min(src.max, Math.ceil(Math.log2(WORLD / 256 / mPerPx) - 0.25)));
@@ -375,7 +377,15 @@
       }
       c.putImageData(img, 0, 0);
     }
-    return { canvas: cv, z, missing, total };
+    let lineCv = null;
+    if (lines && gray && alive()) {
+      lineCv = document.createElement("canvas");
+      lineCv.width = pxW; lineCv.height = pxH;
+      const lc = lineCv.getContext("2d"), img = c.getImageData(0, 0, pxW, pxH), d = img.data;
+      for (let i = 0; i < d.length; i += 4) { d[i + 3] = 255 - d[i]; d[i] = d[i + 1] = d[i + 2] = 0; }
+      lc.putImageData(img, 0, 0);
+    }
+    return { canvas: cv, lines: lineCv, z, missing, total };
   };
 
   // ---------- 토지피복(환경부 세분류 2025를 10 m 묶음으로, habitat.biogrideia.com 공개 자료) ----------
@@ -986,7 +996,7 @@
     const baseSrc = baseKey === "none" ? null : BASES[baseKey];
     const labelsOn = fig.baseLabels && VW_KEY && baseKey !== "none";
     const jobs = {
-      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc, fig.gray).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
+      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc, fig.gray, nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat)).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
       labels: labelsOn ? basemap(v, k, null, alive, LABELS).catch((err) => { console.warn(err); return null; }) : null,
       lc: eco && (fig.eco.forest || fig.eco.water || fig.eco.tidal) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
       osm: eco && (fig.eco.peaks || fig.eco.wnames || fig.eco.flow || fig.eco.streams) ? osm(v).catch((err) => { console.warn(err); warn.push("이름·하천 자료를 받지 못했습니다."); return null; }) : null,
@@ -1037,6 +1047,7 @@
     const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", occ = fig.kind === "fsp" || fig.kind === "inv", fld = fig.kind === "field" || occ;
     // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다)
     const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : null;
+    const natSolid = !!natOn && (!base || !!base.lines), natOp = natSolid ? 1 : NAT.op;
     const P = (lon, lat) => v.fromLL(lon, lat);
     const PM = (X, Y) => v.fromM(X, Y);
     const inF = (x, y, pad = 0) => x >= F.x + pad && x <= F.x + F.w - pad && y >= F.y + pad && y <= F.y + F.h - pad;
@@ -1104,10 +1115,10 @@
       .forEach((A) => legend.push({ type: "fill", color: A.color, opacity: 0.32, label: A.layerName }));
     if (natOn && (nat || nd)) {
       const pre = lit ? "생태·자연도 " : "";
-      if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: NAT.op, label: `${pre}1등급` });
-      if (natOn.g2) legend.push({ type: "fill", color: NAT.g2, opacity: NAT.op, label: `${pre}2등급` });
+      if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: natOp, label: `${pre}1등급` });
+      if (natOn.g2) legend.push({ type: "fill", color: NAT.g2, opacity: natOp, label: `${pre}2등급` });
       if (nat) legend.push({ type: "box", label: "3등급" });
-      if (natOn.sep) legend.push({ type: "fill", color: NAT.sep, opacity: 0.9, label: "별도관리지역" });
+      if (natOn.sep) legend.push({ type: "fill", color: NAT.sep, opacity: natOp, label: "별도관리지역" });
     }
     if (natl && cls) cls.classes.forEach((c) => legend.push({ type: "fill", color: c.color, opacity: 1, label: c.name }));
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
@@ -1144,7 +1155,7 @@
     pen.clip(F.x, F.y, F.w, F.h);
     // 바탕
     if (base) pen.image(base.canvas, F.x, F.y, F.w, F.h);
-    if (labels) pen.image(labels.canvas, F.x, F.y, F.w, F.h, { png: true });
+    if (labels && !natSolid) pen.image(labels.canvas, F.x, F.y, F.w, F.h, { png: true });
     if (fig.base > 0) pen.path([[[F.x, F.y], [F.x + F.w, F.y], [F.x + F.w, F.y + F.h], [F.x, F.y + F.h]]], { closed: true, fill: "#ffffff", fillOpacity: Math.min(1, fig.base) });
     // 식생기후대(그림)·식물상 지역(격자)을 주어진 지도 변환으로 그림(본 지도와 확대 그림이 같이 씀)
     const drawClasses = (vw, op = 1) => {
@@ -1184,13 +1195,14 @@
       }
       return out;
     };
-    // 생태·자연도: 2등급 → 1등급 → 별도관리지역 순으로 반투명하게(바탕 선이 비치게)
+    // 생태·자연도: 2등급 → 1등급 → 별도관리지역(등급 위에 겹쳐 있음) 순으로. 흑백 바탕이면 불투명하게 칠한 뒤 바탕 선·지명을 위에 다시 얹음
     if (natOn && nd) {
-      if (natOn.g2) pen.path(polyParts(nd[2], 0.3), { closed: true, fill: NAT.g2, fillOpacity: NAT.op });
-      if (natOn.g1) pen.path(polyParts(nd[1], 0.3), { closed: true, fill: NAT.g1, fillOpacity: NAT.op });
-      // 별도관리지역은 등급 위에 겹쳐 있어, 덜 비치게 칠해 녹색과 섞이지 않게 함
-      if (natOn.sep) pen.path(polyParts(nd[9], 0.3), { closed: true, fill: NAT.sep, fillOpacity: 0.9 });
+      if (natOn.g2) pen.path(polyParts(nd[2], 0.3), { closed: true, fill: NAT.g2, fillOpacity: natOp });
+      if (natOn.g1) pen.path(polyParts(nd[1], 0.3), { closed: true, fill: NAT.g1, fillOpacity: natOp });
+      if (natOn.sep) pen.path(polyParts(nd[9], 0.3), { closed: true, fill: NAT.sep, fillOpacity: natOp });
     }
+    if (natSolid && base) pen.image(base.lines, F.x, F.y, F.w, F.h, { png: true, opacity: 1 - Math.min(1, fig.base || 0) });
+    if (labels && natSolid) pen.image(labels.canvas, F.x, F.y, F.w, F.h, { png: true });
     // 바다: 틀 사각형과 육지(시군구 경계, 해안선을 따름) 고리를 짝홀 규칙으로 한 번에 칠해 육지 밖만 칠함
     if (eco && land && fig.eco.sea) {
       const p = 5, rect = [[F.x - p, F.y - p], [F.x + F.w + p, F.y - p], [F.x + F.w + p, F.y + F.h + p], [F.x - p, F.y + F.h + p]];
