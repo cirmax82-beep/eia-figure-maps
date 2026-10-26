@@ -17,7 +17,7 @@
     const pt = (p) => [+p.getAttribute("lon"), +p.getAttribute("lat"), sec(kidText(p, "time"))];
     tags(d, "trkseg").forEach((s) => lines.push(kids(s, "trkpt").map(pt)));
     tags(d, "rte").forEach((r) => lines.push(kids(r, "rtept").map(pt)));
-    tags(d, "wpt").forEach((w) => { const [lon, lat] = pt(w); pts.push({ name: kidText(w, "name"), lon, lat }); });
+    tags(d, "wpt").forEach((w) => { const [lon, lat] = pt(w); pts.push({ name: kidText(w, "name"), desc: kidText(w, "desc") || kidText(w, "cmt"), lon, lat }); });
     return { lines, pts };
   };
   const fromKml = (text) => {
@@ -31,7 +31,8 @@
         const when = kids(g, "when").map((w) => sec(w.textContent.trim()));
         lines.push(kids(g, "coord").map((c, i) => { const [lon, lat] = c.textContent.trim().split(/\s+/).map(Number); return [lon, lat, when[i] == null ? null : when[i]]; }));
       });
-      tags(pm, "Point").forEach((g) => { const c = tags(g, "coordinates")[0], q = c ? cs(c.textContent)[0] : null; if (q) pts.push({ name, lon: q[0], lat: q[1] }); });
+      const desc = kidText(pm, "description").replace(/<[^>]*>/g, " ").trim();
+      tags(pm, "Point").forEach((g) => { const c = tags(g, "coordinates")[0], q = c ? cs(c.textContent)[0] : null; if (q) pts.push({ name, desc, lon: q[0], lat: q[1] }); });
     });
     return { lines, pts };
   };
@@ -44,7 +45,7 @@
       if (!g) return;
       if (g.type === "LineString") lines.push(g.coordinates.map(c3));
       if (g.type === "MultiLineString") g.coordinates.forEach((l) => lines.push(l.map(c3)));
-      if (g.type === "Point") pts.push({ name: String(p.name || p.Name || p.NAME || ""), lon: g.coordinates[0], lat: g.coordinates[1] });
+      if (g.type === "Point") pts.push({ name: String(p.name || p.Name || p.NAME || ""), desc: String(p.desc || p.description || ""), lon: g.coordinates[0], lat: g.coordinates[1] });
     });
     return { lines, pts };
   };
@@ -217,6 +218,19 @@
     return out;
   };
 
+  // 사업지구에서 각 점(경위도)까지 거리(m, 면 안은 0)
+  const siteDist = (features, lls) => {
+    if (!lls.length) return [];
+    const P = plane(lls[0]), G = siteGeom(features, P);
+    return lls.map((ll) => {
+      const p = P.fwd(ll);
+      if (G.polys.some((rings) => inRings(p, rings))) return 0;
+      let best = Infinity;
+      G.segs.forEach(([a, c]) => { best = Math.min(best, segNear(p, a, c)[0]); });
+      return Math.sqrt(best);
+    });
+  };
+
   // ---------- 겹친 길 합치기 ----------
   // 선분 격자 색인: 점에서 tol 안에 있는 가장 가까운 선분 위 점
   const segNear = (p, a, b) => {
@@ -340,5 +354,5 @@
     return S.map((x) => ({ g: x.g, lines: x.lines.map((l) => l.map(P.inv)) }));
   };
 
-  window.Field = { parse, build, applyEdits, lengthLL };
+  window.Field = { parse, build, applyEdits, lengthLL, siteDist };
 })();

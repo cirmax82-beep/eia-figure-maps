@@ -256,9 +256,10 @@
     return makeView(rect, lon0, lat0, Math.max(dx / rect.w, dy / rect.h) * 1.2 * 1000);
   };
   // 주변 범위를 그리는지: 위성 현황도는 늘, 생태축·생태·자연도는 켰을 때
-  const ringsOn = (fig) => fig.kind === "sat" || fig.kind === "field" || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
-  // 주변 범위(km). 현지조사 위치도는 켠 조사범위(fieldRings, m)
-  const ringKms = (fig) => (fig.kind === "field" ? (fig.fieldRings || []).map((r) => r.m / 1000) : fig.rings);
+  const FIELD_KINDS = ["field", "fsp"];
+  const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
+  // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m)
+  const ringKms = (fig) => (FIELD_KINDS.includes(fig.kind) ? (fig.fieldRings || []).map((r) => r.m / 1000) : fig.rings);
   // 자동 축척: 위성 현황도는 가장 큰 주변 범위, 생태축·생태·자연도는 사업지구 둘레 1 km(주변 범위를 켜면 그 범위)가 틀에 들도록
   const autoScale = (fig, site) => {
     const { frame } = layout(fig);
@@ -278,9 +279,13 @@
       return Math.ceil(need / 500) * 500;
     }
     const rings = ringsOn(fig) ? ringKms(fig) : [];
-    const padKm = rings.length ? Math.max(...rings) : fig.kind === "sat" ? 0.5 : fig.kind === "field" ? 0.3 : 1;
-    const wM = (mx(b[2]) - mx(b[0])) * Math.cos(lat0 * RAD) + 2 * padKm * 1000;
-    const hM = (my(b[3]) - my(b[1])) * Math.cos(lat0 * RAD) + 2 * padKm * 1000;
+    const padKm = rings.length ? Math.max(...rings) : fig.kind === "sat" ? 0.5 : FIELD_KINDS.includes(fig.kind) ? 0.3 : 1;
+    const c0 = Math.cos(lat0 * RAD);
+    let wM = (mx(b[2]) - mx(b[0])) * c0 + 2 * padKm * 1000;
+    let hM = (my(b[3]) - my(b[1])) * c0 + 2 * padKm * 1000;
+    // 조사지점·출현 지점(extraPts)이 범위 밖에 있으면 그것까지(사업지구 가운데 기준, 둘레 50 m)
+    const X0 = (mx(b[0]) + mx(b[2])) / 2, Y0 = (my(b[1]) + my(b[3])) / 2;
+    (fig.extraPts || []).forEach(([lon, lat]) => { wM = Math.max(wM, 2 * Math.abs(mx(lon) - X0) * c0 + 100); hM = Math.max(hM, 2 * Math.abs(my(lat) - Y0) * c0 + 100); });
     const need = Math.max(wM / (frame.w * 0.95), hM / (frame.h * 0.95)) * 1000;
     return SCALES.find((s) => s >= need) || SCALES[SCALES.length - 1];
   };
@@ -850,6 +855,22 @@
     else pen.path([Array.from({ length: 25 }, (_, k) => [x + 1.5 * e * Math.cos((k / 24) * 2 * Math.PI), y + 1.5 * e * Math.sin((k / 24) * 2 * Math.PI)])], st);
   };
 
+  // 법정보호종 기호: 모양(동그라미·세모·네모·마름모·역세모·오각·별·육각) × 색, 반지름 1 기준 꼭짓점
+  const SYM_SHAPES = ["circle", "triangle", "square", "diamond", "invtri", "pentagon", "star", "hexagon"];
+  const SYM_COLORS = ["#e03131", "#f08c00", "#7048e8", "#1c7ed6", "#2f9e44", "#c2255c", "#0c8599", "#5c940d", "#e8590c", "#862e9c"];
+  const ngon = (n, r, rot = -Math.PI / 2) => Array.from({ length: n }, (_, k) => [r * Math.cos(rot + (k / n) * 2 * Math.PI), r * Math.sin(rot + (k / n) * 2 * Math.PI)]);
+  const symPts = (shape) => ({
+    triangle: [[0, -1.15], [1.05, 0.75], [-1.05, 0.75]], square: [[-0.85, -0.85], [0.85, -0.85], [0.85, 0.85], [-0.85, 0.85]],
+    diamond: [[0, -1.15], [1.05, 0], [0, 1.15], [-1.05, 0]], invtri: [[-1.05, -0.75], [1.05, -0.75], [0, 1.15]], pentagon: ngon(5, 1.05), hexagon: ngon(6, 1),
+    star: ngon(10, 1).map((p, k) => (k % 2 ? [p[0] * 0.5, p[1] * 0.5] : [p[0] * 1.25, p[1] * 1.25])),
+  }[shape] || ngon(24, 0.95));
+  // 종 차례(i)마다 다른 기호(모양 8 × 색 10, 40종까지 겹치지 않음)
+  const symOf = (i) => ({ shape: SYM_SHAPES[i % SYM_SHAPES.length], color: SYM_COLORS[i % SYM_COLORS.length] });
+  const speciesSym = (pen, sym, x, y, e) => {
+    const r = 1.6 * e;
+    pen.path([symPts(sym.shape).map(([a, b]) => [x + a * r, y + b * r])], { closed: true, fill: sym.color, stroke: "#ffffff", width: 0.35 * e, join: "miter" });
+  };
+
   // ---------- 도형 도구(용지 mm) ----------
   const ringArea = (r) => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return a / 2; };
   // 더글러스-포이커 줄이기
@@ -999,7 +1020,7 @@
     const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl } = D;
     const { W, H, e, frame: F } = Lo;
     // sp(법정보호종 출현위치도)는 문헌조사 위치도(lit) 위에 종 이름을 더한 것
-    const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", fld = fig.kind === "field";
+    const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", fsp = fig.kind === "fsp", fld = fig.kind === "field" || fsp;
     // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다)
     const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : null;
     const P = (lon, lat) => v.fromLL(lon, lat);
@@ -1072,11 +1093,12 @@
     if (eco && os && fig.eco.flow && os.ways.length) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
     if (eco && os && fig.eco.peaks && os.peaks.length) legend.push({ type: "peak", color: COLOR.peak, label: "산봉우리" });
     if (rings && !fld) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: `${fmtNum(r.km)} km 범위` }));
-    // 현지조사 위치도: 조사범위 → 조사경로 → 조사지점
+    // 현지조사 위치도: 조사범위 → 조사경로 → 조사지점. 현지조사시 법정보호종 출현위치도: 조사범위 → (조사경로) → 종마다 기호
     if (fld) {
       if (rings) (fig.fieldRings || []).forEach((r, i) => legend.push({ type: "ring", color: FIELD.rings[i % FIELD.rings.length], label: r.label }));
       (fig.fieldRoutes || []).forEach((r) => legend.push({ type: "route", color: r.color, label: r.name }));
-      Object.entries(FIELD_PT_NAME).forEach(([k, name]) => { if ((fig.field.points || []).some((q) => q.kind === k)) legend.push({ type: "fpt", kind: k, label: name }); });
+      if (!fsp) Object.entries(FIELD_PT_NAME).forEach(([k, name]) => { if ((fig.field.points || []).some((q) => q.kind === k)) legend.push({ type: "fpt", kind: k, label: name }); });
+      if (fsp) (fig.fspSpecies || []).forEach((q) => legend.push({ type: "ssym", sym: q.sym, label: q.label }));
     }
     let lg = null;
     const legendTitle = { nat: "생태·자연도", veg: "한국 식생기후 분포도", flo: "한국 식물상 지역" }[fig.kind] || "범   례";
@@ -1503,18 +1525,25 @@
     [...sitePolys.flat(), ...siteLines.flat(), ...sitePts].forEach(([x, y]) => { sb0[0] = Math.min(sb0[0], x); sb0[1] = Math.min(sb0[1], y); sb0[2] = Math.max(sb0[2], x); sb0[3] = Math.max(sb0[3], y); });
     occupied.push([sb0[0] - 1, sb0[1] - 1, sb0[2] + 1, sb0[3] + 1]);
 
-    // 현지조사 지점(St.·W.): 기호를 모두 그린 뒤 이름을 오른쪽부터 빈자리에
-    if (fld) {
+    // 지점 이름표: 기호 둘레 여덟 자리 중 빈 곳(오른쪽부터, 다 막히면 오른쪽)
+    const ptLabel = (t, x, y, size = 7) => {
+      const fs = size * e, h = fs * PT * 1.15, w = textW(t, fs, 700), g = 2.2 * e;
+      const cands = [[x + g, y - h / 2], [x - g - w, y - h / 2], [x - w / 2, y - g - h], [x - w / 2, y + g], [x + g, y - g - h], [x + g, y + g], [x - g - w, y - g - h], [x - g - w, y + g]];
+      const at = cands.find(([bx, by]) => !boxHit([bx, by, bx + w, by + h], occupied)) || cands[0];
+      occupied.push([at[0], at[1], at[0] + w, at[1] + h]);
+      pen.text(t, at[0], at[1] + h / 2, { size: fs, weight: 700, align: "left", base: "middle", color: "#111111", halo: "#ffffff", haloWidth: 0.55 * e });
+    };
+    // 현지조사 지점(St.·W.): 기호를 모두 그린 뒤 이름
+    if (fld && !fsp) {
       const pts = (fig.field.points || []).map((q) => ({ q, at: P(q.pt[0], q.pt[1]) })).filter(({ at }) => inF(at[0], at[1]));
       pts.forEach(({ q, at }) => { fieldSym(pen, q.kind, at[0], at[1], e); occupied.push([at[0] - 1.8 * e, at[1] - 1.8 * e, at[0] + 1.8 * e, at[1] + 1.8 * e]); });
-      const fs = 7 * e, h = fs * PT * 1.15;
-      pts.forEach(({ q, at: [x, y] }) => {
-        const w = textW(q.label, fs, 700), g = 2.2 * e;
-        const cands = [[x + g, y - h / 2], [x - g - w, y - h / 2], [x - w / 2, y - g - h], [x - w / 2, y + g], [x + g, y - g - h], [x + g, y + g], [x - g - w, y - g - h], [x - g - w, y + g]];
-        const at = cands.find(([bx, by]) => !boxHit([bx, by, bx + w, by + h], occupied)) || cands[0];
-        occupied.push([at[0], at[1], at[0] + w, at[1] + h]);
-        pen.text(q.label, at[0], at[1] + h / 2, { size: fs, weight: 700, align: "left", base: "middle", color: "#111111", halo: "#ffffff", haloWidth: 0.55 * e });
-      });
+      pts.forEach(({ q, at }) => ptLabel(q.label, at[0], at[1]));
+    }
+    // 법정보호종 출현 지점: 종마다 기호(범례), 고르면 종명 이름표
+    if (fsp) {
+      const pts = (fig.fspRecs || []).map((q) => ({ q, at: P(q.pt[0], q.pt[1]) })).filter(({ at }) => inF(at[0], at[1]));
+      pts.forEach(({ q, at }) => { speciesSym(pen, q.sym, at[0], at[1], e); occupied.push([at[0] - 1.8 * e, at[1] - 1.8 * e, at[0] + 1.8 * e, at[1] + 1.8 * e]); });
+      if (fig.fsp.label === "name") pts.forEach(({ q, at }) => ptLabel(q.name, at[0], at[1], 6.8));
     }
 
     litLater.forEach((fn) => fn());
@@ -1815,6 +1844,7 @@
           pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.75 * e, dash: [1.8 * e, 1 * e], cap: "butt" });
         }
         if (it.type === "fpt") fieldSym(pen, it.kind, sx + sym / 2, cy, e);
+        if (it.type === "ssym") speciesSym(pen, it.sym, sx + sym / 2, cy, e);
         if (it.type === "arrow") pen.path([arrowShape([[sx, cy], [sx + sym, cy]], 2.2 * e)], { closed: true, fill: it.color, fillOpacity: 0.85 });
         if (it.type === "flow") pen.path([flowArrow(sx + sym / 2, cy, 0, 5 * e)], { closed: true, fill: it.color });
         if (it.type === "peak") { const s = 1.8 * e, px = sx + sym / 2; pen.path([[[px, cy - s], [px + s * 0.95, cy + s * 0.62], [px - s * 0.95, cy + s * 0.62]]], { closed: true, fill: it.color }); }
@@ -1837,6 +1867,7 @@
       if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
       if (fld && (fig.fieldRoutes || []).length) src.push("조사경로: 현지조사 GPS 기록");
+      if (fsp && (fig.fspRecs || []).length) src.push("출현 기록: 현지조사", ...(fig.legalSource ? [`등급: ${fig.legalSource}`] : []));
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
       if (eco && wz && fig.eco.rzone) src.push("하천구역: 국토교통부 브이월드 하천망");
       if (eco && wz && fig.eco.szone) src.push("소하천구역: 국토교통부 연속주제도");
@@ -2033,5 +2064,5 @@
     return { total, ...splitGrades(total, S1, S2, SS), source: nd.source, sepGeom: SS };
   };
 
-  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin, paLoad, paMeasure };
+  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin, paLoad, paMeasure, symPts, symOf };
 })();

@@ -3,7 +3,7 @@
   const { $, $$, esc, fmt, debounce, toast, LIB, loadScript, saveBlob, safeName } = U;
   const { IN } = Input;
 
-  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도", field: "현지조사 위치도" };
+  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도", field: "현지조사 위치도", fsp: "현지조사시 법정보호종 출현위치도" };
   // 보호구역 종합포털의 종류(tools/layers.py 순서). on: 동식물상 관련이라 처음부터 켬
   const PA_LAYERS = [
     ["nature", "자연·생태 보호구역", [["wildlife-special", "야생생물특별보호구역", 1], ["wildlife", "야생생물보호구역", 1], ["wetland-coast", "연안습지보호지역", 1], ["wetland", "습지보호지역", 1],
@@ -19,7 +19,7 @@
     kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || ["lit", "sp", "pa"].includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
     basemap: kind === "nat" ? "vwhite" : ["lit", "sp", "pa"].includes(kind) && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
     title: TITLES[kind],
-    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field"].includes(kind), grid: "none" },
+    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp"].includes(kind), grid: "none" },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
@@ -31,6 +31,8 @@
     // 현지조사 위치도: 사업 종류(auto·area·line), 조사범위([{m, name, on}], null이면 사업 종류의 처음 값), 경로 파일, 겹친 길 합치기 거리(m), 차량 이동 빼기, 다듬기(m), 자를 먼 거리(m),
     // 분류군별 색, 고친 것(지우개·그린 길), 조사지점(St.·W.)
     field: { type: "auto", ranges: null, rangesEdited: false, tracks: [], tseq: 0, tol: 15, car: true, soft: 12, far: 2000, byGroup: false, edits: [], points: [], pseq: 0, stats: null },
+    // 현지조사시 법정보호종 출현위치도: 조사범위(m, 0이면 현지조사 위치도의 가장 큰 범위), 범위 밖 지점(all·m), 이름표, 조사경로 겹치기, 출현 지점, 종별 기호
+    fsp: { ring: 0, out: "all", label: "none", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
     arrows: [], labelHide: new Set(), labelText: new Map(),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
@@ -50,6 +52,7 @@
   const scaleOptions = () => {
     const f = fig();
     if (f.kind === "field") prepField(f);
+    if (f.kind === "fsp") prepFsp(f);
     const auto = site() ? ` (1:${fmt(Carto.autoScale(f, site()))})` : "";
     $("#o-scale").innerHTML = `<option value="auto">자동${auto}</option>` + Carto.scalesFor(f).map((s) => `<option value="${s}">1:${fmt(s)}</option>`).join("");
     $("#o-scale").value = f.scaleMode === "auto" ? "auto" : String(f.scale);
@@ -76,6 +79,7 @@
     $$("#fig-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.fig === S.cur));
     renderArrowList();
     renderFieldPane();
+    renderFspPane();
     syncMapBase();
   };
   // 경계 지도 바탕도 고른 도면의 바탕·흑백·지명 겹치기를 따름
@@ -144,6 +148,7 @@
     if (f.kind === "sp") prepSp(f);
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
+    if (f.kind === "fsp") { await legalData().catch(() => null); prepFsp(f); }
     resolveScale(f);
     scaleOptions();
     const Lo = Carto.layout(f);
@@ -188,6 +193,7 @@
       if (f.kind === "sp" && !document.activeElement.matches("#sp-list textarea")) renderSpList();
       if (f.kind === "pa") paSummary(out.pa);
       if (f.kind === "field") fieldStats();
+      if (f.kind === "fsp" && !document.activeElement.closest("#q-list")) renderFspList();
       drawArrowTemp();
       renderLabelList(out.labels);
       // 1등급 이격거리 결과(생태·자연도, 켰을 때)
@@ -274,9 +280,9 @@
   const A = { mode: null, pts: [] };
   const isLit = (m) => !!m && m.startsWith("lit-");
   const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점", "lit-pick": "문헌 위치",
-    "fld-line": "조사경로", "fld-erase": "지우개", "fld-veg": "식생 조사지점", "fld-water": "육수 조사지점", "fld-etc": "기타 조사지점" };
+    "fld-line": "조사경로", "fld-erase": "지우개", "fld-veg": "식생 조사지점", "fld-water": "육수 조사지점", "fld-etc": "기타 조사지점", "fsp-pt": "법정보호종 출현 지점" };
   const arrowName = (k) => LIT_NAME[k] || (k === "forest" ? "산림축" : "수계축");
-  const ONE_PT = ["lit-point", "lit-sp", "lit-pick", "fld-veg", "fld-water", "fld-etc"];
+  const ONE_PT = ["lit-point", "lit-sp", "lit-pick", "fld-veg", "fld-water", "fld-etc", "fsp-pt"];
   const needPts = (m) => (ONE_PT.includes(m) ? 1 : m === "lit-area" ? 3 : 2);
   const startArrow = (kind) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
@@ -289,6 +295,7 @@
     $$("[data-arrow]").forEach((b) => b.classList.toggle("on", b.dataset.arrow === kind));
     $$("[data-lit]").forEach((b) => b.classList.toggle("on", b.dataset.lit === kind));
     $$("[data-fld]").forEach((b) => b.classList.toggle("on", b.dataset.fld === kind));
+    $("#q-pick").classList.toggle("on", kind === "fsp-pt");
     arrowMsg();
     drawArrowTemp();
   };
@@ -297,12 +304,13 @@
     A.pts = [];
     $("#pv-over").classList.remove("drawing");
     $("#arrow-bar").hidden = true;
-    $$("[data-arrow], [data-lit], [data-fld]").forEach((b) => b.classList.remove("on"));
+    $$("[data-arrow], [data-lit], [data-fld], #q-pick").forEach((b) => b.classList.remove("on"));
     drawArrowTemp();
   };
   const arrowMsg = () => {
     if (A.mode === "fld-erase") { $("#arrow-msg").textContent = "지울 경로를 누르거나 문지르세요(빨간 원 크기만큼 지움)"; return; }
     if (FLD_PT[A.mode]) { $("#arrow-msg").textContent = `${LIT_NAME[A.mode]}: 누를 때마다 하나씩 찍습니다(다음 ${nextLabel(FLD_PT[A.mode])})`; return; }
+    if (A.mode === "fsp-pt") { const n = QF().recs.filter((r) => r.name === A.target).length; $("#arrow-msg").textContent = `「${A.target}」 출현 지점: 누를 때마다 하나씩 찍습니다(지금 ${n}곳)`; return; }
     const n = needPts(A.mode);
     const pickName = A.mode === "lit-pick" || (A.mode === "lit-sp" && A.target) ? ((litItems(S.figs.lit.lit).find((x) => x.id === A.target) || {}).text || "문헌").slice(0, 24) : "";
     $("#arrow-msg").textContent = A.mode === "lit-pick" ? `「${pickName}」 위치를 도면 위에서 누르세요` : A.mode === "lit-sp" ? `${pickName ? `「${pickName}」의 ` : ""}법정보호종 출현 지점을 도면 위에서 누르세요` : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
@@ -311,6 +319,15 @@
   const finishArrow = () => {
     // 현지조사 지점은 그만둘 때까지 누를 때마다 하나씩
     if (A.mode === "fld-erase") { stopArrow(); return; }
+    if (A.mode === "fsp-pt") {
+      if (!A.pts.length) { stopArrow(); return; }
+      addRec(A.target, A.pts[0]);
+      A.pts = [];
+      arrowMsg();
+      renderFspList();
+      renderPreview();
+      return;
+    }
     if (FLD_PT[A.mode]) {
       if (!A.pts.length) { stopArrow(); return; }
       addPoint(FLD_PT[A.mode], A.pts[0]);
@@ -414,6 +431,7 @@
       const F = FF();
       if (A.mode === "fld-erase") { const i = F.edits.map((x) => x.t).lastIndexOf("erase"); if (i >= 0) { F.edits.splice(i, 1); fieldStats(); renderPreview(); } return; }
       if (FLD_PT[A.mode]) { const i = F.points.map((x) => x.kind).lastIndexOf(FLD_PT[A.mode]); if (i >= 0) { F.points.splice(i, 1); arrowMsg(); renderFieldPane(); renderPreview(); } return; }
+      if (A.mode === "fsp-pt") { const Q = QF(), i = Q.recs.map((x) => x.name).lastIndexOf(A.target); if (i >= 0) { Q.recs.splice(i, 1); arrowMsg(); renderFspList(); renderPreview(); } return; }
       A.pts.pop();
       arrowMsg();
       drawArrowTemp();
@@ -474,6 +492,7 @@
       FR = { key, val: Field.build([...sets].map(([g, lines]) => ({ g, lines })), { origin, tol: F.tol, car: F.car, soft: F.soft, site: site() && site().features, far: F.far }) };
     }
     F.stats = on.length ? FR.val.stats : null;
+    f.extraPts = F.points.map((p) => p.pt);
     const sets = Field.applyEdits(FR.val.sets, F.edits.map((ed) => (ed.t === "add" ? { ...ed, g: gOf(ed.g) } : ed)), origin);
     const meta = new Map(ROUTE_GROUPS.map(([k, name, color], i) => [k, { name: `${name} 조사경로`, color, i }]));
     f.fieldRoutes = sets.filter((x) => x.lines.length)
@@ -773,6 +792,283 @@
     $("#f-xlsx").addEventListener("click", () => fieldExcel().catch((err) => { console.error(err); toast(err.message || "엑셀을 만들지 못했습니다."); }));
     $("#f-kml").addEventListener("click", () => { try { fieldKml(); } catch (err) { console.error(err); toast(err.message || "KML을 만들지 못했습니다."); } });
     initErase();
+  };
+  // ---------- 현지조사시 법정보호종 출현위치도 ----------
+  // 조사범위는 분류군과 상관없이 가장 큰 거리 하나(비우면 현지조사 위치도에서 켠 범위 중 가장 큰 것). 출현 지점은 종마다 다른 기호(범례),
+  // 범위를 조금 벗어난 지점도 넣을 수 있게 범위 밖 지점은 고른 거리까지 그림
+  const QF = () => S.figs.fsp.fsp;
+  const GRADE = { I: "멸종위기 Ⅰ급", II: "멸종위기 Ⅱ급" };
+  const TAXA = ["포유류", "조류", "양서·파충류", "어류", "곤충류", "무척추동물", "식물", "해조류", "고등균류"];
+  // 법정보호종 목록(data/legal_species.json, tools/build_legal.py): 띄어쓰기·딱다구리/딱따구리 표기는 같게 봄
+  let LEG = null, LEGP = null;
+  const legNorm = (t) => String(t || "").replace(/\s+/g, "").replace(/딱다구리/g, "딱따구리");
+  const legalData = () => LEGP || (LEGP = fetch("data/legal_species.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
+    const map = new Map();
+    d.species.forEach(([name, g, nm, taxon]) => map.set(legNorm(name), { name, g, nm: !!nm, taxon }));
+    Object.entries(d.alias || {}).forEach(([a, b]) => { const m = map.get(legNorm(b)); if (m) map.set(legNorm(a), m); });
+    return (LEG = { source: d.source, map, names: d.species.map((x) => x[0]) });
+  }).catch((err) => { LEGP = null; throw err; }));
+  const legalOf = (name) => (LEG ? LEG.map.get(legNorm(name)) || null : null);
+  const legalText = (m) => (m ? [GRADE[m.g], m.nm && "천연기념물"].filter(Boolean).join(", ") : "");
+  // 글에서 법정보호종 이름(가장 긴 것). 한 글자 이름(매·삵)은 앞이 한글이 아니고 뒤가 끝·숫자·흔적 말일 때만
+  const EVID = /^(배설물|족적|발자국|흔적|울음|소리|목격|관찰|사체|둥지|굴|섭식|식흔|털|탈피|알|유충|개체|채집|포획|확인)/;
+  const findLegal = (text) => {
+    if (!LEG || !text) return null;
+    const t = legNorm(text);
+    let best = null;
+    LEG.map.forEach((m, k) => {
+      const i = t.indexOf(k);
+      if (i < 0 || (best && k.length <= best.k.length)) return;
+      if (k.length === 1 && (/[가-힣]$/.test(t.slice(0, i)) || !(i + 1 === t.length || /^\d/.test(t.slice(i + 1)) || EVID.test(t.slice(i + 1))))) return;
+      best = { k, m };
+    });
+    if (!best) return null;
+    // 남은 글은 비고로(원문에서 띄어쓰기를 무시하고 이름을 뺌)
+    const re = new RegExp(best.k.split("").map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*").replace("딱따구리", "딱[따다]구리"));
+    return { name: best.m.name, note: String(text).replace(re, "").replace(/^[\s\-_:;,.·()/]+|[\s\-_:;,.·()/]+$/g, "") };
+  };
+  const prepFsp = (f) => {
+    const Q = f.fsp;
+    const auto = Math.max(0, ...fieldRanges(FF()).filter((r) => r.on && r.m > 0).map((r) => r.m)) || 300, m = Q.ring > 0 ? Q.ring : auto;
+    f.fspAuto = auto;
+    f.fieldRings = [{ m, label: `현지조사 범위(${fmt(m)} m)` }];
+    if (Q.routes) { prepField(S.figs.field); f.fieldRoutes = S.figs.field.fieldRoutes; } else f.fieldRoutes = [];
+    // 종마다 처음 본 차례로 기호를 정해 둠(종을 지워도 다른 종 기호는 그대로)
+    Q.recs.forEach((r) => { if (!Q.syms[r.name]) Q.syms[r.name] = Carto.symOf(Q.symSeq++); });
+    const d = site() ? Field.siteDist(site().features, Q.recs.map((r) => r.pt)) : Q.recs.map(() => 0);
+    Q.recs.forEach((r, i) => { r.d = d[i]; r.vis = Q.out === "all" || d[i] <= m + +Q.out; });
+    const vis = Q.recs.filter((r) => r.vis);
+    f.fspRecs = vis.map((r) => ({ name: r.name, pt: r.pt, sym: Q.syms[r.name] }));
+    f.fspSpecies = fspOrder(Q.recs).filter((n) => vis.some((r) => r.name === n)).map((n) => { const st = legalText(legalOf(n)); return { name: n, sym: Q.syms[n], label: st ? `${n}(${st})` : n }; });
+    f.extraPts = vis.map((r) => r.pt);
+    f.legalSource = LEG ? LEG.source : "";
+  };
+  // 종 차례: 분류군(포유류 → 조류 → …, 목록에 없는 종은 끝) → 넣은 차례
+  const fspOrder = (recs) => {
+    const names = [...new Set(recs.map((r) => r.name))], ti = (n) => { const m = legalOf(n), i = m ? TAXA.indexOf(m.taxon) : -1; return i < 0 ? TAXA.length : i; };
+    return names.map((n, i) => [n, ti(n), i]).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]);
+  };
+  const addRec = (name, pt, note = "") => { const Q = QF(); Q.recs.push({ id: `r${++Q.seq}`, name, pt: [+pt[0].toFixed(7), +pt[1].toFixed(7)], note }); };
+  // 좌표 글(십진 또는 도분초 35°22'11.2")
+  const coordVal = (v) => {
+    if (typeof v === "number") return v;
+    const t = String(v || "").trim(), m = t.match(/(-?\d+(?:\.\d+)?)\s*[°도]\s*(?:(\d+(?:\.\d+)?)\s*['′분]\s*)?(?:(\d+(?:\.\d+)?)\s*["″초])?/);
+    if (m) return +m[1] + (+m[2] || 0) / 60 + (+m[3] || 0) / 3600;
+    const n = parseFloat(t.replace(/[^\d.\-]/g, ""));
+    return Number.isFinite(n) ? n : NaN;
+  };
+  // 엑셀·CSV: 머리글에서 종명·위도·경도(또는 X·Y — EPSG:5186, Y가 100만 넘으면 5179)·비고 열을 찾음
+  const readTable = async (file) => {
+    await loadScript(LIB.xlsx, "XLSX");
+    const buf = await file.arrayBuffer();
+    let wb;
+    if (/\.csv$/i.test(file.name)) {
+      let text;
+      try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch (_) { text = new TextDecoder("euc-kr").decode(buf); }
+      wb = XLSX.read(text, { type: "string" });
+    } else wb = XLSX.read(buf, { type: "array" });
+    const out = [];
+    wb.SheetNames.forEach((sn) => {
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: "" });
+      for (let h = 0; h < Math.min(10, aoa.length); h++) {
+        const head = aoa[h].map((c) => String(c).replace(/\s+/g, ""));
+        const col = (re) => head.findIndex((c) => re.test(c));
+        const cn = col(/종명|국명|^종$|출현종|species|^name$|이름/i), cla = col(/위도|^lat/i), clo = col(/경도|^lon|^lng/i), cx = col(/^x(좌표)?$|동향|easting/i), cy = col(/^y(좌표)?$|북향|northing/i), cnote = col(/비고|흔적|형태|유형|내용|note|확인방법/i);
+        if (cn < 0 || !((cla >= 0 && clo >= 0) || (cx >= 0 && cy >= 0))) continue;
+        aoa.slice(h + 1).forEach((r) => {
+          const name = String(r[cn] || "").trim();
+          if (!name) return;
+          let ll = null;
+          if (cla >= 0 && clo >= 0) {
+            let la = coordVal(r[cla]), lo = coordVal(r[clo]);
+            if (la > 90 && lo < 90) [la, lo] = [lo, la];
+            if (Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180) ll = [lo, la];
+          } else {
+            const x = coordVal(r[cx]), y = coordVal(r[cy]);
+            if (Number.isFinite(x) && Number.isFinite(y)) ll = proj4(U.crsDef(y > 1e6 ? "5179" : "5186"), "WGS84", [x, y]);
+          }
+          if (ll) out.push({ name, desc: cnote >= 0 ? String(r[cnote] || "").trim() : "", lon: ll[0], lat: ll[1] });
+        });
+        break;
+      }
+    });
+    return out;
+  };
+  // 출현 기록 파일: GPX·KML·GeoJSON 지점(이름·설명), 엑셀·CSV 표. 법정보호종 이름이 든 것만 넣고 나머지 이름은 알려 줌
+  const importRecs = async (files) => {
+    await legalData();
+    const pts = [], bad = [];
+    for (const file of files) {
+      const x = fext(file.name);
+      try {
+        if (x === "xlsx" || x === "xls" || x === "csv") pts.push(...(await readTable(file)));
+        else if (x === "kmz" || x === "zip") {
+          await loadScript(LIB.jszip, "JSZip");
+          const z = await JSZip.loadAsync(file);
+          for (const en of Object.values(z.files)) if (!en.dir && /\.(kml|gpx|geojson)$/i.test(en.name)) pts.push(...Field.parse(en.name, await en.async("string")).pts);
+        } else pts.push(...Field.parse(file.name, await file.text()).pts);
+      } catch (err) { bad.push(err.message || file.name); }
+    }
+    let n = 0;
+    const other = new Map();
+    pts.forEach((p) => {
+      const hit = findLegal(p.name) || findLegal(p.desc);
+      if (!hit) { const k = (p.name || "(이름 없음)").trim(); other.set(k, (other.get(k) || 0) + 1); return; }
+      addRec(hit.name, [p.lon, p.lat], [hit.note, findLegal(p.name) ? p.desc : ""].filter(Boolean).join(" ").slice(0, 60));
+      n++;
+    });
+    return { n, other: [...other.keys()], bad };
+  };
+  const symSvg = (sym) => `<svg class="q-sym" viewBox="-1.5 -1.5 3 3"><polygon points="${Carto.symPts(sym.shape).map((p) => p.map((v) => v.toFixed(2)).join(",")).join(" ")}" fill="${sym.color}" stroke="#fff" stroke-width="0.15"/></svg>`;
+  const renderFspPane = () => {
+    const Q = QF(), f = S.figs.fsp;
+    $("#q-ring").value = Q.ring > 0 ? String(Q.ring) : "";
+    $("#q-ring").placeholder = `자동(${fmt(f.fspAuto || Math.max(0, ...fieldRanges(FF()).filter((r) => r.on && r.m > 0).map((r) => r.m)) || 300)} m)`;
+    $("#q-out").value = Q.out;
+    $("#q-label").value = Q.label;
+    $("#q-routes").checked = Q.routes;
+    renderFspList();
+  };
+  const renderFspList = () => {
+    const Q = QF(), m = (S.figs.fsp.fieldRings || [{ m: 0 }])[0].m;
+    const tag = (r) => (r.d == null ? "" : r.d <= m ? "범위 안" : `범위 밖 ${fmt(Math.round(r.d - m))} m${r.vis ? "" : " · 도면에서 뺌"}`);
+    $("#q-list").innerHTML = fspOrder(Q.recs).map((n) => {
+      const rs = Q.recs.filter((r) => r.name === n), L = legalOf(n), st = legalText(L);
+      return `<div class="q-group" data-name="${esc(n)}"><div class="q-head">${symSvg(Q.syms[n] || Carto.symOf(0))}<input class="input" data-k="sp" value="${esc(n)}" title="종명 고치기(이 종 지점 모두)">`
+        + `<span class="muted small">${esc([st || (LEG ? "법정보호종 목록에 없음" : ""), L && L.taxon, `${rs.length}곳`].filter(Boolean).join(" · "))}</span>`
+        + `<button class="link" data-act="more">더 찍기</button><button class="link" data-act="del-sp">모두 지우기</button></div>`
+        + rs.map((r) => `<div class="q-rec${r.vis === false ? " off" : ""}" data-id="${r.id}"><input class="input" data-k="note" value="${esc(r.note || "")}" placeholder="비고(흔적·개체수 등)"><span class="small tag">${tag(r)}</span><button class="link" data-act="del">지우기</button></div>`).join("")
+        + `</div>`;
+    }).join("") || `<p class="hint">아직 넣은 출현 지점이 없습니다.</p>`;
+  };
+  const FSP_FILE = "eia-figure-maps/fsp";
+  const saveFsp = () => {
+    const Q = QF();
+    if (!Q.recs.length) { toast("저장할 출현 지점이 없습니다."); return; }
+    const name = $("#site-name").value.trim();
+    const data = { type: FSP_FILE, version: 1, saved: new Date().toISOString(), project: name, siteText: siteText(), site: site() ? site().features : null,
+      options: { ring: Q.ring, out: Q.out, label: Q.label, routes: Q.routes }, recs: Q.recs.map(({ id, name: n, pt, note }) => ({ id, name: n, pt, note })), syms: Q.syms, symSeq: Q.symSeq };
+    saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "현지조사_법정보호종"].filter(Boolean).join("_"))}.json`);
+    toast(`출현 지점 ${Q.recs.length}곳을 파일로 저장했습니다.`);
+  };
+  const loadFsp = async (file) => {
+    let d;
+    try { d = JSON.parse(await file.text()); } catch (_) { throw new Error("법정보호종 출현 기록 파일(.json)을 읽지 못했습니다."); }
+    if (!d || d.type !== FSP_FILE) throw new Error("이 도구에서 저장한 현지조사 법정보호종 파일이 아닙니다.");
+    let note = "";
+    if (!site() && Array.isArray(d.site) && d.site.length && Input.setSite(d.site, "법정보호종 출현 기록 파일의 경계")) note = " 파일에 있던 경계도 넣었습니다.";
+    const Q = QF(), o = d.options || {}, isPt = (p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]);
+    if (Number.isFinite(o.ring)) Q.ring = o.ring;
+    if (["all", "500", "200", "100", "0"].includes(o.out)) Q.out = o.out;
+    if (["none", "name"].includes(o.label)) Q.label = o.label;
+    if (typeof o.routes === "boolean") Q.routes = o.routes;
+    Q.recs = (Array.isArray(d.recs) ? d.recs : []).filter((r) => r && typeof r.name === "string" && r.name.trim() && isPt(r.pt)).map((r) => ({ id: String(r.id), name: r.name.trim(), pt: r.pt, note: String(r.note || "") }));
+    Q.syms = d.syms && typeof d.syms === "object" ? d.syms : {};
+    Q.symSeq = Number.isFinite(d.symSeq) ? d.symSeq : Object.keys(Q.syms).length;
+    Q.seq = Math.max(0, ...Q.recs.map((r) => +r.id.slice(1) || 0));
+    if (typeof d.project === "string" && d.project && !$("#site-name").value.trim()) $("#site-name").value = d.project;
+    return { n: Q.recs.length, note };
+  };
+  const fspExcel = async () => {
+    const Q = QF(), f = S.figs.fsp;
+    if (!Q.recs.length) { toast("넣은 출현 지점이 없습니다."); return; }
+    await legalData().catch(() => null);
+    prepFsp(f);
+    await loadScript(LIB.xlsx, "XLSX");
+    const tm = proj4("WGS84", U.crsDef("5186")), name = $("#site-name").value.trim(), m = f.fieldRings[0].m, order = fspOrder(Q.recs);
+    const recs = order.flatMap((n) => Q.recs.filter((r) => r.name === n));
+    const rows = recs.map((r, i) => {
+      const L = legalOf(r.name), [x, y] = tm.forward(r.pt);
+      return [i + 1, L ? L.taxon : "", r.name, legalText(L), r.note || "", dms(r.pt[1], "N", "S"), dms(r.pt[0], "E", "W"), +r.pt[1].toFixed(6), +r.pt[0].toFixed(6), Math.round(x * 10) / 10, Math.round(y * 10) / 10,
+        Math.round(r.d || 0), r.d <= m ? "안" : "밖"];
+    });
+    const sum = order.map((n) => { const L = legalOf(n), rs = Q.recs.filter((r) => r.name === n); return [L ? L.taxon : "", n, legalText(L), rs.length, rs.filter((r) => r.d <= m).length]; });
+    const ws1 = XLSX.utils.aoa_to_sheet([["현지조사시 법정보호종 출현 기록"], [], ["사업명", name || "-"], ["현지조사 범위", `사업지구 경계에서 ${fmt(m)} m`], [],
+      ["연번", "분류군", "종명", "법적지위", "비고", "위도", "경도", "위도(십진)", "경도(십진)", "동향 E(EPSG:5186, m)", "북향 N(EPSG:5186, m)", "사업지구와 거리(m)", "조사범위"], ...rows]);
+    ws1["!cols"] = [6, 10, 14, 24, 20, 16, 17, 12, 12, 18, 18, 14, 9].map((wch) => ({ wch }));
+    const ws2 = XLSX.utils.aoa_to_sheet([["분류군", "종명", "법적지위", "지점 수", "범위 안 지점 수"], ...sum]);
+    ws2["!cols"] = [10, 14, 24, 9, 14].map((wch) => ({ wch }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws1, "출현 기록");
+    XLSX.utils.book_append_sheet(wb, ws2, "종별 요약");
+    saveBlob(new Blob([XLSX.write(wb, { type: "array", bookType: "xlsx" })], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${safeName([name, "현지조사_법정보호종_출현기록"].filter(Boolean).join("_"))}.xlsx`);
+  };
+  const initFsp = () => {
+    legalData().then((L) => { $("#q-names").innerHTML = L.names.map((n) => `<option value="${esc(n)}">`).join(""); }).catch((err) => console.warn(err));
+    $("#q-ring").addEventListener("input", (e) => { QF().ring = Math.max(0, Math.min(5000, Math.round(+e.target.value || 0))); scaleOptions(); rerender(); });
+    $("#q-out").addEventListener("change", (e) => { QF().out = e.target.value; scaleOptions(); renderPreview(); });
+    $("#q-label").addEventListener("change", (e) => { QF().label = e.target.value; renderPreview(); });
+    $("#q-routes").addEventListener("change", (e) => { QF().routes = e.target.checked; renderPreview(); });
+    $("#q-file").addEventListener("change", async (e) => {
+      const files = [...e.target.files];
+      e.target.value = "";
+      if (!files.length) return;
+      try {
+        toast("출현 기록을 읽는 중…", 1500);
+        const r = await importRecs(files);
+        if (S.cur !== "fsp") { stopArrow(); S.cur = "fsp"; syncControls(); }
+        renderFspList();
+        if (site()) setView("preview");
+        const other = r.other.length ? ` 법정보호종 이름이 없어 뺀 지점 ${r.other.length}종류: ${r.other.slice(0, 8).join(", ")}${r.other.length > 8 ? " …" : ""}` : "";
+        toast(`출현 지점 ${r.n}곳을 넣었습니다.${other}${r.bad.length ? ` 못 읽은 파일: ${r.bad.join(" / ")}` : ""}`, other || r.bad.length ? 8000 : 3500);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "출현 기록을 읽지 못했습니다.", 5000);
+      }
+    });
+    const pick = (name) => {
+      name = name.trim();
+      if (!name) { toast("종명을 먼저 적으세요."); $("#q-name").focus(); return; }
+      const hit = findLegal(name);
+      A.target = hit && !hit.note ? hit.name : name;
+      startArrow("fsp-pt");
+    };
+    $("#q-pick").addEventListener("click", () => (A.mode === "fsp-pt" ? stopArrow() : pick($("#q-name").value)));
+    $("#q-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); pick(e.target.value); } });
+    const box = $("#q-list");
+    box.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]");
+      if (!b) return;
+      const Q = QF(), g = b.closest(".q-group"), row = b.closest(".q-rec");
+      if (b.dataset.act === "more") { $("#q-name").value = g.dataset.name; pick(g.dataset.name); return; }
+      if (b.dataset.act === "del-sp") Q.recs = Q.recs.filter((r) => r.name !== g.dataset.name);
+      if (b.dataset.act === "del") Q.recs = Q.recs.filter((r) => r.id !== row.dataset.id);
+      renderFspList();
+      renderPreview();
+    });
+    box.addEventListener("input", (e) => {
+      if (e.target.dataset.k !== "note") return;
+      const r = QF().recs.find((x) => x.id === e.target.closest(".q-rec").dataset.id);
+      if (r) r.note = e.target.value;
+    });
+    // 종명 고치기: 그 종 지점 모두(기호는 그대로 옮김)
+    box.addEventListener("change", (e) => {
+      if (e.target.dataset.k !== "sp") return;
+      const Q = QF(), old = e.target.closest(".q-group").dataset.name, hit = findLegal(e.target.value), nu = hit && !hit.note ? hit.name : e.target.value.trim();
+      if (!nu || nu === old) { e.target.value = old; return; }
+      Q.recs.forEach((r) => { if (r.name === old) r.name = nu; });
+      if (!Q.syms[nu]) Q.syms[nu] = Q.syms[old];
+      renderFspList();
+      renderPreview();
+    });
+    $("#q-save").addEventListener("click", saveFsp);
+    $("#q-load").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const r = await loadFsp(file);
+        stopArrow();
+        S.cur = "fsp";
+        syncControls();
+        if (site()) setView("preview");
+        toast(`출현 지점 ${r.n}곳을 불러왔습니다.${r.note}`, 4000);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "출현 기록 파일을 읽지 못했습니다.");
+      }
+    });
+    $("#q-xlsx").addEventListener("click", () => fspExcel().catch((err) => { console.error(err); toast(err.message || "엑셀을 만들지 못했습니다."); }));
   };
 
   // ---------- 보호구역 위치도 ----------
@@ -1504,6 +1800,7 @@
     if (f.kind === "sp") prepSp(f);
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
+    if (f.kind === "fsp") { await legalData().catch(() => null); prepFsp(f); }
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;
@@ -1597,7 +1894,7 @@
   }));
   $$("#view-tabs button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $$(".side select, .side input[type=checkbox]").forEach((el) => {
-    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.id === "s-where" || el.closest("#label-list") || el.closest("#lit-list") || el.closest("#field-pane") || el.type === "file") return;
+    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.id === "s-where" || el.closest("#label-list") || el.closest("#lit-list") || el.closest("#field-pane") || el.closest("#fsp-pane") || el.type === "file") return;
     el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); if (/^o-(basemap|gray|labels)$/.test(el.id)) syncMapBase(); renderPreview(); });
   });
   $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
@@ -1616,6 +1913,7 @@
   initSp();
   renderSpList();
   initField();
+  initFsp();
   $$("#page-tabs button").forEach((b) => b.addEventListener("click", () => {
     S.page = +b.dataset.page;
     syncPageTabs();

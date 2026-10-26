@@ -165,3 +165,11 @@ details .checks { margin-bottom: 8px; }
 .f-sym-etc { background: #f76707; border-radius: 50%; }
 .f-add-group { width: auto; }
 .f-edit { align-items: center; }
+/* 현지조사시 법정보호종 출현위치도 */
+.q-list { display: flex; flex-direction: column; gap: 6px; max-height: 380px; overflow-y: auto; }
+.q-group { border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.q-head { display: grid; grid-template-columns: auto 110px 1fr auto auto; gap: 6px; align-items: center; }
+.q-head .input, .q-rec .input { padding: 4px 7px; font-size: 12.5px; }
+.q-rec { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding-left: 22px; }
+.q-rec.off .input { color: var(--muted); }
+.q-sym { width: 14px; height: 14px; }
