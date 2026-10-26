@@ -25,7 +25,7 @@
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
     // 문헌조사 위치도: 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
-    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
+    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, picked: new Map(), manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
     // 보호구역 위치도: 그릴 종류, 이름, 이격거리 치수선, 도엽 이름(9격자는 lit.grid를 같이 씀)
     pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true },
     arrows: [], labelHide: new Set(), labelText: new Map(),
@@ -266,9 +266,10 @@
   // ---------- 축 화살표 그리기(문헌조사 위치도의 지점·선·구역 찍기도 같이 씀: 모드 lit-point·lit-line·lit-area) ----------
   const A = { mode: null, pts: [] };
   const isLit = (m) => !!m && m.startsWith("lit-");
-  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점" };
+  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점", "lit-pick": "문헌 위치" };
   const arrowName = (k) => LIT_NAME[k] || (k === "forest" ? "산림축" : "수계축");
-  const needPts = (m) => (m === "lit-point" || m === "lit-sp" ? 1 : m === "lit-area" ? 3 : 2);
+  const ONE_PT = ["lit-point", "lit-sp", "lit-pick"];
+  const needPts = (m) => (ONE_PT.includes(m) ? 1 : m === "lit-area" ? 3 : 2);
   const startArrow = (kind) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
     if (S.page === 2) { S.page = 1; syncPageTabs(); renderPreview(); }
@@ -292,12 +293,21 @@
   };
   const arrowMsg = () => {
     const n = needPts(A.mode);
-    $("#arrow-msg").textContent = A.mode === "lit-sp" ? "법정보호종 출현 지점을 도면 위에서 누르세요" : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
+    const pickName = A.mode === "lit-pick" ? ((litItems(S.figs.lit.lit).find((x) => x.id === A.target) || {}).text || "문헌").slice(0, 24) : "";
+    $("#arrow-msg").textContent = A.mode === "lit-pick" ? `「${pickName}」 위치를 도면 위에서 누르세요` : A.mode === "lit-sp" ? "법정보호종 출현 지점을 도면 위에서 누르세요" : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
       : `${arrowName(A.mode)} 점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상 찍으세요${isLit(A.mode) ? "" : "(마지막 점이 화살 머리)"}` : ""}`;
   };
   const finishArrow = () => {
     const n = needPts(A.mode);
     if (A.pts.length < n) { toast(`점을 ${n}개 이상 찍으세요.`); return; }
+    if (A.mode === "lit-pick") {
+      const L = S.figs.lit.lit;
+      L.picked.set(A.target, { geo: { kind: "point", parts: [[A.pts[0]]] }, color: MAN_COLORS[L.picked.size % MAN_COLORS.length] });
+      stopArrow();
+      renderPreview();
+      renderLitList();
+      return;
+    }
     if (A.mode === "lit-sp") {
       const L = S.figs.lit.lit, pt = A.pts[0];
       if (!L.sp) L.sp = { entries: [], seq: 0 };
@@ -363,11 +373,11 @@
         if (Math.hypot(q[0] - px, q[1] - py) < 0.8) return;   // 두 번 누를 때 겹친 점
       }
       A.pts.push(ll);
-      if (A.mode === "lit-point" || A.mode === "lit-sp") { finishArrow(); return; }
+      if (ONE_PT.includes(A.mode)) { finishArrow(); return; }
       arrowMsg();
       drawArrowTemp();
     });
-    over.addEventListener("dblclick", (e) => { if (A.mode && A.mode !== "lit-point" && A.mode !== "lit-sp") { e.preventDefault(); finishArrow(); } });
+    over.addEventListener("dblclick", (e) => { if (A.mode && !ONE_PT.includes(A.mode)) { e.preventDefault(); finishArrow(); } });
     $$("[data-arrow]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.arrow ? stopArrow() : startArrow(b.dataset.arrow))));
     $$("[data-lit]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.lit ? stopArrow() : startArrow(b.dataset.lit))));
     $("#arrow-done").addEventListener("click", finishArrow);
@@ -534,7 +544,8 @@
   };
   const spParse = (en, text) => {
     const toId = new Map((S.figs.sp.litRows || []).map((r) => [r.n, r.id]));
-    const own = en.kind === "geo" && /^man:/.test(en.geoKey || "") ? en.geoKey : null;
+    // 직접 넣은 문헌(man:)·지도에 위치를 찍은 문헌(pick:문헌 id) 자리면 번호 없는 종은 그 문헌으로
+    const gk = en.kind === "geo" ? en.geoKey || "" : "", own = gk.startsWith("man:") ? gk : gk.startsWith("pick:") ? gk.slice(5) : null;
     // 지금 목록에서 빠져 있는 문헌을 가리키던 번호는 그대로 둠
     const hidden = (name) => { const had = en.items.find((x) => x.name === name); return had ? had.refs.filter((id) => !(S.figs.sp.litRows || []).some((r) => r.id === id)) : []; };
     const items = [];
@@ -565,7 +576,9 @@
     if (g) [...g.cells].sort((a, b) => a.r - b.r || a.c - b.c).forEach((c) => opts.push([`cell|${c.code}|${c.id}`, `칸: ${c.name && c.name !== c.code ? c.name : c.code} ${c.id}`]));
     (f.litRows || []).filter((r) => r.geo).forEach((r) => { if (!opts.some((o) => o[0] === `geo|${r.geoKey}`)) opts.push([`geo|${r.geoKey}`, `문헌${r.n}: ${spWhere(r).slice(0, 30)}`]); });
     opts.push(["note", "위치 미기재(주석)"], ["point", "지도에 직접 찍기"]);
-    $("#s-where").innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+    const sel = $("#s-where"), keep = sel.value;
+    sel.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+    if (keep && opts.some((o) => o[0] === keep)) sel.value = keep;
   };
   const spAdd = (base) => {
     const L = S.figs.lit.lit;
@@ -654,7 +667,8 @@
     }
     if (imp && !L.xls) items.push(...imp.extra);
     items.push(...L.manual);
-    return items;
+    // 위치 정보가 없어 지도에 찍은 문헌(평가서 등)
+    return items.map((it) => (!it.geo && L.picked.has(it.id) ? { ...it, ...L.picked.get(it.id), geoKey: `pick:${it.id}`, picked: true } : it));
   };
   // 사업지구 가운데가 든 칸으로 9격자를 잡고(경계가 바뀌면 다시), 도면에 넣을 문헌(번호 매김)을 f.litRows로
   const prepGrid = async (f) => {
@@ -688,8 +702,10 @@
         <input type="checkbox" data-lshow="${esc(it.id)}" ${on ? "checked" : ""} title="도면에 넣기">
         <span class="tag">${on ? `문헌${++n}` : "뺌"}${on && S.litOut && S.litOut.has(it.id) ? ` <b class="warn" title="위치가 9격자 밖이라 도면에 그리지 않았습니다(문헌자료 표에는 남음)">격자 밖</b>` : ""}</span>
         <input class="input" data-ltext="${esc(it.id)}" value="${esc(L.text.has(it.id) ? L.text.get(it.id) : it.text)}" title="${esc(it.cat)}">
-        ${it.geo ? `<input type="color" data-lcolor="${esc(it.id)}" value="${col}" title="기호 색">` : `<span class="muted small" title="도엽 단위 문헌(위치 기호 없음)">도엽</span>`}
-        ${it.src === "man" ? `<button class="link" data-ldel="${esc(it.id)}">지우기</button>` : "<span></span>"}
+        ${it.geo ? `<input type="color" data-lcolor="${esc(it.id)}" value="${col}" title="기호 색">`
+          : it.cat === "전국자연환경조사" ? `<span class="muted small" title="도엽 단위 문헌(위치 기호 없음)">도엽</span>`
+          : `<button class="link small" data-lpick="${esc(it.id)}" title="위치 정보가 없는 문헌 — 도면 위를 눌러 위치를 정함">위치 찍기</button>`}
+        ${it.src === "man" ? `<button class="link" data-ldel="${esc(it.id)}">지우기</button>` : it.picked ? `<button class="link small" data-lunpick="${esc(it.id)}">위치 지우기</button>` : "<span></span>"}
       </div>`;
     }).join("") || `<p class="hint">${site() ? "9격자 안에 넣을 문헌이 없습니다. 위치를 직접 찍어 넣으세요." : ""}</p>`;
   };
@@ -827,13 +843,13 @@
   const centerId = (L) => (L.grid ? `${L.grid.center.code}_${L.grid.center.id}` : "");
   const saveLit = () => {
     const L = S.figs.lit.lit;
-    if (!L.manual.length && !L.text.size && !L.colors.size && !L.hide.size && !L.imported && !L.xls && !L.sp) { toast("저장할 것이 없습니다. 위치를 찍거나 문헌 이름을 고친 뒤 저장하세요."); return; }
+    if (!L.manual.length && !L.text.size && !L.colors.size && !L.hide.size && !L.imported && !L.xls && !L.sp && !L.picked.size) { toast("저장할 것이 없습니다. 위치를 찍거나 문헌 이름을 고친 뒤 저장하세요."); return; }
     const name = $("#site-name").value.trim();
     const data = {
       type: LIT_FILE, version: 1, saved: new Date().toISOString(),
       project: name, siteText: siteText(), site: site() ? site().features : null, center: centerId(L),
       options: { nat: L.nat, table: L.table, sheetName: L.sheetName },
-      manual: L.manual, text: [...L.text], colors: [...L.colors], hide: [...L.hide], imported: L.imported, xls: L.xls, sp: L.sp,
+      manual: L.manual, text: [...L.text], colors: [...L.colors], hide: [...L.hide], imported: L.imported, xls: L.xls, sp: L.sp, picked: [...L.picked],
     };
     saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "문헌조사위치도_목록"].filter(Boolean).join("_"))}.json`);
     toast(`직접 찍은 위치 ${L.manual.length}곳, 고친 이름 ${L.text.size}건을 파일로 저장했습니다.`);
@@ -855,6 +871,7 @@
     L.imported = d.imported && Array.isArray(d.imported.items) && Array.isArray(d.imported.extra) ? d.imported : null;
     L.xls = d.xls && Array.isArray(d.xls.items) ? d.xls : null;
     L.sp = d.sp && Array.isArray(d.sp.entries) ? d.sp : null;
+    L.picked = new Map((Array.isArray(d.picked) ? d.picked : []).filter((p) => Array.isArray(p) && str(p[0]) && p[1] && p[1].geo && Array.isArray(p[1].geo.parts)));
     const o = d.options || {};
     ["nat", "sheetName"].forEach((k) => { if (typeof o[k] === "boolean") L[k] = o[k]; });
     if (typeof o.table === "boolean") L.table = o.table ? "below" : "none";
@@ -898,7 +915,7 @@
       if (!file) return;
       try {
         const r = await loadLit(file);
-        if (S.cur !== "lit") S.cur = "lit";
+        if (S.cur !== "lit" && S.cur !== "sp") S.cur = "lit";
         syncControls();
         setView("preview");
         toast(`${r.x ? `문헌 엑셀 ${r.x}건, ` : ""}직접 찍은 위치 ${r.n}곳, 고친 이름 ${r.t}건을 불러왔습니다.${r.note}${r.differ ? " 저장할 때와 9격자 가운데 칸이 다릅니다 — 경계가 바뀌었는지 확인하세요." : ""}`, r.differ ? 8000 : 4000);
@@ -921,7 +938,8 @@
           const r = await importLit(file);
           toast(`${r.cnt} 위치와 문헌 ${r.n}건을 넣었습니다.${r.mismatch ? " 넣은 자료의 9격자가 이 사업지구의 9격자와 다릅니다 — 포털에서 다른 위치로 받은 자료인지 확인하세요." : ""}`, r.mismatch ? 8000 : 4000);
         }
-        if (S.cur !== "lit") { S.cur = "lit"; syncControls(); }
+        // 법정보호종 출현위치도에서 넣었으면 그 탭에 그대로
+        if (S.cur !== "lit" && S.cur !== "sp") { S.cur = "lit"; syncControls(); }
         setView("preview");
       } catch (err) {
         console.error(err);
@@ -940,6 +958,9 @@
       if (t.dataset.ltext) { L().text.set(t.dataset.ltext, t.value); rerender(); }
     });
     box.addEventListener("click", (e) => {
+      const pk = e.target.closest("button[data-lpick]"), up = e.target.closest("button[data-lunpick]");
+      if (pk) { A.target = pk.dataset.lpick; startArrow("lit-pick"); return; }
+      if (up) { L().picked.delete(up.dataset.lunpick); renderPreview(); renderLitList(); return; }
       const b = e.target.closest("button[data-ldel]");
       if (!b) return;
       const id = b.dataset.ldel;
@@ -1186,7 +1207,7 @@
   }));
   $$("#view-tabs button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $$(".side select, .side input[type=checkbox]").forEach((el) => {
-    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.closest("#label-list") || el.closest("#lit-list") || el.type === "file") return;
+    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.id === "s-where" || el.closest("#label-list") || el.closest("#lit-list") || el.type === "file") return;
     el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); if (/^o-(basemap|gray|labels)$/.test(el.id)) syncMapBase(); renderPreview(); });
   });
   $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
