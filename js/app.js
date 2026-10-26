@@ -471,6 +471,12 @@
     const n = { forest: 0, water: 0 };
     $("#arrow-list").innerHTML = list.map((a, i) => `<div class="arrow-row"><i class="sw sw-${a.kind}"></i>${arrowName(a.kind)} ${++n[a.kind]} <span class="muted small">점 ${a.pts.length}개</span><button class="link" data-del="${i}">지우기</button></div>`).join("");
   };
+  // 분류군 차례(모든 도면의 범례·목록·주석·엑셀): 식물 → 포유류 → 양서·파충류 → 조류 → 육상곤충류 → 저서성 대형무척추동물 → 어류, 나머지는 끝.
+  // 자료마다 이름이 조금 달라(식물상·양서파충류·곤충류·무척추동물·갑각류·육수생물 등) 앞부분으로 맞춤
+  const TAXON_RANK = [["식물", "식생"], ["포유"], ["양서", "파충"], ["조류"], ["곤충", "육상곤충"], ["저서", "무척추", "갑각", "육수"], ["어류"]];
+  const taxonRank = (t) => { const s = String(t || "").replace(/[\s·]/g, ""), i = TAXON_RANK.findIndex((g) => g.some((n) => s.startsWith(n))); return i < 0 ? TAXON_RANK.length : i; };
+  const byTaxon = (a, b) => taxonRank(a) - taxonRank(b);
+
   // ---------- 현지조사 위치도 ----------
   // 조사범위 처음 값(표 6.1.1-3 조사항목별 현지조사 범위): 면사업은 사업지구 경계에서, 선형사업은 중심선(식물)·경계(양서·파충류·곤충)에서.
   // 보호지역·생태·자연도 1등급이 가까우면 500 m까지 넓히기도 함(필수 아님 — 꺼 둔 줄). 거리·이름은 직접 고쳐 씀
@@ -478,13 +484,13 @@
     area: [[100, "식물상·식생, 양서·파충류·육상곤충", true], [300, "포유류·조류", true], [500, "보호지역 인접 확대", false]],
     line: [[150, "식물상·식생, 양서·파충류·육상곤충", true], [500, "포유류·조류", true]],
   };
-  // 경로 분류군: [키, 이름, 색, 파일 이름으로 짐작]
+  // 경로 분류군: [키, 이름, 색, 파일 이름으로 짐작] — 분류군 차례(TAXON_RANK)대로
   const ROUTE_GROUPS = [
     ["etc", "공통", "#ff3fd2", null],
     ["flora", "식물상·식생", "#51cf66", /식물|식생|plant|flora|veg/i],
     ["mammal", "포유류", "#ff922b", /포유|mammal/i],
-    ["bird", "조류", "#4dabf7", /조류|bird/i],
     ["herp", "양서·파충류", "#cc5de8", /양서|파충|양파|herp|amphib|reptil/i],
+    ["bird", "조류", "#4dabf7", /조류|bird/i],
     ["insect", "육상곤충", "#fcc419", /곤충|insect/i],
     ["water", "육수생물", "#22b8cf", /어류|저서|육수|fish|benth/i],
   ];
@@ -821,7 +827,6 @@
   const OCC = {
     fsp: {
       pre: "q", what: "법정보호종", ex: ["수달", "배설물"], list: "data/legal_species.json", ver: 2, file: "eia-figure-maps/fsp", save: "현지조사_법정보호종", title: "현지조사시 법정보호종 출현 기록",
-      taxa: ["포유류", "조류", "양서·파충류", "어류", "곤충류", "무척추동물", "식물", "해조류", "고등균류"],
       read: (d) => d.species.map(([name, g, nm, taxon]) => ({ name, taxon, g, nm: !!nm })),
       status: (m) => (m ? [GRADE[m.g], m.nm && "천연기념물"].filter(Boolean).join(", ") : ""),
       col: "법적지위", src: (s) => `등급: ${s}`,
@@ -829,7 +834,6 @@
     },
     inv: {
       pre: "w", what: "생태계교란생물", ex: ["가시박", "군락"], list: "data/invasive_species.json", ver: 1, file: "eia-figure-maps/inv", save: "현지조사_생태계교란생물", title: "현지조사시 생태계교란생물 출현 기록",
-      taxa: ["포유류", "양서·파충류", "어류", "갑각류", "곤충류", "식물"],
       read: (d) => d.species.map(([name, taxon, sci]) => ({ name, taxon, sci })),
       status: () => "",
       col: "학명", src: (s) => `종 목록: ${s}`,
@@ -911,9 +915,9 @@
     f.extraPts = vis.flatMap((r) => r.pts);
     f.listSource = OL[k] ? C.src(OL[k].source) : "";
   };
-  // 종 차례: 분류군(목록에 없는 종은 끝) → 넣은 차례
+  // 종 차례: 분류군(TAXON_RANK, 목록에 없는 종은 맨 끝) → 넣은 차례
   const occOrder = (k, recs) => {
-    const T = OCC[k].taxa, names = [...new Set(recs.map((r) => r.name))], ti = (n) => { const m = occOf(k, n), i = m ? T.indexOf(m.taxon) : -1; return i < 0 ? T.length : i; };
+    const names = [...new Set(recs.map((r) => r.name))], ti = (n) => { const m = occOf(k, n); return m ? taxonRank(m.taxon) : TAXON_RANK.length + 1; };
     return names.map((n, i) => [n, ti(n), i]).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]);
   };
   const addRec = (k, name, kind, pts, note = "") => { const Q = OF(k); Q.recs.push({ id: `r${++Q.seq}`, name, kind, pts: pts.map((p) => [+p[0].toFixed(7), +p[1].toFixed(7)]), note }); };
@@ -1310,8 +1314,9 @@
   const spItemsText = (items, num) => items.map((it) => {
     const ns = [...new Set(it.refs.map((id) => num.get(id)).filter(Boolean))].sort((a, b) => a - b);
     if (it.refs.length && !ns.length) return null;
-    return { taxon: it.taxon || "기타", t: ns.length ? `${it.name}(${ns.map((n) => `문${n}`).join(",")})` : it.name };
-  }).filter(Boolean);
+    // 분류군이 없는 종(칸·문헌 위치)은 법정보호종 목록의 분류군으로(분류군 차례로 늘어놓게)
+    return { taxon: it.taxon || (occOf("fsp", it.name) || {}).taxon || "기타", t: ns.length ? `${it.name}(${ns.map((n) => `문${n}`).join(",")})` : it.name };
+  }).filter(Boolean).sort((a, b) => byTaxon(a.taxon, b.taxon));
   const prepSp = (f) => {
     const sp = f.lit.sp, all = f.litRows || [], num = new Map(all.map((r) => [r.id, r.n]));
     const geoOk = new Set(all.filter((r) => r.geo).map((r) => r.geoKey));
@@ -1330,7 +1335,7 @@
       const color = en.kind === "geo" ? (geoCol.get(en.geoKey) || SP_COLORS.cell) : en.kind === "point" && en.lit && litCol.get(en.lit) ? litCol.get(en.lit) : SP_COLORS[en.kind] || SP_COLORS.cell;
       f.spRows.push({ kind: en.kind, code: en.code, cell: en.cell, geoKey: en.geoKey, point: en.point, text: toks.map((x) => x.t).join(", "), color });
     });
-    f.spNote = [...noteBy].map(([k, ts]) => `${k}: ${ts.join(", ")}`);
+    f.spNote = [...noteBy].sort((a, b) => byTaxon(a[0], b[0])).map(([k, ts]) => `${k}: ${ts.join(", ")}`);
     // 법정보호종이 없는 문헌은 이 도면의 기호·문헌자료 표에서 뺌(번호는 문헌조사 위치도 그대로라 빈 번호가 생김). 9격자는 늘 그림
     f.litAll = all;
     f.litRows = all.filter((r) => used.has(r.id));
@@ -1342,7 +1347,7 @@
     if (en.kind !== "note") return toks.map((x) => x.t).join(", ");
     const by = new Map();
     toks.forEach((x) => { if (!by.has(x.taxon)) by.set(x.taxon, []); by.get(x.taxon).push(x.t); });
-    return [...by].map(([k, ts]) => `${k}: ${ts.join(", ")}`).join("\n");
+    return [...by].sort((a, b) => byTaxon(a[0], b[0])).map(([k, ts]) => `${k}: ${ts.join(", ")}`).join("\n");
   };
   const spParse = (en, text) => {
     const toId = new Map(spAll().map((r) => [r.n, r.id]));
