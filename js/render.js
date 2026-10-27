@@ -15,7 +15,8 @@
     rings: ["#ffe14d", "#ffffff", "#7fd3ff", "#ff9f40", "#d0bfff"],
   };
   // 현지조사 위치도: 조사범위 선 색(가까운 범위부터), 조사지점 기호(식생 네모·육수 세모·기타 동그라미)
-  const FIELD = { rings: ["#ffe14d", "#7fd3ff", "#ff9f40", "#d0bfff", "#ffffff"], pts: { veg: "#2f9e44", water: "#1c7ed6", etc: "#f76707" } };
+  // (지점 색에 초록을 쓰지 않음: 생태·자연도 1등급·산림 위에서 구별이 안 됨)
+  const FIELD = { rings: ["#ffe14d", "#7fd3ff", "#ff9f40", "#d0bfff", "#ffffff"], pts: { veg: "#d6336c", water: "#1c7ed6", etc: "#f76707" } };
   // 생태·자연도 색(사용자 지정: 1등급 #17ac4d, 2등급 #9dd09c, 3등급 흰색, 별도관리지역 #f2932f).
   // 흑백 바탕(백지도)·흰 바탕이면 불투명하게 칠하고 바탕 선을 위에 다시 얹음(lines), 위성·컬러 바탕이면 바탕이 비치게 op만큼
   const NAT = { g1: "#17ac4d", g2: "#9dd09c", g3: "#ffffff", sep: "#f2932f", op: 0.7 };
@@ -530,6 +531,68 @@
     return OSM.val;
   };
 
+  // ---------- 지형 고도(흐름 방향 판단용): AWS Terrain Tiles(terrarium — SRTM 등, CORS 됨) ----------
+  // 틀 범위를 덮는 타일(36장 넘지 않는 확대 단계)을 이어 붙여 경위도의 고도(m)를 돌려주는 함수로. 고도 = R×256 + G + B/256 − 32768, 없는 곳은 NaN
+  const DEM_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+  const demLayer = async (v, alive) => {
+    const [X0, Y0, X1, Y1] = v.mBox;
+    let z = 13, ts, tx0, tx1, ty0, ty1;
+    for (;; z--) {
+      ts = WORLD / 2 ** z;
+      tx0 = Math.floor((X0 + WORLD / 2) / ts); tx1 = Math.floor((X1 + WORLD / 2) / ts);
+      ty0 = Math.floor((WORLD / 2 - Y1) / ts); ty1 = Math.floor((WORLD / 2 - Y0) / ts);
+      if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 36 || z <= 8) break;
+    }
+    const W = (tx1 - tx0 + 1) * 256, H = (ty1 - ty0 + 1) * 256;
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    const jobs = [];
+    for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) jobs.push(async () => { if (!alive()) return; const im = await loadImg(DEM_URL(z, tx, ty)); if (im) g.drawImage(im, (tx - tx0) * 256, (ty - ty0) * 256); });
+    await pool(jobs, 8);
+    const d = g.getImageData(0, 0, W, H).data;
+    const px = (i, j) => { if (i < 0 || j < 0 || i >= W || j >= H) return NaN; const k = (j * W + i) * 4; return d[k + 3] ? d[k] * 256 + d[k + 1] + d[k + 2] / 256 - 32768 : NaN; };
+    // 이웃 네 칸 사이를 고르게(쌍선형)
+    const at = (lon, lat) => {
+      const fx = ((mx(lon) + WORLD / 2) / ts - tx0) * 256 - 0.5, fy = ((WORLD / 2 - my(lat)) / ts - ty0) * 256 - 0.5, i = Math.floor(fx), j = Math.floor(fy), u = fx - i, w = fy - j;
+      return (px(i, j) * (1 - u) + px(i + 1, j) * u) * (1 - w) + (px(i, j + 1) * (1 - u) + px(i + 1, j + 1) * u) * w;
+    };
+    return { at, z };
+  };
+
+  // 하천 선 흐름 방향 바로잡기(메르카토르 m). 오픈스트리트맵은 흐르는 방향으로 그리지만 거꾸로 그린 선도 있어, 물줄기 연결로 확인:
+  // 한쪽 끝만 '빈 끝'(다른 하천 선·물 면(실폭하천·저수지·하천구역·토지피복 수계)·바다 어디에도 안 닿음 = 상류 끝)이면 반대쪽(합류점·물 면·바다)으로 흐름.
+  // 두 끝이 다 닿았거나 다 비었으면(댐 아래로 나가는 물길 등 애매한 경우) 그린 방향 그대로. 판단 범위(box) 밖 끝은 이웃 자료가 없을 수 있어 빈 끝으로 보지 않음.
+  // 돌려줌: 뒤집을 선 id 모음
+  const flowFlips = (ways, waters, land, box) => {
+    const TOL = 12, T2 = TOL * TOL;   // 닿았다고 볼 거리(m): 하천 선 줄이기 4 m와 면 경계 오차
+    const bbOf = (r) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < r.length; i += 2) { if (r[i] < x0) x0 = r[i]; if (r[i] > x1) x1 = r[i]; if (r[i + 1] < y0) y0 = r[i + 1]; if (r[i + 1] > y1) y1 = r[i + 1]; } return [x0, y0, x1, y1]; };
+    const segD2 = (x, y, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy; let t = L ? ((x - ax) * dx + (y - ay) * dy) / L : 0; t = t < 0 ? 0 : t > 1 ? 1 : t; return (x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2; };
+    const inPoly = (x, y, poly) => { let c = false; poly.forEach((r) => { for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) if ((r[i + 1] > y) !== (r[j + 1] > y) && x < ((r[j] - r[i]) * (y - r[i + 1])) / (r[j + 1] - r[i + 1]) + r[i]) c = !c; }); return c; };
+    const nearPoly = (x, y, poly) => poly.some((r) => { for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) if (segD2(x, y, r[j], r[j + 1], r[i], r[i + 1]) <= T2) return true; return false; });
+    const W = waters.map((p) => ({ p, b: bbOf(p[0]) }));
+    const Ld = land ? land.map((p) => ({ p, b: bbOf(p[0]) })) : null;
+    const hit = (b, x, y, m) => x >= b[0] - m && x <= b[2] + m && y >= b[1] - m && y <= b[3] + m;
+    const wet = (x, y) => W.some(({ p, b }) => hit(b, x, y, TOL) && (inPoly(x, y, p) || nearPoly(x, y, p)))
+      || (!!Ld && !Ld.some(({ p, b }) => hit(b, x, y, 0) && inPoly(x, y, p)));   // 육지 밖 = 바다
+    const lines = ways.map((w) => { const f = w.pts.flat(); return { w, b: bbOf(f) }; });
+    const touch = (x, y, self) => lines.some(({ w, b }, j) => {
+      if (j === self || !hit(b, x, y, TOL)) return false;
+      for (let i = 1; i < w.pts.length; i++) if (segD2(x, y, w.pts[i - 1][0], w.pts[i - 1][1], w.pts[i][0], w.pts[i][1]) <= T2) return true;
+      return false;
+    });
+    const inBox = ([x, y]) => x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3];
+    const free = (p, i) => inBox(p) && !touch(p[0], p[1], i) && !wet(p[0], p[1]);
+    const flips = new Set();
+    ways.forEach((w, i) => {
+      const a = w.pts[0], b = w.pts[w.pts.length - 1];
+      if (!inBox(a) && !inBox(b)) return;
+      const fa = free(a, i), fb = free(b, i);
+      if (fb && !fa) flips.add(w.id);   // 끝(b)이 상류 끝 → 처음(a) 쪽으로 흐름
+    });
+    return flips;
+  };
+
   // ---------- 하천구역·소하천구역(data/water)과 바다를 가를 육지(data/land) ----------
   // 0.1도 조각 이진 파일(tools/build_water.py·build_land.py): 경위도 1e-7도 정수를 조각 모서리 기준 zigzag varint 차이로 적음
   // 파일 구조: [판] [면 수] {면} … [묶음 수] {번호, 면 수, {면} …} …  (육지는 앞의 면만 씀)
@@ -881,7 +944,7 @@
 
   // 법정보호종 기호: 모양(동그라미·세모·네모·마름모·역세모·오각·별·육각) × 색, 반지름 1 기준 꼭짓점
   const SYM_SHAPES = ["circle", "triangle", "square", "diamond", "invtri", "pentagon", "star", "hexagon"];
-  const SYM_COLORS = ["#e03131", "#f08c00", "#7048e8", "#1c7ed6", "#2f9e44", "#c2255c", "#0c8599", "#5c940d", "#e8590c", "#862e9c"];
+  const SYM_COLORS = ["#e03131", "#f08c00", "#7048e8", "#1c7ed6", "#212529", "#c2255c", "#0c8599", "#ae3ec9", "#d9480f", "#8d5524"];   // 초록 없음(1등급·산림과 구별)
   const ngon = (n, r, rot = -Math.PI / 2) => Array.from({ length: n }, (_, k) => [r * Math.cos(rot + (k / n) * 2 * Math.PI), r * Math.sin(rot + (k / n) * 2 * Math.PI)]);
   const symPts = (shape) => ({
     triangle: [[0, -1.15], [1.05, 0.75], [-1.05, 0.75]], square: [[-0.85, -0.85], [0.85, -0.85], [0.85, 0.85], [-0.85, 0.85]],
@@ -1014,6 +1077,7 @@
       });
     }
     const wzJob = eco && (fig.eco.rzone || fig.eco.szone) ? waterZones(v).catch((err) => { console.warn(err); warn.push("하천구역 자료를 받지 못했습니다."); return null; }) : null;
+    const demJob = eco && fig.eco.flow ? demLayer(v, alive).catch((err) => { console.warn(err); return null; }) : null;
     const topoJob = eco && fig.eco.topo ? topoLayer(v).then((d) => d.polys).catch((err) => { console.warn(err); warn.push("실폭하천·호수/저수지 자료를 받지 못했습니다."); return null; }) : null;
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
@@ -1032,16 +1096,16 @@
         return null;
       });
     }
-    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo, paD] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob, paJob]);
+    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo, paD, dem] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob, paJob, demJob]);
     // 안전장치: API가 1등급을 하나도 주지 않았는데 조각에는 틀 안에 1등급이 있으면 조각으로
     if (g1api && !g1api.length && nd && nd[1] && nd[1].length) { warn.push("API 응답에서 1등급 면을 찾지 못해 1등급 이격거리는 정기고시 원본 경계로 계산했습니다."); g1api = null; }
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, pa: paD, warn };
+    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, pa: paD, dem, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
   const paint = (pen, fig, site, D) => {
-    const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl } = D;
+    const { L: Lo, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, dem } = D;
     const { W, H, e, frame: F } = Lo;
     // sp(법정보호종 출현위치도)는 문헌조사 위치도(lit) 위에 종 이름을 더한 것
     const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", occ = fig.kind === "fsp" || fig.kind === "inv", fld = fig.kind === "field" || occ;
@@ -1125,7 +1189,7 @@
     if (eco && (lc && (fig.eco.water || fig.eco.tidal) || land && fig.eco.sea || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone) || topo && fig.eco.topo)) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "forest")) legend.push({ type: "arrow", color: COLOR.arrowForest, label: "산림축" });
     if (eco && (fig.arrows || []).some((a) => a.kind === "water")) legend.push({ type: "arrow", color: COLOR.arrowWater, label: "수계축" });
-    if (eco && os && fig.eco.flow && os.ways.length) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
+    if (eco && fig.eco.flow && ((os && os.ways.length) || dem)) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
     if (eco && os && fig.eco.peaks && os.peaks.length) legend.push({ type: "peak", color: COLOR.peak, label: "산봉우리" });
     if (rings && !fld) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: `${fmtNum(r.km)} km 범위` }));
     // 현지조사 위치도: 조사범위 → 조사경로 → 조사지점. 현지조사시 법정보호종 출현위치도: 조사범위 → (조사경로) → 종마다 기호
@@ -1303,7 +1367,28 @@
           pen.path(parts, { stroke: col, width: 1 * e });
         } else parts.forEach((p) => p.forEach(([x, y]) => dot(x, y, 1.5 * e, col)));
         pen.unclip();
-        marks.set(it.geoKey, { nums: [it.n], x: at[0], y: at[1], col, kind });
+        // 유역처럼 넓은 구역(outline)은 가운데 번호표로는 어느 테두리인지 알기 어려워, 테두리 위 자리(격자 안, 사업지구 쪽부터)를 후보로 둠
+        let edge = null;
+        if (kind === "area" && it.outline) {
+          const cx = (gx0 + gx1) / 2, cy = (gy0 + gy1) / 2, inR = (x, y, r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
+          edge = [];
+          parts.forEach((p) => {
+            for (let i = 0; i < p.length; i++) {
+              const a = p[i], b = p[(i + 1) % p.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+              if (!L) continue;
+              const nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L;
+              for (let t = 0; t < L; t += 3 * e) {
+                const x = a[0] + ((b[0] - a[0]) * t) / L, y = a[1] + ((b[1] - a[1]) * t) / L;
+                if (x < gx0 + 2 * e || x > gx1 - 2 * e || y < gy0 + 2 * e || y > gy1 - 2 * e) continue;
+                const s = inR(x + nx * e, y + ny * e, p) ? 1 : -1;   // 면 안쪽을 향하는 법선
+                edge.push({ x, y, nx: nx * s, ny: ny * s, d: Math.hypot(x - cx, y - cy) });
+              }
+            }
+          });
+          edge.sort((u, w) => u.d - w.d);
+          if (!edge.length) edge = null;
+        }
+        marks.set(it.geoKey, { nums: [it.n], x: at[0], y: at[1], col, kind, edge });
       });
       litOut = [...outside.values()].flat();
       // 보호구역 위치도: 9격자에 걸치는 보호구역을 종류 색으로(넓은 것부터 칠해 작은 것이 위에), 격자 안쪽만
@@ -1393,7 +1478,14 @@
         // 번호표도 격자 안에만(격자 가장자리에 걸리면 안쪽으로 밀어 넣음)
         const keep = (bx, by) => [Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, bx)), Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, by))];
         [x, y] = keep(x, y);
-        for (const [dx, dy] of [[0, 0], [0, -h - 1], [0, h + 1], [w * 0.6, 0], [-w * 0.6, 0]]) {
+        // 유역은 테두리 바로 안쪽(번호표 가장자리가 테두리에 닿게)에서 빈자리를 찾고, 없으면 가운데
+        const onEdge = m.edge && m.edge.find((c) => {
+          const o = (Math.abs(c.nx) * w) / 2 + (Math.abs(c.ny) * h) / 2 + 0.6 * e, [bx, by] = keep(c.x + c.nx * o - w / 2, c.y + c.ny * o - h / 2);
+          if (boxHit([bx, by, bx + w, by + h], occupied)) return false;
+          x = bx; y = by;
+          return true;
+        });
+        if (!onEdge) for (const [dx, dy] of [[0, 0], [0, -h - 1], [0, h + 1], [w * 0.6, 0], [-w * 0.6, 0]]) {
           const [bx, by] = keep(x + dx, y + dy);
           if (!boxHit([bx, by, bx + w, by + h], occupied)) { x = bx; y = by; break; }
         }
@@ -1563,7 +1655,10 @@
     });
     const sb0 = [Infinity, Infinity, -Infinity, -Infinity];
     [...sitePolys.flat(), ...siteLines.flat(), ...sitePts].forEach(([x, y]) => { sb0[0] = Math.min(sb0[0], x); sb0[1] = Math.min(sb0[1], y); sb0[2] = Math.max(sb0[2], x); sb0[3] = Math.max(sb0[3], y); });
-    occupied.push([sb0[0] - 1, sb0[1] - 1, sb0[2] + 1, sb0[3] + 1]);
+    // 사업지구 둘레 사각형: 이름표는 피하고, 흐름 화살표는 피하지 않음(siteBox)
+    const siteBox = [sb0[0] - 1, sb0[1] - 1, sb0[2] + 1, sb0[3] + 1];
+    occupied.push(siteBox);
+    const hitNoSite = (box) => boxHit(box, occupied.filter((b) => b !== siteBox));
 
     // 지점 이름표: 기호 둘레 여덟 자리 중 빈 곳(오른쪽부터, 다 막히면 오른쪽)
     const ptLabel = (t, x, y, size = 7.5) => {
@@ -1703,7 +1798,7 @@
 
     // 이름표 후보 — 산 → 저수지 → 하천 순서로, 다른 글자·도면 요소와 겹치면 뺌
     const hide = fig.labelHide || new Set(), rename = fig.labelText || new Map();
-    const place = [];
+    const place = [], flowSpots = [];
     if (eco && os) {
       const fsP = 7.6 * e, fsW = 7.6 * e;
       if (fig.eco.peaks) {
@@ -1778,11 +1873,17 @@
           place.push(() => pen.text(t, x, y, { size: fsW, weight: 600, align: "center", base: "middle", angle: ang, color: COLOR.waterText, halo, haloWidth: 0.5 * e }));
         });
       }
-      // 흐름 방향: 이름 있는 하천과 강의 선 방향(오픈스트리트맵은 흐르는 방향으로 그림)을 따라 간격을 두고
+      // 흐름 방향: 강·이름 있는 하천부터 이름 없는 개천까지 모든 하천 선에 간격을 두고(용지에서 짧은 선은 뺌).
+      // 방향은 선 방향(오픈스트리트맵은 흐르는 방향으로 그림)을 물줄기 연결로 바로잡은 것(flowFlips: 합류점·물 면·바다 쪽으로)
       if (fig.eco.flow) {
-        const gap = 48 * e, len = 5.2 * e, spots = [];
-        wayPage.filter((w) => w.kind === "river" || w.name).forEach((w) => {
-          const pp = w.pp;
+        const gap = 36 * e, len = 6 * e, spots = flowSpots;
+        const mb = v.mBox, mx0 = (mb[2] - mb[0]) * 0.1, my0 = (mb[3] - mb[1]) * 0.1;
+        const waters = [...(topo || []), ...(wz ? [...wz.river, ...wz.small] : []), ...(lc ? lc.water : [])];
+        const flips = flowFlips(os.ways, waters, land || null, [mb[0] - mx0, mb[1] - my0, mb[2] + mx0, mb[3] + my0]);
+        const plen = (pp) => pp.reduce((s, p, i) => s + (i ? Math.hypot(p[0] - pp[i - 1][0], p[1] - pp[i - 1][1]) : 0), 0);
+        wayPage.map((w) => ({ w, L: plen(w.pp) })).filter(({ L }) => L >= 15 * e)
+          .sort((a, b) => (b.w.kind === "river") - (a.w.kind === "river") || !!b.w.name - !!a.w.name || b.L - a.L).forEach(({ w }) => {
+          const pp = flips.has(w.id) ? [...w.pp].reverse() : w.pp;
           let acc = gap * 0.5;
           for (let i = 1; i < pp.length; i++) {
             const seg = Math.hypot(pp[i][0] - pp[i - 1][0], pp[i][1] - pp[i - 1][1]);
@@ -1791,7 +1892,7 @@
               const x = pp[i - 1][0] + (pp[i][0] - pp[i - 1][0]) * t, y = pp[i - 1][1] + (pp[i][1] - pp[i - 1][1]) * t;
               const a = Math.atan2(pp[i][1] - pp[i - 1][1], pp[i][0] - pp[i - 1][0]);
               const box = [x - len / 2 - 0.5, y - len / 2 - 0.5, x + len / 2 + 0.5, y + len / 2 + 0.5];
-              if (inF(x, y, 6 * e) && !spots.some(([sx, sy]) => Math.hypot(sx - x, sy - y) < gap * 0.45) && !boxHit(box, occupied)) {
+              if (inF(x, y, 6 * e) && !spots.some(([sx, sy]) => Math.hypot(sx - x, sy - y) < gap * 0.55) && !hitNoSite(box)) {
                 spots.push([x, y]);
                 occupied.push(box);
                 place.push(() => pen.path([flowArrow(x, y, a, len)], { closed: true, fill: COLOR.flow, stroke: "#ffffff", width: 0.3 * e }));
@@ -1801,6 +1902,61 @@
             acc -= seg;
           }
         });
+      }
+    }
+    // 흐름 방향(물길 면): 하천 선이 없는 물길(소하천구역·하천구역·실폭하천)도 지형 고도로 방향을 정해 화살표를 놓음.
+    // 면을 0.5 mm 격자로 그려 일정 간격 자리마다 물길이 뻗은 방향(둘레 물 칸의 주성분)을 구하고 폭 가운데로 옮긴 뒤,
+    // 그 방향 앞뒤(땅 60·150 m)의 고도 차가 같은 쪽이고 1 m 넘으면 낮은 쪽으로. 넓은 면(저수지 등)·길쭉하지 않은 곳·애매한 곳은 뺌
+    if (eco && fig.eco.flow && dem) {
+      const polys = [...(wz && fig.eco.szone ? wz.small : []), ...(wz && fig.eco.rzone ? wz.river : []), ...(topo && fig.eco.topo ? topo : [])];
+      if (polys.length) {
+        const res = 0.5, MW = Math.ceil(F.w / res), MH = Math.ceil(F.h / res);
+        const mc = document.createElement("canvas");
+        mc.width = MW; mc.height = MH;
+        const g = mc.getContext("2d", { willReadFrequently: true });
+        g.setTransform(1 / res, 0, 0, 1 / res, -F.x / res, -F.y / res);
+        polys.forEach((poly) => {
+          g.beginPath();
+          poly.forEach((r) => { for (let i = 0; i < r.length; i += 2) { const [x, y] = PM(r[i], r[i + 1]); if (i) g.lineTo(x, y); else g.moveTo(x, y); } g.closePath(); });
+          g.fill("evenodd");
+        });
+        const md = g.getImageData(0, 0, MW, MH).data, wet = (i, j) => i >= 0 && j >= 0 && i < MW && j < MH && md[(j * MW + i) * 4 + 3] > 127;
+        const step = Math.max(4, Math.round((9 * e) / res)), half = step >> 1, R = Math.max(3, Math.round((3.5 * e) / res)), maxW = (5 * e) / res;
+        const cands = [];
+        for (let j = half; j < MH; j += step) {
+          for (let i = half; i < MW; i += step) {
+            let b = null;
+            for (let dj = -half; dj <= half; dj++) for (let di = -half; di <= half; di++) if (wet(i + di, j + dj)) { const d2 = di * di + dj * dj; if (!b || d2 < b.d2) b = { i: i + di, j: j + dj, d2 }; }
+            if (!b) continue;
+            let n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+            for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) if (di * di + dj * dj <= R * R && wet(b.i + di, b.j + dj)) { n++; sx += di; sy += dj; sxx += di * di; syy += dj * dj; sxy += di * dj; }
+            if (n < 6) continue;
+            const ax = sx / n, ay = sy / n, A = sxx / n - ax * ax, B = sxy / n - ax * ay, C = syy / n - ay * ay;
+            const tr = (A + C) / 2, disc = Math.sqrt(Math.max(0, tr * tr - (A * C - B * B))), l1 = tr + disc, l2 = tr - disc;
+            if (l1 < 4 * Math.max(l2, 0.25)) continue;
+            const th = 0.5 * Math.atan2(2 * B, A - C), ux = Math.cos(th), uy = Math.sin(th), vx = -uy, vy = ux;
+            let lo = 0, hi = 0;
+            while (lo < 2 * R && wet(Math.round(b.i - vx * (lo + 1)), Math.round(b.j - vy * (lo + 1)))) lo++;
+            while (hi < 2 * R && wet(Math.round(b.i + vx * (hi + 1)), Math.round(b.j + vy * (hi + 1)))) hi++;
+            if (lo + hi + 1 > maxW) continue;
+            const ci = b.i + (vx * (hi - lo)) / 2, cj = b.j + (vy * (hi - lo)) / 2;
+            cands.push({ x: F.x + (ci + 0.5) * res, y: F.y + (cj + 0.5) * res, ux, uy });
+          }
+        }
+        const gap = 36 * e, len = 6 * e, m2mm = 1000 / v.scale;
+        const elev = (x, y) => { const [lon, lat] = v.toLL(x, y); return dem.at(lon, lat); };
+        cands.forEach((cd) => {
+          if (!inF(cd.x, cd.y, 6 * e) || flowSpots.some(([sx, sy]) => Math.hypot(sx - cd.x, sy - cd.y) < gap * 0.55)) return;
+          const dz = [60, 150].map((m) => { const d = m * m2mm; return elev(cd.x + cd.ux * d, cd.y + cd.uy * d) - elev(cd.x - cd.ux * d, cd.y - cd.uy * d); });
+          if (!dz.every(Number.isFinite) || Math.sign(dz[0]) !== Math.sign(dz[1]) || Math.abs(dz[1]) < 1) return;
+          const a = Math.atan2(cd.uy, cd.ux) + (dz[1] > 0 ? Math.PI : 0), { x, y } = cd;
+          const box = [x - len / 2 - 0.5, y - len / 2 - 0.5, x + len / 2 + 0.5, y + len / 2 + 0.5];
+          if (hitNoSite(box)) return;
+          flowSpots.push([x, y]);
+          occupied.push(box);
+          place.push(() => pen.path([flowArrow(x, y, a, len)], { closed: true, fill: COLOR.flow, stroke: "#ffffff", width: 0.3 * e }));
+        });
+        D.demUsed = flowSpots.length > 0;
       }
     }
     place.forEach((fn) => fn());
@@ -1933,6 +2089,7 @@
       if (eco && topo && fig.eco.topo) src.push("실폭하천·호수/저수지: 국토지리정보원 연속수치지형도");
       if (eco && land && fig.eco.sea) src.push("해안선: 국토교통부 브이월드 시군구 경계");
       if (eco && os) src.push("이름·하천: © OpenStreetMap 기여자");
+      if (eco && D.demUsed) src.push("흐름 방향 고도: AWS Terrain Tiles(SRTM 등)");
       if (!src[0]) src.shift();
       // 축척 글자와 겹치지 않게, 길면 ‘·’ 사이에서 줄을 나눔
       const fs = 6.2 * e, maxW = F.w - textW("축척 1:100,000 (A3 세로)", fs) - 6 * e;

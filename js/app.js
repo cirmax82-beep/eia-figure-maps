@@ -15,17 +15,21 @@
       ["urbanpark", "도시자연공원구역", 0], ["protect-district", "보호지구", 0], ["landscape", "자연경관지구", 0], ["greenbelt", "개발제한구역", 0], ["air", "대기환경규제지역", 0]]],
   ];
   const PA_DEFAULT = PA_LAYERS.flatMap(([, , ls]) => ls.filter((l) => l[2]).map((l) => l[0]));
+  // 기본 바탕지도(다른 바탕도 고를 수 있음): 브이월드 위성사진. 문헌조사·법정보호종(문헌조사)·보호구역 위치도는 브이월드 일반지도, 생태축은 지형 음영(+지명 겹치기).
+  // 브이월드 인증키가 없으면 Esri 위성
+  const BASE_OF = { lit: "vbase", sp: "vbase", pa: "vbase", eco: "hill" };
+  const baseOf = (kind) => { const b = BASE_OF[kind] || "vsat"; return Carto.BASES[b].key && !Carto.hasVworld ? "sat" : b; };
   const newFig = (kind) => ({
     kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || ["lit", "sp", "pa"].includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
-    basemap: kind === "nat" ? "vwhite" : ["lit", "sp", "pa"].includes(kind) && Carto.hasVworld ? "vbase" : "sat", base: 0, gray: false, baseLabels: false,
+    basemap: baseOf(kind), base: 0, gray: false, baseLabels: kind === "eco",
     title: TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp", "inv"].includes(kind), grid: "none", size: 1, lsize: 1, sbsize: 1, nsize: 1 },
     rings: [1, 2],
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
-    // 문헌조사 위치도: 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
-    lit: { nat: false, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, picked: new Map(), manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
+    // 문헌조사 위치도: 생태·자연도 1·2등급 겹치기(기본 켬), 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
+    lit: { nat: true, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, picked: new Map(), manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
     // 보호구역 위치도: 그릴 종류, 이름, 이격거리 치수선, 도엽 이름(9격자는 lit.grid를 같이 씀)
     pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true },
     // 현지조사 위치도: 사업 종류(auto·area·line), 조사범위([{m, name, on}], null이면 사업 종류의 처음 값), 경로 파일, 겹친 길 합치기 거리(m), 차량 이동 빼기, 다듬기(m), 자를 먼 거리(m),
@@ -151,6 +155,8 @@
     }
     $("#paper").classList.remove("empty");
     const f = fig();
+    // 그리는 차례 번호는 자료 받기 전에 매김: 문헌 자료를 받는 사이 다른 도면으로 바꾸면 늦게 끝난 앞 그림이 새 도면을 덮지 않게
+    const my = ++gen;
     f.siteText = siteText();
     f.ecoKey = ecoKey();
     if (f.kind === "lit" || f.kind === "sp") await prepLit(f);
@@ -158,6 +164,7 @@
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
     if (OCC[f.kind]) { await occList(f.kind).catch(() => null); prepOcc(f); }
+    if (my !== gen) return;
     resolveScale(f);
     scaleOptions();
     const Lo = Carto.layout(f);
@@ -169,7 +176,6 @@
     const cssW = Math.floor(Lo.W * sc), cssH = Math.floor(Lo.H * sc);
     const dpr = Math.min(2.5, window.devicePixelRatio || 1);
     const k = (cssW * dpr) / Lo.W;
-    const my = ++gen;
     if (!S.last) { $("#paper").style.width = `${cssW}px`; $("#paper").style.height = `${cssH}px`; }
     const off = document.createElement("canvas");
     off.width = Math.round(Lo.W * k);
@@ -254,22 +260,51 @@
     }, { passive: false });
   };
 
-  // 끌어서 가운데 옮기기
+  // 끌어서 가운데 옮기기, 두 손가락으로 확대·축소(모바일). 두 손가락 가운데가 제자리에 있게 축척 목록의 가장 가까운 단계로 바꾸고
+  // 손가락이 옮긴 만큼 옮김. 그리는 동안은 그림을 늘려·옮겨 보여 줌
   const initPan = () => {
-    const cv = $("#pv-over");
-    let drag = null;
+    const cv = $("#pv-over"), pvc = $("#pv");
+    let drag = null, pinch = null;
+    const pts = new Map();
+    const two = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+    const finishPinch = (p) => {
+      if (Math.abs(p.f - 1) < 0.05 && Math.hypot(p.tx, p.ty) < 4) { pvc.style.transform = ""; return; }
+      const f = fig(), list = Carto.scalesFor(f), cur = f.scale, want = cur / p.f;
+      const next = list.reduce((b, s) => (Math.abs(Math.log(s / want)) < Math.abs(Math.log(b / want)) ? s : b), list[0]);
+      const { view, layout: Lo } = S.last, r = $("#paper").getBoundingClientRect(), mmPerPx = Lo.W / r.width;
+      const F = Lo.frame, dx = (p.x0 - r.left) * mmPerPx - (F.x + F.w / 2), dy = (p.y0 - r.top) * mmPerPx - (F.y + F.h / 2);
+      const dm = (cur - next) / 1000 / Math.cos((view.lat0 * Math.PI) / 180), mNew = (view.m * next) / cur;
+      f.offset = [f.offset[0] + dx * dm - p.tx * mmPerPx * mNew, f.offset[1] - dy * dm + p.ty * mmPerPx * mNew];
+      f.scaleMode = "fixed";
+      f.scale = next;
+      status(`축척 1:${fmt(next)}`);
+      renderPreview();
+    };
     cv.addEventListener("pointerdown", (e) => {
-      if (!S.last || !S.last.view || A.mode) return;
+      if (!S.last || !S.last.view) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { cv.setPointerCapture(e.pointerId); } catch (_) { /* 이미 끝난 손가락 */ }
+      if (pts.size === 2) { drag = null; const t = two(); pinch = { d0: t.d || 1, x0: t.x, y0: t.y, f: 1, tx: 0, ty: 0 }; return; }
+      if (A.mode || pts.size > 2) return;
       drag = { x: e.clientX, y: e.clientY, moved: false };
-      cv.setPointerCapture(e.pointerId);
     });
     cv.addEventListener("pointermove", (e) => {
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size >= 2) {
+        const t = two(), r = $("#paper").getBoundingClientRect();
+        pinch.f = t.d / pinch.d0; pinch.tx = t.x - pinch.x0; pinch.ty = t.y - pinch.y0;
+        pvc.style.transformOrigin = `${pinch.x0 - r.left}px ${pinch.y0 - r.top}px`;
+        pvc.style.transform = `translate(${pinch.tx}px, ${pinch.ty}px) scale(${pinch.f})`;
+        return;
+      }
       if (!drag) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
       $("#pv").style.transform = `translate(${dx}px, ${dy}px)`;
     });
     const end = (e) => {
+      pts.delete(e.pointerId);
+      if (pinch) { if (pts.size < 2) { const p = pinch; pinch = null; drag = null; finishPinch(p); } return; }
       if (!drag) return;
       const d = drag;
       drag = null;
@@ -491,7 +526,7 @@
   // 경로 분류군: [키, 이름, 색, 파일 이름으로 짐작] — 분류군 차례(TAXON_RANK)대로
   const ROUTE_GROUPS = [
     ["etc", "공통", "#ff3fd2", null],
-    ["flora", "식물상·식생", "#51cf66", /식물|식생|plant|flora|veg/i],
+    ["flora", "식물상·식생", "#ffffff", /식물|식생|plant|flora|veg/i],
     ["mammal", "포유류", "#ff922b", /포유|mammal/i],
     ["herp", "양서·파충류", "#cc5de8", /양서|파충|양파|herp|amphib|reptil/i],
     ["bird", "조류", "#4dabf7", /조류|bird/i],
@@ -1461,8 +1496,9 @@
 
   // ---------- 문헌조사 위치도 ----------
   // 문헌 위치 색: 포털 자료는 구분별, 직접 찍은 것은 돌아가며
-  const LIT_COLORS = { "겨울철 조류 동시 센서스": "#7b2cbf", "습지생물상조사": "#2b8a3e", "생물측정망": "#1c7ed6" };
-  const MAN_COLORS = ["#e8590c", "#d6336c", "#0c8599", "#5f3dc4", "#c92a2a", "#5c940d", "#1864ab", "#862e9c"];
+  // 문헌 기호 색: 초록은 쓰지 않음(생태·자연도 1등급과 겹치면 구별이 안 됨)
+  const LIT_COLORS = { "겨울철 조류 동시 센서스": "#7b2cbf", "습지생물상조사": "#c2255c", "생물측정망": "#1c7ed6" };
+  const MAN_COLORS = ["#e8590c", "#d6336c", "#0c8599", "#5f3dc4", "#c92a2a", "#495057", "#1864ab", "#862e9c"];
   // 포털 문헌 표기에 붙은 「7. 」 같은 번호는 떼고 도면에서 다시 매김
   const stripNo = (t) => String(t || "").replace(/^\s*\d+\.\s*/, "").trim();
   // 문헌 목록: 포털 공간자료의 문헌 목록이 있으면 그것(포털과 같은 번호 순서), 없으면 9격자 도엽의 전국자연환경조사(최근 차수 먼저, 도엽은 왼쪽 위부터)
@@ -1580,7 +1616,7 @@
     return { cnt, n: items.length, mismatch };
   };
   // ---------- 포털 문헌 엑셀(literature_by_taxon.xlsx의 ‘문헌목록’): 고른 문헌·번호를 그대로, 위치는 문헌 이름으로 찾음 ----------
-  const XLS_COLORS = { census: "#7b2cbf", wetland: "#2b8a3e", station: "#1c7ed6", basin: "#0b7285" };
+  const XLS_COLORS = { census: "#7b2cbf", wetland: "#c2255c", station: "#1c7ed6", basin: "#0b7285" };
   // 「…(이름), 2026, 기관」에서 연도 바로 앞 괄호 안(괄호가 겹쳐도 바깥 짝까지: 낙동강(삼랑진-대동), 금산천(양산))
   const lastParen = (t) => {
     const m = String(t).match(/^(.*\)),\s*(?:19|20)\d{2}\b/);
