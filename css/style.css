@@ -160,7 +160,7 @@ details .checks { margin-bottom: 8px; }
 .f-pt { grid-template-columns: auto 1fr auto auto; }
 .f-sw { display: inline-block; width: 16px; height: 4px; border-radius: 2px; }
 .f-sym { display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
-.f-sym-veg { background: #2f9e44; }
+.f-sym-veg { background: #7048e8; }
 .f-sym-water { background: #1c7ed6; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .f-sym-etc { background: #f76707; border-radius: 50%; }
 .f-add-group { width: auto; }

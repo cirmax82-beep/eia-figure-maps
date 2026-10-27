@@ -15,8 +15,8 @@
     rings: ["#ffe14d", "#ffffff", "#7fd3ff", "#ff9f40", "#d0bfff"],
   };
   // 현지조사 위치도: 조사범위 선 색(가까운 범위부터), 조사지점 기호(식생 네모·육수 세모·기타 동그라미)
-  // (지점 색에 초록을 쓰지 않음: 생태·자연도 1등급·산림 위에서 구별이 안 됨)
-  const FIELD = { rings: ["#ffe14d", "#7fd3ff", "#ff9f40", "#d0bfff", "#ffffff"], pts: { veg: "#d6336c", water: "#1c7ed6", etc: "#f76707" } };
+  // (지점 색에 초록·빨강을 쓰지 않음: 생태·자연도 1등급·산림, 사업지구와 구별이 안 됨)
+  const FIELD = { rings: ["#ffe14d", "#7fd3ff", "#ff9f40", "#d0bfff", "#ffffff"], pts: { veg: "#7048e8", water: "#1c7ed6", etc: "#f76707" } };
   // 생태·자연도 색(사용자 지정: 1등급 #17ac4d, 2등급 #9dd09c, 3등급 흰색, 별도관리지역 #f2932f).
   // 흑백 바탕(백지도)·흰 바탕이면 불투명하게 칠하고 바탕 선을 위에 다시 얹음(lines), 위성·컬러 바탕이면 바탕이 비치게 op만큼
   const NAT = { g1: "#17ac4d", g2: "#9dd09c", g3: "#ffffff", sep: "#f2932f", op: 0.7 };
@@ -944,7 +944,10 @@
 
   // 법정보호종 기호: 모양(동그라미·세모·네모·마름모·역세모·오각·별·육각) × 색, 반지름 1 기준 꼭짓점
   const SYM_SHAPES = ["circle", "triangle", "square", "diamond", "invtri", "pentagon", "star", "hexagon"];
-  const SYM_COLORS = ["#e03131", "#f08c00", "#7048e8", "#1c7ed6", "#212529", "#c2255c", "#0c8599", "#ae3ec9", "#d9480f", "#8d5524"];   // 초록 없음(1등급·산림과 구별)
+  // 초록(1등급·산림)·빨강 계열(사업지구 #e8212b)은 쓰지 않음
+  const SYM_COLORS = ["#7048e8", "#f08c00", "#1c7ed6", "#fab005", "#212529", "#0c8599", "#ae3ec9", "#8d5524", "#f783ac", "#5c7cfa"];
+  // 예전 기록·저장 파일에 남은 빨강 계열 기호 색은 그리기 전에 바꿈
+  const SYM_RECOLOR = { "#e03131": "#fab005", "#c2255c": "#f783ac", "#d9480f": "#5c7cfa", "#2f9e44": "#212529", "#5c940d": "#ae3ec9" };
   const ngon = (n, r, rot = -Math.PI / 2) => Array.from({ length: n }, (_, k) => [r * Math.cos(rot + (k / n) * 2 * Math.PI), r * Math.sin(rot + (k / n) * 2 * Math.PI)]);
   const symPts = (shape) => ({
     triangle: [[0, -1.15], [1.05, 0.75], [-1.05, 0.75]], square: [[-0.85, -0.85], [0.85, -0.85], [0.85, 0.85], [-0.85, 0.85]],
@@ -2357,5 +2360,5 @@
     return { total, ...splitGrades(total, S1, S2, SS), source: nd.source, sepGeom: SS };
   };
 
-  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin, paLoad, paMeasure, symPts, symOf };
+  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin, paLoad, paMeasure, symPts, symOf, SYM_RECOLOR };
 })();

@@ -943,6 +943,7 @@
     if (Q.routes) { prepField(S.figs.field); f.fieldRoutes = S.figs.field.fieldRoutes; } else f.fieldRoutes = [];
     // 종마다 처음 본 차례로 기호를 정해 둠(종을 지워도 다른 종 기호는 그대로)
     Q.recs.forEach((r) => { if (!Q.syms[r.name]) Q.syms[r.name] = Carto.symOf(Q.symSeq++); });
+    Object.values(Q.syms).forEach((sym) => { const c = Carto.SYM_RECOLOR[String(sym.color).toLowerCase()]; if (c) sym.color = c; });
     const d = site() ? Field.geoDist(site().features, Q.recs) : Q.recs.map(() => 0);
     Q.recs.forEach((r, i) => { r.d = d[i]; r.vis = Q.out === "all" || d[i] <= m + +Q.out; });
     const vis = Q.recs.filter((r) => r.vis);
@@ -1538,6 +1539,8 @@
     renderLitList();
   };
   const renderLitList = () => {
+    // 문헌 이름을 고치는 중이면 다시 만들지 않음(입력 칸이 바뀌어 글자·한글 조합이 끊김) — 칸에서 나올 때 다시 만듦
+    if (document.activeElement && document.activeElement.matches("#lit-list input[data-ltext]")) return;
     const L = S.figs.lit.lit, g = L.grid;
     $("#l-grid-text").textContent = !site() ? "사업지구를 넣으면 9격자(1:25,000 도엽을 3×3으로 나눈 E1~E9 칸)를 잡습니다."
       : !g ? "사업지구 가운데가 1:25,000 도엽 밖(바다 등)이라 9격자를 잡지 못했습니다."
@@ -1800,6 +1803,7 @@
       const t = e.target;
       if (t.dataset.lshow) { if (t.checked) L().hide.delete(t.dataset.lshow); else L().hide.add(t.dataset.lshow); renderPreview(); renderLitList(); }
       if (t.dataset.lcolor) { L().colors.set(t.dataset.lcolor, t.value); renderPreview(); }
+      if (t.dataset.ltext) setTimeout(() => { if (!document.activeElement.closest("#lit-list input[data-ltext]")) renderLitList(); }, 0);
     });
     box.addEventListener("input", (e) => {
       const t = e.target;
