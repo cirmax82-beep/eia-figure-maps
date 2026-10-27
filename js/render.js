@@ -1874,7 +1874,8 @@
         });
       }
       // 흐름 방향: 강·이름 있는 하천부터 이름 없는 개천까지 모든 하천 선에 간격을 두고(용지에서 짧은 선은 뺌).
-      // 방향은 선 방향(오픈스트리트맵은 흐르는 방향으로 그림)을 물줄기 연결로 바로잡은 것(flowFlips: 합류점·물 면·바다 쪽으로)
+      // 방향은 틀 안에 보이는 부분의 양 끝 지형 고도 차가 3 m 넘으면 높은 쪽 → 낮은 쪽, 아니면 선 방향(오픈스트리트맵은 흐르는 방향으로 그림)을
+      // 물줄기 연결로 바로잡은 것(flowFlips: 합류점·물 면·바다 쪽으로)
       if (fig.eco.flow) {
         const gap = 36 * e, len = 6 * e, spots = flowSpots;
         const mb = v.mBox, mx0 = (mb[2] - mb[0]) * 0.1, my0 = (mb[3] - mb[1]) * 0.1;
@@ -1883,7 +1884,15 @@
         const plen = (pp) => pp.reduce((s, p, i) => s + (i ? Math.hypot(p[0] - pp[i - 1][0], p[1] - pp[i - 1][1]) : 0), 0);
         wayPage.map((w) => ({ w, L: plen(w.pp) })).filter(({ L }) => L >= 15 * e)
           .sort((a, b) => (b.w.kind === "river") - (a.w.kind === "river") || !!b.w.name - !!a.w.name || b.L - a.L).forEach(({ w }) => {
-          const pp = flips.has(w.id) ? [...w.pp].reverse() : w.pp;
+          let rev = flips.has(w.id);
+          if (dem) {
+            const inIdx = w.pp.map((p, i) => (inF(p[0], p[1]) ? i : -1)).filter((i) => i >= 0);
+            if (inIdx.length >= 2) {
+              const zOf = (p) => { const [lon, lat] = v.toLL(p[0], p[1]); return dem.at(lon, lat); }, z0 = zOf(w.pp[inIdx[0]]), z1 = zOf(w.pp[inIdx[inIdx.length - 1]]);
+              if (Number.isFinite(z0) && Number.isFinite(z1) && Math.abs(z1 - z0) >= 3) rev = z1 > z0;
+            }
+          }
+          const pp = rev ? [...w.pp].reverse() : w.pp;
           let acc = gap * 0.5;
           for (let i = 1; i < pp.length; i++) {
             const seg = Math.hypot(pp[i][0] - pp[i - 1][0], pp[i][1] - pp[i - 1][1]);
@@ -1905,8 +1914,8 @@
       }
     }
     // 흐름 방향(물길 면): 하천 선이 없는 물길(소하천구역·하천구역·실폭하천)도 지형 고도로 방향을 정해 화살표를 놓음.
-    // 면을 0.5 mm 격자로 그려 일정 간격 자리마다 물길이 뻗은 방향(둘레 물 칸의 주성분)을 구하고 폭 가운데로 옮긴 뒤,
-    // 그 방향 앞뒤(땅 60·150 m)의 고도 차가 같은 쪽이고 1 m 넘으면 낮은 쪽으로. 넓은 면(저수지 등)·길쭉하지 않은 곳·애매한 곳은 뺌
+    // 면을 0.5 mm 격자로 그려 일정 간격 자리마다 물길이 뻗은 방향(둘레 물 칸의 주성분)을 구하고 폭 가운데로 옮긴 뒤, 물길을 따라 낮은 쪽으로.
+    // 넓은 면(저수지 등)·길쭉하지 않은 곳은 뺌
     if (eco && fig.eco.flow && dem) {
       const polys = [...(wz && fig.eco.szone ? wz.small : []), ...(wz && fig.eco.rzone ? wz.river : []), ...(topo && fig.eco.topo ? topo : [])];
       if (polys.length) {
@@ -1915,14 +1924,65 @@
         mc.width = MW; mc.height = MH;
         const g = mc.getContext("2d", { willReadFrequently: true });
         g.setTransform(1 / res, 0, 0, 1 / res, -F.x / res, -F.y / res);
+        // 폭이 몇 m뿐인 물길도 격자에서 끊기지 않게 테두리를 0.7 mm로 둘러 그리고, 하천 선(오픈스트리트맵)도 같이 그림
+        g.lineJoin = g.lineCap = "round";
+        g.lineWidth = 0.7;
         polys.forEach((poly) => {
           g.beginPath();
           poly.forEach((r) => { for (let i = 0; i < r.length; i += 2) { const [x, y] = PM(r[i], r[i + 1]); if (i) g.lineTo(x, y); else g.moveTo(x, y); } g.closePath(); });
           g.fill("evenodd");
+          g.stroke();
         });
-        const md = g.getImageData(0, 0, MW, MH).data, wet = (i, j) => i >= 0 && j >= 0 && i < MW && j < MH && md[(j * MW + i) * 4 + 3] > 127;
+        if (os) {
+          g.beginPath();
+          os.ways.forEach((w) => w.pts.forEach(([X, Y], i) => { const [x, y] = PM(X, Y); if (i) g.lineTo(x, y); else g.moveTo(x, y); }));
+          g.lineWidth = 0.9;
+          g.stroke();
+        }
+        const md = g.getImageData(0, 0, MW, MH).data, N = MW * MH, wetP = (p) => md[p * 4 + 3] > 127;
+        const wet = (i, j) => i >= 0 && j >= 0 && i < MW && j < MH && wetP(j * MW + i);
+        // 하류 찾기: 자리에서 물 칸만 따라(8방향) 양쪽으로 땅 250 m(용지 6 mm 이상)씩 걸어가, 물길 방향(주성분)의 앞쪽·뒤쪽 끝 칸들의 평균 고도를 비교.
+        // 곧은 선이 아니라 물길 모양을 따라가 굽은 물길에서도 맞음. 고도 자료 오차로 혼자 거꾸로인 자리는 뒤에서 이웃끼리 맞춰 바로잡음
+        const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+        const elevPx = (p) => { const [lon, lat] = v.toLL(F.x + ((p % MW) + 0.5) * res, F.y + (((p / MW) | 0) + 0.5) * res); return dem.at(lon, lat); };
+        // 앞·뒤 구분은 출발 칸에서 처음 내디딘 쪽을 끝까지 이어받음(넓은 저수지로 퍼져도 섞이지 않게)
+        const Lpx = Math.max(12, (250 * 1000) / v.scale / res), stamp = new Int32Array(N).fill(-1), dd = new Float32Array(N), sd = new Uint8Array(N);
+        let runId = 0;
+        const candAt = new Map();   // 후보 자리 칸 → 후보 번호(물길로 이어진 이웃 찾기)
+        const downhill = (i0, j0, ux, uy, nearMax) => {
+          const p0 = j0 * MW + i0, id = runId++, qu = [p0], side = [[], []], near = [], lim = Math.max(Lpx, nearMax);
+          stamp[p0] = id;
+          dd[p0] = 0;
+          for (let h = 0; h < qu.length; h++) {
+            const p = qu[h], i = p % MW, j = (p / MW) | 0, d1 = dd[p] + 1;
+            if (d1 > lim) continue;
+            for (const [di, dj] of NB) {
+              const ii = i + di, jj = j + dj;
+              if (ii < 0 || jj < 0 || ii >= MW || jj >= MH) continue;
+              const q = jj * MW + ii;
+              if (stamp[q] === id || !wetP(q)) continue;
+              stamp[q] = id;
+              dd[q] = d1;
+              sd[q] = p === p0 ? (di * ux + dj * uy > 0 ? 0 : 1) : sd[p];
+              qu.push(q);
+              if (d1 <= Lpx) side[sd[q]].push(q);
+              if (d1 <= nearMax && candAt.has(q)) near.push(candAt.get(q));
+            }
+          }
+          // 양쪽마다 가장 멀리 간 칸들(최대 거리의 80% 넘는 것)의 평균 고도. 한쪽으로 충분히(땅 100 m) 못 가면(물길 끝·끊긴 곳) 정하지 않음 — 이웃이 정함
+          const far = (arr) => {
+            const mxd = arr.length ? Math.max(...arr.map((q) => dd[q])) : 0;
+            if (mxd < Lpx * 0.4) return NaN;
+            const ends = arr.filter((q) => dd[q] >= mxd * 0.8), st = Math.max(1, Math.floor(ends.length / 12));
+            let sum = 0, n = 0;
+            for (let k = 0; k < ends.length; k += st) { const z = elevPx(ends[k]); if (Number.isFinite(z)) { sum += z; n++; } }
+            return n ? sum / n : NaN;
+          };
+          const zf = far(side[0]), zb = far(side[1]), dz = zb - zf;   // 앞쪽이 낮으면 +
+          return { dz: Number.isFinite(dz) ? dz : 0, near };
+        };
         const step = Math.max(4, Math.round((9 * e) / res)), half = step >> 1, R = Math.max(3, Math.round((3.5 * e) / res)), maxW = (5 * e) / res;
-        const cands = [];
+        const gap = 36 * e, len = 6 * e, cands = [];
         for (let j = half; j < MH; j += step) {
           for (let i = half; i < MW; i += step) {
             let b = null;
@@ -1933,25 +1993,42 @@
             if (n < 6) continue;
             const ax = sx / n, ay = sy / n, A = sxx / n - ax * ax, B = sxy / n - ax * ay, C = syy / n - ay * ay;
             const tr = (A + C) / 2, disc = Math.sqrt(Math.max(0, tr * tr - (A * C - B * B))), l1 = tr + disc, l2 = tr - disc;
-            if (l1 < 4 * Math.max(l2, 0.25)) continue;
+            if (l1 < 4 * Math.max(l2, 0.25)) continue;   // 길쭉하지 않으면(저수지·합류부) 뺌
             const th = 0.5 * Math.atan2(2 * B, A - C), ux = Math.cos(th), uy = Math.sin(th), vx = -uy, vy = ux;
             let lo = 0, hi = 0;
             while (lo < 2 * R && wet(Math.round(b.i - vx * (lo + 1)), Math.round(b.j - vy * (lo + 1)))) lo++;
             while (hi < 2 * R && wet(Math.round(b.i + vx * (hi + 1)), Math.round(b.j + vy * (hi + 1)))) hi++;
-            if (lo + hi + 1 > maxW) continue;
-            const ci = b.i + (vx * (hi - lo)) / 2, cj = b.j + (vy * (hi - lo)) / 2;
-            cands.push({ x: F.x + (ci + 0.5) * res, y: F.y + (cj + 0.5) * res, ux, uy });
+            if (lo + hi + 1 > maxW) continue;   // 폭이 넓으면(넓은 면) 뺌
+            const ci = b.i + (vx * (hi - lo)) / 2, cj = b.j + (vy * (hi - lo)) / 2, ri = Math.round(ci), rj = Math.round(cj);
+            const [pi, pj] = wet(ri, rj) ? [ri, rj] : [b.i, b.j], p = pj * MW + pi;
+            if (candAt.has(p)) continue;
+            candAt.set(p, cands.length);
+            cands.push({ i: pi, j: pj, ux, uy, x: F.x + (ci + 0.5) * res, y: F.y + (cj + 0.5) * res });
           }
         }
-        const gap = 36 * e, len = 6 * e, m2mm = 1000 / v.scale;
-        const elev = (x, y) => { const [lon, lat] = v.toLL(x, y); return dem.at(lon, lat); };
-        cands.forEach((cd) => {
-          if (!inF(cd.x, cd.y, 6 * e) || flowSpots.some(([sx, sy]) => Math.hypot(sx - cd.x, sy - cd.y) < gap * 0.55)) return;
-          const dz = [60, 150].map((m) => { const d = m * m2mm; return elev(cd.x + cd.ux * d, cd.y + cd.uy * d) - elev(cd.x - cd.ux * d, cd.y - cd.uy * d); });
-          if (!dz.every(Number.isFinite) || Math.sign(dz[0]) !== Math.sign(dz[1]) || Math.abs(dz[1]) < 1) return;
-          const a = Math.atan2(cd.uy, cd.ux) + (dz[1] > 0 ? Math.PI : 0), { x, y } = cd;
+        // 자리마다 방향(sg: +1이면 주성분 앞쪽이 하류)과 확신(고도 차 |dz|, 1.5 m 안이면 정하지 않음), 물길로 이어진 이웃(걸음 2.2칸 안)
+        cands.forEach((c) => { const r = downhill(c.i, c.j, c.ux, c.uy, step * 2.2); c.w = Math.abs(r.dz); c.sg = c.w >= 1.5 ? Math.sign(r.dz) : 0; c.near = r.near; });
+        // 이웃끼리 맞추기: 이웃 둘의 화살표가 둘을 잇는 방향으로 같은 쪽을 가리키면 어긋나지 않은 것. 혼자 거꾸로인 자리는 이웃 확신 합이 더 크면 뒤집고,
+        // 방향을 못 정한 자리는 이웃이 충분히 한쪽이면 그 방향으로(다섯 번 되풀이)
+        const agree = (c, sc, d) => { const dx = d.i - c.i, dy = d.j - c.j, a = (c.ux * dx + c.uy * dy) * sc, b = (d.ux * dx + d.uy * dy) * d.sg; return a * b > 0 ? 1 : -1; };
+        for (let it = 0; it < 5; it++) {
+          let changed = false;
+          cands.forEach((c) => {
+            const nb = c.near.map((k) => cands[k]).filter((d) => d !== c && d.sg);
+            if (!nb.length) return;
+            const score = (sc) => (sc === c.sg ? c.w : 0) + nb.reduce((t, d) => t + Math.min(d.w, 20) * agree(c, sc, d), 0);
+            const sp = score(1), sm = score(-1), best = sp >= sm ? 1 : -1;
+            if (c.sg ? best !== c.sg && Math.abs(sp - sm) > 1 : Math.abs(sp - sm) >= 3) { c.sg = best; changed = true; }
+          });
+          if (!changed) break;
+        }
+        // 확신이 큰 자리부터 간격을 두고 놓음
+        cands.filter((c) => c.sg).sort((a, b) => b.w - a.w).forEach((c) => {
+          const { x, y } = c;
+          if (!inF(x, y, 6 * e) || flowSpots.some(([fx, fy]) => Math.hypot(fx - x, fy - y) < gap * 0.55)) return;
           const box = [x - len / 2 - 0.5, y - len / 2 - 0.5, x + len / 2 + 0.5, y + len / 2 + 0.5];
           if (hitNoSite(box)) return;
+          const a = Math.atan2(c.uy, c.ux) + (c.sg > 0 ? 0 : Math.PI);
           flowSpots.push([x, y]);
           occupied.push(box);
           place.push(() => pen.path([flowArrow(x, y, a, len)], { closed: true, fill: COLOR.flow, stroke: "#ffffff", width: 0.3 * e }));
