@@ -1877,7 +1877,7 @@
       // 방향은 틀 안에 보이는 부분의 양 끝 지형 고도 차가 3 m 넘으면 높은 쪽 → 낮은 쪽, 아니면 선 방향(오픈스트리트맵은 흐르는 방향으로 그림)을
       // 물줄기 연결로 바로잡은 것(flowFlips: 합류점·물 면·바다 쪽으로)
       if (fig.eco.flow) {
-        const gap = 54 * e, len = 6 * e, spots = flowSpots;   // 간격(사용자: 화살표가 많아 약 30% 줄임)
+        const gap = 100 * e, len = 6 * e, spots = flowSpots;   // 간격(사용자 요청으로 처음 36e에서 30%, 다시 절반으로 줄임)
         const mb = v.mBox, mx0 = (mb[2] - mb[0]) * 0.1, my0 = (mb[3] - mb[1]) * 0.1;
         const waters = [...(topo || []), ...(wz ? [...wz.river, ...wz.small] : []), ...(lc ? lc.water : [])];
         const flips = flowFlips(os.ways, waters, land || null, [mb[0] - mx0, mb[1] - my0, mb[2] + mx0, mb[3] + my0]);
@@ -1982,7 +1982,7 @@
           return { dz: Number.isFinite(dz) ? dz : 0, near };
         };
         const step = Math.max(4, Math.round((9 * e) / res)), half = step >> 1, R = Math.max(3, Math.round((3.5 * e) / res)), maxW = (5 * e) / res;
-        const gap = 54 * e, len = 6 * e, cands = [];
+        const gap = 100 * e, len = 6 * e, cands = [];
         for (let j = half; j < MH; j += step) {
           for (let i = half; i < MW; i += step) {
             let b = null;
