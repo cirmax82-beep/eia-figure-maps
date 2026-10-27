@@ -264,13 +264,23 @@
   // 손가락이 옮긴 만큼 옮김. 그리는 동안은 그림을 늘려·옮겨 보여 줌
   const initPan = () => {
     const cv = $("#pv-over"), pvc = $("#pv");
+    // 손가락은 터치 이벤트로(경계 지도의 Leaflet처럼): 포인터 이벤트만 쓰면 일부 모바일 브라우저(앱 안 브라우저 등)가 두 번째 손가락을 화면 확대로 가져감
+    const TOUCH = "ontouchstart" in window;
     let drag = null, pinch = null;
-    const pts = new Map();
-    const two = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
-    const finishPinch = (p) => {
-      if (Math.abs(p.f - 1) < 0.05 && Math.hypot(p.tx, p.ty) < 4) { pvc.style.transform = ""; return; }
+    const startPinch = (a, b) => { drag = null; pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, x0: (a.x + b.x) / 2, y0: (a.y + b.y) / 2, f: 1, tx: 0, ty: 0 }; };
+    const movePinch = (a, b) => {
+      const r = $("#paper").getBoundingClientRect();
+      pinch.f = Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0; pinch.tx = (a.x + b.x) / 2 - pinch.x0; pinch.ty = (a.y + b.y) / 2 - pinch.y0;
+      pvc.style.transformOrigin = `${pinch.x0 - r.left}px ${pinch.y0 - r.top}px`;
+      pvc.style.transform = `translate(${pinch.tx}px, ${pinch.ty}px) scale(${pinch.f})`;
+    };
+    const finishPinch = () => {
+      const p = pinch;
+      pinch = null;
+      drag = null;
+      if (!p || (Math.abs(p.f - 1) < 0.05 && Math.hypot(p.tx, p.ty) < 4)) { pvc.style.transform = ""; return; }
       const f = fig(), list = Carto.scalesFor(f), cur = f.scale, want = cur / p.f;
-      const next = list.reduce((b, s) => (Math.abs(Math.log(s / want)) < Math.abs(Math.log(b / want)) ? s : b), list[0]);
+      const next = list.reduce((b, sc) => (Math.abs(Math.log(sc / want)) < Math.abs(Math.log(b / want)) ? sc : b), list[0]);
       const { view, layout: Lo } = S.last, r = $("#paper").getBoundingClientRect(), mmPerPx = Lo.W / r.width;
       const F = Lo.frame, dx = (p.x0 - r.left) * mmPerPx - (F.x + F.w / 2), dy = (p.y0 - r.top) * mmPerPx - (F.y + F.h / 2);
       const dm = (cur - next) / 1000 / Math.cos((view.lat0 * Math.PI) / 180), mNew = (view.m * next) / cur;
@@ -280,43 +290,64 @@
       status(`축척 1:${fmt(next)}`);
       renderPreview();
     };
+    const movePan = (x, y) => {
+      const dx = x - drag.x, dy = y - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      pvc.style.transform = `translate(${dx}px, ${dy}px)`;
+    };
+    const finishPan = (x, y) => {
+      const d = drag;
+      drag = null;
+      if (!d.moved) { pvc.style.transform = ""; return; }
+      const { view, layout: Lo, cssW } = S.last, mmPerPx = Lo.W / cssW, f = fig();
+      f.offset = [f.offset[0] - (x - d.x) * mmPerPx * view.m, f.offset[1] + (y - d.y) * mmPerPx * view.m];
+      renderPreview();
+    };
+    // 마우스·펜(터치 이벤트가 없는 기기는 손가락도): 포인터 이벤트
+    const pts = new Map(), skip = (e) => TOUCH && e.pointerType === "touch";
+    const two = () => { const [a, b] = [...pts.values()]; return [a, b]; };
     cv.addEventListener("pointerdown", (e) => {
-      if (!S.last || !S.last.view) return;
+      if (skip(e) || !S.last || !S.last.view) return;
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       try { cv.setPointerCapture(e.pointerId); } catch (_) { /* 이미 끝난 손가락 */ }
-      if (pts.size === 2) { drag = null; const t = two(); pinch = { d0: t.d || 1, x0: t.x, y0: t.y, f: 1, tx: 0, ty: 0 }; return; }
+      if (pts.size === 2) { startPinch(...two()); return; }
       if (A.mode || pts.size > 2) return;
       drag = { x: e.clientX, y: e.clientY, moved: false };
     });
     cv.addEventListener("pointermove", (e) => {
+      if (skip(e)) return;
       if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pinch && pts.size >= 2) {
-        const t = two(), r = $("#paper").getBoundingClientRect();
-        pinch.f = t.d / pinch.d0; pinch.tx = t.x - pinch.x0; pinch.ty = t.y - pinch.y0;
-        pvc.style.transformOrigin = `${pinch.x0 - r.left}px ${pinch.y0 - r.top}px`;
-        pvc.style.transform = `translate(${pinch.tx}px, ${pinch.ty}px) scale(${pinch.f})`;
-        return;
-      }
-      if (!drag) return;
-      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-      $("#pv").style.transform = `translate(${dx}px, ${dy}px)`;
+      if (pinch && pts.size >= 2) { movePinch(...two()); return; }
+      if (drag) movePan(e.clientX, e.clientY);
     });
     const end = (e) => {
+      if (skip(e)) return;
       pts.delete(e.pointerId);
-      if (pinch) { if (pts.size < 2) { const p = pinch; pinch = null; drag = null; finishPinch(p); } return; }
-      if (!drag) return;
-      const d = drag;
-      drag = null;
-      if (!d.moved) { $("#pv").style.transform = ""; return; }
-      const { view, layout: Lo, cssW } = S.last;
-      const mmPerPx = Lo.W / cssW;
-      const f = fig();
-      f.offset = [f.offset[0] - (e.clientX - d.x) * mmPerPx * view.m, f.offset[1] + (e.clientY - d.y) * mmPerPx * view.m];
-      renderPreview();
+      if (pinch) { if (pts.size < 2) finishPinch(); return; }
+      if (drag) finishPan(e.clientX, e.clientY);
     };
     cv.addEventListener("pointerup", end);
     cv.addEventListener("pointercancel", end);
+    // 손가락: 한 손가락 끌기, 두 손가락 확대·축소. 톡 누르기는 막지 않아 지점 찍기(click)는 그대로
+    if (TOUCH) {
+      const tp = (t) => ({ x: t.clientX, y: t.clientY });
+      cv.addEventListener("touchstart", (e) => {
+        if (!S.last || !S.last.view) return;
+        if (e.touches.length >= 2) { e.preventDefault(); startPinch(tp(e.touches[0]), tp(e.touches[1])); return; }
+        if (!A.mode && !pinch) drag = { ...tp(e.touches[0]), moved: false };
+      }, { passive: false });
+      cv.addEventListener("touchmove", (e) => {
+        if (pinch && e.touches.length >= 2) { e.preventDefault(); movePinch(tp(e.touches[0]), tp(e.touches[1])); return; }
+        if (drag && e.touches.length === 1) { e.preventDefault(); movePan(e.touches[0].clientX, e.touches[0].clientY); }
+      }, { passive: false });
+      cv.addEventListener("touchend", (e) => {
+        if (pinch) { if (e.touches.length < 2) finishPinch(); return; }
+        if (drag && !e.touches.length) { const t = e.changedTouches[0]; finishPan(t.clientX, t.clientY); }
+      });
+      cv.addEventListener("touchcancel", () => { pinch = null; drag = null; pvc.style.transform = ""; });
+      // iOS 사파리: 두 손가락 제스처가 화면 전체 확대로 가지 않게
+      ["gesturestart", "gesturechange"].forEach((t) => cv.addEventListener(t, (e) => e.preventDefault()));
+    }
     $("#recenter").addEventListener("click", () => { fig().offset = [0, 0]; renderPreview(); });
   };
 
