@@ -34,7 +34,7 @@
     pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true },
     // 현지조사 위치도: 사업 종류(auto·area·line), 조사범위([{m, name, on}], null이면 사업 종류의 처음 값), 경로 파일, 겹친 길 합치기 거리(m), 차량 이동 빼기, 다듬기(m), 자를 먼 거리(m),
     // 분류군별 색, 고친 것(지우개·그린 길), 조사지점(St.·W.)
-    field: { type: "auto", ranges: null, rangesEdited: false, tracks: [], tseq: 0, tol: 15, car: true, soft: 12, far: 2000, byGroup: false, edits: [], points: [], pseq: 0, stats: null },
+    field: { type: "auto", ranges: null, rangesEdited: false, tracks: [], tseq: 0, tol: 15, car: true, soft: 12, far: 2000, byGroup: false, edits: [], redo: [], points: [], pseq: 0, stats: null },
     // 현지조사 출현위치도(법정보호종·생태계교란생물): 조사범위(m, 0이면 현지조사 위치도의 가장 큰 범위), 범위 밖 기록(all·m), 이름표, 조사경로 겹치기,
     // 출현 기록([{id, name, kind: point·line·area, pts, note}]), 종별 기호
     occ: { ring: 0, out: "all", label: "name", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
@@ -371,6 +371,7 @@
     $$("[data-arrow]").forEach((b) => b.classList.toggle("on", b.dataset.arrow === kind));
     $$("[data-lit]").forEach((b) => b.classList.toggle("on", b.dataset.lit === kind));
     $$("[data-fld]").forEach((b) => b.classList.toggle("on", b.dataset.fld === kind));
+    $("#arrow-undo").textContent = kind === "fld-erase" ? "지운 것 되돌리기" : FLD_PT[kind] || kind === "occ-point" ? "마지막 지점 지우기" : "점 하나 지우기";
     $$("[data-occ]").forEach((b) => b.classList.toggle("on", b.dataset.occ === kind));
     arrowMsg();
     drawArrowTemp();
@@ -384,7 +385,7 @@
     drawArrowTemp();
   };
   const arrowMsg = () => {
-    if (A.mode === "fld-erase") { $("#arrow-msg").textContent = "지울 경로를 누르거나 문지르세요(빨간 원 크기만큼 지움)"; return; }
+    if (A.mode === "fld-erase") { $("#arrow-msg").textContent = "지울 경로를 누르거나 문지르세요(빨간 원 크기만큼 지움) · 잘못 지우면 되돌리기(Ctrl+Z)"; return; }
     if (FLD_PT[A.mode]) { $("#arrow-msg").textContent = `${LIT_NAME[A.mode]}: 누를 때마다 하나씩 찍습니다(다음 ${nextLabel(FLD_PT[A.mode])})`; return; }
     if (A.mode && A.mode.startsWith("occ-")) {
       const n = OF(S.cur).recs.filter((r) => r.name === A.target).length;
@@ -426,6 +427,7 @@
     if (A.pts.length < n) { toast(`점을 ${n}개 이상 찍으세요.`); return; }
     if (A.mode === "fld-line") {
       FF().edits.push({ t: "add", g: $("#f-add-group").value || "etc", pts: A.pts.map(([lon, lat]) => [+lon.toFixed(7), +lat.toFixed(7)]), snap: Math.round(3 * fig().scale) / 1000 });
+      FF().redo = [];
       stopArrow();
       fieldStats();
       renderPreview();
@@ -515,7 +517,7 @@
     $("#arrow-done").addEventListener("click", finishArrow);
     $("#arrow-undo").addEventListener("click", () => {
       const F = FF();
-      if (A.mode === "fld-erase") { const i = F.edits.map((x) => x.t).lastIndexOf("erase"); if (i >= 0) { F.edits.splice(i, 1); fieldStats(); renderPreview(); } return; }
+      if (A.mode === "fld-erase") { fieldUndo("erase"); return; }
       if (FLD_PT[A.mode]) { const i = F.points.map((x) => x.kind).lastIndexOf(FLD_PT[A.mode]); if (i >= 0) { F.points.splice(i, 1); arrowMsg(); renderFieldPane(); renderPreview(); } return; }
       // 출현 기록: 그리는 중이면 마지막 꼭짓점, 아니면 이 종·모양의 마지막 기록
       if (A.mode && A.mode.startsWith("occ-") && !A.pts.length) {
@@ -667,6 +669,22 @@
     if (st) $("#f-stats").textContent = `경로 ${F.tracks.filter((t) => t.on).length}개 · 기록 ${fmt(st.raw, 1)} km${st.car ? ` · 차량 이동 ${fmt(st.car, 1)} km 뺌` : ""}${st.far ? ` · ${fmt(F.far / 1000, 1)} km 밖 ${fmt(st.far, 1)} km 뺌` : ""} → 도면 ${fmt(st.out, 1)} km${F.tol ? "(겹친 길 합침)" : ""}`;
     $("#f-edit-text").textContent = F.edits.length ? `고친 것: 지운 곳 ${er} · 그린 길 ${ad}` : "";
     $("#f-undo").disabled = $("#f-reset").disabled = !F.edits.length;
+    $("#f-redo").disabled = !F.redo.length;
+  };
+  // 고친 것 되돌리기(only: 그 종류만 — 지우개를 쓰는 중이면 지운 것만)·다시 하기
+  const fieldUndo = (only) => {
+    const F = FF(), i = only ? F.edits.map((x) => x.t).lastIndexOf(only) : F.edits.length - 1;
+    if (i < 0) { toast("되돌릴 것이 없습니다."); return; }
+    F.redo.push(F.edits.splice(i, 1)[0]);
+    fieldStats();
+    renderPreview();
+  };
+  const fieldRedo = () => {
+    const F = FF();
+    if (!F.redo.length) { toast("다시 할 것이 없습니다."); return; }
+    F.edits.push(F.redo.pop());
+    fieldStats();
+    renderPreview();
   };
   // 지우개: 미리보기에서 누르거나 문지른 곳(용지 지름 5 mm)을 한 번의 고친 것으로
   const ERASE_MM = 2.5;
@@ -703,6 +721,7 @@
       const st = stroke;
       stroke = null;
       FF().edits.push({ t: "erase", c: st.map((q) => [+q.ll[0].toFixed(7), +q.ll[1].toFixed(7)]), r: Math.round(((ERASE_MM * S.last.fig.scale) / 1000) * 10) / 10 });
+      FF().redo = [];
       fieldStats();
       renderPreview();
     };
@@ -741,6 +760,7 @@
     F.tracks = arr(d.tracks).filter((t) => t && typeof t.id === "string").map((t) => ({ id: t.id, name: String(t.name || ""), group: ROUTE_GROUPS.some((g) => g[0] === t.group) ? t.group : "etc", on: t.on !== false, km: +t.km || 0,
       lines: arr(t.lines).filter((l) => Array.isArray(l) && l.length >= 2 && l.every(isPt)) })).filter((t) => t.lines.length);
     F.edits = arr(d.edits).filter((ed) => ed && ((ed.t === "add" && arr(ed.pts).length >= 2 && ed.pts.every(isPt)) || (ed.t === "erase" && arr(ed.c).length && ed.c.every(isPt) && ed.r > 0)));
+    F.redo = [];
     F.points = arr(d.points).filter((p) => p && FIELD_PTS[p.kind] && isPt(p.pt)).map((p) => ({ id: String(p.id), kind: p.kind, label: String(p.label || ""), pt: p.pt }));
     F.tseq = Math.max(0, ...F.tracks.map((t) => +t.id.slice(1) || 0));
     F.pseq = Math.max(0, ...F.points.map((p) => +String(p.id).slice(1) || 0));
@@ -852,8 +872,10 @@
     $("#f-car").addEventListener("change", (e) => { FF().car = e.target.checked; renderPreview(); });
     $("#f-group").addEventListener("change", (e) => { FF().byGroup = e.target.checked; renderFieldPane(); renderPreview(); });
     $$("[data-fld]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.fld ? stopArrow() : startArrow(b.dataset.fld))));
-    $("#f-undo").addEventListener("click", () => { FF().edits.pop(); fieldStats(); renderPreview(); });
-    $("#f-reset").addEventListener("click", () => { const n = FF().edits.length; FF().edits = []; fieldStats(); renderPreview(); toast(`고친 것 ${n}건을 모두 취소했습니다.`); });
+    $("#f-undo").addEventListener("click", () => fieldUndo());
+    $("#f-redo").addEventListener("click", fieldRedo);
+    // 모두 취소도 다시 하기로 하나씩 되살릴 수 있게
+    $("#f-reset").addEventListener("click", () => { const F = FF(), n = F.edits.length; F.redo.push(...F.edits.reverse()); F.edits = []; fieldStats(); renderPreview(); toast(`고친 것 ${n}건을 모두 취소했습니다(다시 하기로 되살림).`); });
     const pb = $("#f-points");
     pb.addEventListener("input", (e) => {
       const row = e.target.closest("[data-id]"), p = row && FF().points.find((x) => x.id === row.dataset.id);
@@ -2129,6 +2151,12 @@
   }));
   window.addEventListener("resize", debounce(() => { if (S.view === "preview") renderPreview(); }, 300));
   document.addEventListener("keydown", (e) => {
+    // 현지조사 위치도: Ctrl+Z 되돌리기, Ctrl+Y·Ctrl+Shift+Z 다시 하기(글자 칸에 쓰는 중이면 그 칸의 되돌리기)
+    if ((e.ctrlKey || e.metaKey) && S.cur === "field" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); fieldUndo(A.mode === "fld-erase" ? "erase" : undefined); return; }
+      if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); fieldRedo(); return; }
+    }
     if (!A.mode) return;
     if (e.key === "Enter") finishArrow();
     if (e.key === "Escape") stopArrow();

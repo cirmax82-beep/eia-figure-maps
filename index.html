@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261029f">
+<link rel="stylesheet" href="css/style.css?v=20261029g">
 </head>
 <body>
 <header class="top">
@@ -193,8 +193,8 @@
             <button class="btn ghost" data-fld="fld-line">경로 그리기</button>
             <select id="f-add-group" class="input f-add-group" title="그릴 경로의 분류군" hidden></select>
           </div>
-          <div class="btns f-edit"><button class="link small" id="f-undo" type="button">하나 되돌리기</button><button class="link small" id="f-reset" type="button">고친 것 모두 취소</button><span class="muted small" id="f-edit-text"></span></div>
-          <p class="hint">지우개: 미리보기에서 잘못 찍힌 길을 누르거나 문질러 지웁니다. 경로 그리기: 차례로 누르고 두 번 눌러 끝냅니다(꺾인 곳은 둥글게, 끝이 기존 길 가까이면 붙임). 고친 것은 경로를 더 넣거나 합치기 거리를 바꿔도 그대로 남습니다.</p>
+          <div class="btns f-edit"><button class="link small" id="f-undo" type="button" title="Ctrl+Z">하나 되돌리기</button><button class="link small" id="f-redo" type="button" title="Ctrl+Y">다시 하기</button><button class="link small" id="f-reset" type="button">고친 것 모두 취소</button><span class="muted small" id="f-edit-text"></span></div>
+          <p class="hint">지우개: 미리보기에서 잘못 찍힌 길을 누르거나 문질러 지웁니다. 경로 그리기: 차례로 누르고 두 번 눌러 끝냅니다(꺾인 곳은 둥글게, 끝이 기존 길 가까이면 붙임). 고친 것은 경로를 더 넣거나 합치기 거리를 바꿔도 그대로 남습니다. 잘못 지우면 미리보기 아래 「지운 것 되돌리기」나 Ctrl+Z로 되돌립니다.</p>
         </div>
         <div class="axis-tool">
           <b>조사지점 찍기 <span class="muted">(식생·육수는 지점 조사)</span></b>
@@ -366,10 +366,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261029f"></script>
-<script src="js/input.js?v=20261029f"></script>
-<script src="js/render.js?v=20261029f"></script>
-<script src="js/field.js?v=20261029f"></script>
-<script src="js/app.js?v=20261029f"></script>
+<script src="js/util.js?v=20261029g"></script>
+<script src="js/input.js?v=20261029g"></script>
+<script src="js/render.js?v=20261029g"></script>
+<script src="js/field.js?v=20261029g"></script>
+<script src="js/app.js?v=20261029g"></script>
 </body>
 </html>
