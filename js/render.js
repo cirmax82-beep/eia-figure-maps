@@ -1807,12 +1807,52 @@
       }
     }
 
-    // 사업지구 글자
+    // 사업지구 글자(둘레 사각형 위쪽 가운데는 기울어진 노선·지구에서 너무 멀어 실제 선·경계에 붙임)
+    // 선형 사업(면 없이 선만): 틀 안에서 가장 긴 노선의 길이 가운데에 노선 방향으로(위쪽, 다른 글자와 겹치면 아래쪽)
+    // 그 밖: 글자 폭 안에서 경계·선이 가장 높은 곳 바로 위
     if (fig.el.sitelabel && Number.isFinite(sb0[0])) {
-      const t = siteName, fs = 9.5 * e;
-      const x = (sb0[0] + sb0[2]) / 2, y = sb0[1] - 2.2 * e;
-      pen.text(t, x, y, { size: fs, weight: 700, align: "center", color: COLOR.site, halo, haloWidth: 0.55 * e });
-      occupied.push([x - textW(t, fs, 700) / 2 - 1, y - fs * PT - 1, x + textW(t, fs, 700) / 2 + 1, y + 1]);
+      const t = siteName, fs = 9.5 * e, w = textW(t, fs, 700), th = fs * PT;
+      const lenOf = (r) => r.reduce((s, p, i) => s + (i ? Math.hypot(p[0] - r[i - 1][0], p[1] - r[i - 1][1]) : 0), 0);
+      const runs = [];
+      siteLines.forEach((l) => {
+        let run = [];
+        l.forEach((p) => { if (inF(p[0], p[1])) run.push(p); else { if (run.length > 1) runs.push(run); run = []; } });
+        if (run.length > 1) runs.push(run);
+      });
+      const best = sitePolys.length ? null : runs.sort((a, b) => lenOf(b) - lenOf(a))[0];
+      if (best && lenOf(best) > w * 0.8) {
+        const L = lenOf(best);
+        const at = (s) => {
+          for (let i = 1, acc = 0; i < best.length; i++) {
+            const p = best[i - 1], q = best[i], d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+            if (acc + d >= s) { const k = d ? (s - acc) / d : 0; return [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]; }
+            acc += d;
+          }
+          return best[best.length - 1];
+        };
+        const m = at(L / 2), a = at(Math.max(0, L / 2 - w / 2)), b = at(Math.min(L, L / 2 + w / 2));
+        let deg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+        if (deg > 90) deg -= 180; else if (deg <= -90) deg += 180;
+        const nx = Math.sin(deg * RAD), ny = -Math.cos(deg * RAD), off = th * 0.55 + 1.3 * e;
+        const co = Math.abs(Math.cos(deg * RAD)), si = Math.abs(Math.sin(deg * RAD)), hw = (w * co + th * si) / 2 + 0.5, hh = (w * si + th * co) / 2 + 0.5;
+        const side = (s) => { const cx = m[0] + nx * off * s, cy = m[1] + ny * off * s; return { cx, cy, box: [cx - hw, cy - hh, cx + hw, cy + hh] }; };
+        const pick = [side(1), side(-1)].find((c) => !hitNoSite(c.box)) || side(1);
+        pen.text(t, pick.cx, pick.cy, { size: fs, weight: 700, align: "center", base: "middle", angle: deg, color: COLOR.site, halo, haloWidth: 0.55 * e });
+        occupied.push(pick.box);
+      } else {
+        const x = (sb0[0] + sb0[2]) / 2;
+        const segs = [...sitePolys.flatMap((r) => r.map((p, i) => [r[(i || r.length) - 1], p])), ...siteLines.flatMap((l) => l.slice(1).map((p, i) => [l[i], p]))];
+        let top = Infinity;
+        for (let k = 0; k <= 8; k++) {
+          const sx = x - w / 2 + (w * k) / 8;
+          segs.forEach(([p, q]) => { if ((p[0] > sx) !== (q[0] > sx)) top = Math.min(top, p[1] + ((sx - p[0]) * (q[1] - p[1])) / (q[0] - p[0])); });
+        }
+        [...sitePolys.flat(), ...siteLines.flat(), ...sitePts].forEach(([px, py]) => { if (Math.abs(px - x) <= w / 2) top = Math.min(top, py - (sitePts.length ? 1.6 * e : 0)); });
+        if (!Number.isFinite(top)) top = sb0[1];
+        const y = Math.max(top - 2.2 * e, F.y + th + 1.5);
+        pen.text(t, x, y, { size: fs, weight: 700, align: "center", color: COLOR.site, halo, haloWidth: 0.55 * e });
+        occupied.push([x - w / 2 - 1, y - th - 1, x + w / 2 + 1, y + 1]);
+      }
     }
 
     // 이름표 후보 — 산 → 저수지 → 하천 순서로, 다른 글자·도면 요소와 겹치면 뺌
