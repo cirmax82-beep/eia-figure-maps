@@ -263,7 +263,9 @@
   const FIELD_KINDS = ["field", "fsp", "inv"];
   const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
   // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m)
-  const ringKms = (fig) => (FIELD_KINDS.includes(fig.kind) ? (fig.fieldRings || []).map((r) => r.m / 1000) : fig.rings);
+  // 위성사진 현황도 자동 범위(autoRing: 면사업 약 20 ㎢ · 선형사업 양측 1 km)
+  const autoRingOf = (fig) => (fig.kind === "sat" && fig.ringMode === "auto" && fig.autoRing ? fig.autoRing : null);
+  const ringKms = (fig) => (FIELD_KINDS.includes(fig.kind) ? (fig.fieldRings || []).map((r) => r.m / 1000) : autoRingOf(fig) ? [autoRingOf(fig).km] : fig.rings);
   // 자동 축척: 위성 현황도는 가장 큰 주변 범위, 생태축·생태·자연도는 사업지구 둘레 1 km(주변 범위를 켜면 그 범위)가 틀에 들도록
   const autoScale = (fig, site) => {
     const { frame } = layout(fig);
@@ -1194,7 +1196,7 @@
     if (eco && (fig.arrows || []).some((a) => a.kind === "water")) legend.push({ type: "arrow", color: COLOR.arrowWater, label: "수계축" });
     if (eco && fig.eco.flow && ((os && os.ways.length) || dem)) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
     if (eco && os && fig.eco.peaks && os.peaks.length) legend.push({ type: "peak", color: COLOR.peak, label: "산봉우리" });
-    if (rings && !fld) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: `${fmtNum(r.km)} km 범위` }));
+    if (rings && !fld) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: autoRingOf(fig) ? autoRingOf(fig).label : `${fmtNum(r.km)} km 범위` }));
     // 현지조사 위치도: 조사범위 → 조사경로 → 조사지점. 현지조사시 법정보호종 출현위치도: 조사범위 → (조사경로) → 종마다 기호
     if (fld) {
       if (rings) (fig.fieldRings || []).forEach((r, i) => legend.push({ type: "ring", color: FIELD.rings[i % FIELD.rings.length], label: r.label }));
@@ -1600,6 +1602,11 @@
       pen.path(lines, { stroke: "#ffffff", width: 0.18 * e, strokeOpacity: 0.75, dash: [1.2 * e, 0.8 * e] });
     }
 
+    // 위성사진 현황도: 가장 바깥 주변 범위 밖을 옅게(선택, ringFade) — 틀 사각형과 범위 고리를 짝홀 규칙으로 칠해 바깥만
+    if (rings && rings.length && fig.kind === "sat" && fig.ringFade) {
+      const fr = [[F.x - 5, F.y - 5], [F.x + F.w + 5, F.y - 5], [F.x + F.w + 5, F.y + F.h + 5], [F.x - 5, F.y + F.h + 5]];
+      pen.path([fr, ...rings[rings.length - 1].rings.map((ring) => ring.map(([lon, lat]) => P(lon, lat)))], { closed: true, fill: "#ffffff", fillOpacity: 0.5 });
+    }
     // 주변 범위
     const ringLabels = [];
     if (rings) {
@@ -1613,7 +1620,7 @@
         const all = parts.flat().filter(([x, y]) => inF(x, y, 6 * e));
         if (all.length) {
           const top = all.reduce((a, b) => (b[1] < a[1] ? b : a));
-          ringLabels.push({ t: fld ? `${fmtNum(Math.round(r.km * 1000))} m` : `${fmtNum(r.km)} km`, x: top[0], y: top[1] + 1.2 * e, color: col });
+          ringLabels.push({ t: fld ? `${fmtNum(Math.round(r.km * 1000))} m` : autoRingOf(fig) ? autoRingOf(fig).tag : `${fmtNum(r.km)} km`, x: top[0], y: top[1] + 1.2 * e, color: col });
         }
       });
     }

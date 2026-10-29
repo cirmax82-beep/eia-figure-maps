@@ -24,7 +24,8 @@
     basemap: baseOf(kind), base: 0, gray: false, baseLabels: kind === "eco",
     title: TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp", "inv"].includes(kind), grid: "none", size: 1, lsize: 1, sbsize: 1, nsize: 1 },
-    rings: [1, 2],
+    // 주변 범위: 위성사진 현황도는 자동(면사업 지역생태계 약 20 ㎢ · 선형사업 중심선 양측 1 km), 직접(rings, km)도 고를 수 있음
+    rings: [1, 2], ringMode: "auto", ringFade: true,
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
@@ -49,7 +50,7 @@
 
   // ---------- 설정 칸 ↔ 도면 ----------
   const CHECKS = { "o-forest": ["eco", "forest"], "o-water": ["eco", "water"], "o-tidal": ["eco", "tidal"], "o-sea": ["eco", "sea"], "o-rzone": ["eco", "rzone"], "o-szone": ["eco", "szone"], "o-topo": ["eco", "topo"], "o-peaks": ["eco", "peaks"], "o-wnames": ["eco", "wnames"], "o-flow": ["eco", "flow"],
-    "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
+    "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "o-ring-fade": ["", "ringFade"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
     "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
     "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "n-dist1": ["nat", "dist1"], "v-inset": ["natl", "inset"],
@@ -73,6 +74,8 @@
     $("#o-labels").disabled = !Carto.hasVworld;
     $("#o-title").value = f.title;
     $("#o-rings").value = f.rings.join(", ");
+    $("#o-ring-mode").value = f.ringMode || "auto";
+    $("#o-rings-row").hidden = f.ringMode !== "custom";
     $("#o-forest-name").value = f.eco.forestName;
     $("#o-water-name").value = f.eco.waterName;
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { $(`#${id}`).checked = !!(g ? f[g][k] : f[k]); });
@@ -108,6 +111,7 @@
     f.basemap = $("#o-basemap").value;
     f.title = $("#o-title").value.trim();
     f.rings = parseRings($("#o-rings").value);
+    if (f.kind === "sat") { f.ringMode = $("#o-ring-mode").value; $("#o-rings-row").hidden = f.ringMode !== "custom"; }
     f.eco.forestName = $("#o-forest-name").value.trim() || "산림생태계";
     f.eco.waterName = $("#o-water-name").value.trim() || "수생태계";
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { if (g) f[g][k] = $(`#${id}`).checked; else f[k] = $(`#${id}`).checked; });
@@ -164,6 +168,7 @@
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
     if (OCC[f.kind]) { await occList(f.kind).catch(() => null); prepOcc(f); }
+    if (f.kind === "sat" && f.ringMode === "auto") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
     if (my !== gen) return;
     resolveScale(f);
     scaleOptions();
@@ -548,6 +553,32 @@
   const TAXON_RANK = [["식물", "식생"], ["포유"], ["양서", "파충"], ["조류"], ["곤충", "육상곤충"], ["저서", "무척추", "갑각", "육수"], ["어류"]];
   const taxonRank = (t) => { const s = String(t || "").replace(/[\s·]/g, ""), i = TAXON_RANK.findIndex((g) => g.some((n) => s.startsWith(n))); return i < 0 ? TAXON_RANK.length : i; };
   const byTaxon = (a, b) => taxonRank(a) - taxonRank(b);
+
+  // 위성사진 현황도 주변 범위(자동): 면사업은 사업대상지를 포함한 지역생태계 약 20 ㎢ — 사업지구 둘레를 넓혀 넓이가 20 ㎢가 되는 거리
+  // (볼록 도형 공식으로 어림한 뒤 실제 넓이로 세 번 맞춤, 사업지구가 20 ㎢ 넘으면 주변 0.5 km), 선형사업은 중심선 양측 1 km
+  let AR = { key: "", val: null };
+  const autoRing = async (f) => {
+    const s = site(), key = JSON.stringify([U.bboxOf(s.features), s.features.length, siteKind()]);
+    if (AR.key !== key) {
+      let val;
+      if (siteKind() === "line") val = { km: 1, label: "중심선 양측 1 km 범위", tag: "양측 1 km" };
+      else {
+        await loadScript(LIB.turf, "turf");
+        const polys = s.features.filter((x) => U.kindOf(x.geometry) === "polygon");
+        const A = polys.reduce((t, x) => t + turf.area(x) / 1e6, 0), P = polys.reduce((t, x) => t + turf.length(turf.polygonToLine(x)), 0);
+        const bufArea = (km) => { const bs = s.features.map((x) => turf.buffer(x, km, { units: "kilometers", steps: 32 })).filter(Boolean); return turf.area(bs.length === 1 ? bs[0] : turf.union(turf.featureCollection(bs))) / 1e6; };
+        if (A >= 20) val = { km: 0.5, label: "주변 0.5 km 범위", tag: "0.5 km" };
+        else {
+          let km = (-P + Math.sqrt(P * P + 4 * Math.PI * (20 - A))) / (2 * Math.PI);
+          for (let i = 0; i < 3; i++) km = Math.max(0.05, km + (20 - bufArea(km)) / (P + 2 * Math.PI * km));
+          const area = bufArea(km);
+          val = { km: Math.round(km * 1000) / 1000, label: `지역생태계 범위(약 ${fmt(area, 0)} ㎢)`, tag: `약 ${fmt(area, 0)} ㎢` };
+        }
+      }
+      AR = { key, val };
+    }
+    f.autoRing = AR.val;
+  };
 
   // ---------- 현지조사 위치도 ----------
   // 조사범위 처음 값(표 6.1.1-3 조사항목별 현지조사 범위): 면사업은 사업지구 경계에서, 선형사업은 중심선(식물)·경계(양서·파충류·곤충)에서.
@@ -2024,6 +2055,7 @@
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
     if (OCC[f.kind]) { await occList(f.kind).catch(() => null); prepOcc(f); }
+    if (f.kind === "sat" && f.ringMode === "auto") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;
