@@ -24,10 +24,10 @@
     basemap: baseOf(kind), base: 0, gray: false, baseLabels: kind === "eco",
     title: TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp", "inv"].includes(kind), grid: "none", size: 1, lsize: 1, sbsize: 1, nsize: 1 },
-    // 주변 범위: 위성사진 현황도는 사용자가 고름 — 면사업(area, 지역생태계 약 20 ㎢) · 선형사업(line, 중심선 양측 1 km) · 직접(custom, rings km)
+    // 주변 범위: 위성사진 현황도·생태·자연도는 사용자가 고름 — 면사업(area, 지역생태계 약 20 ㎢) · 선형사업(line, 중심선 양측 1 km) · 직접(custom, rings km)
     rings: [1, 2], ringMode: "area", ringFade: true,
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
-    nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
+    nat: { g1: true, g2: true, sep: true, rings: true, dist1: false },
     natl: { inset: true },
     // 문헌조사 위치도: 생태·자연도 1·2등급 겹치기(기본 켬), 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
     lit: { nat: true, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, picked: new Map(), manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
@@ -112,7 +112,7 @@
     f.basemap = $("#o-basemap").value;
     f.title = $("#o-title").value.trim();
     f.rings = parseRings($("#o-rings").value);
-    if (f.kind === "sat") { f.ringMode = $("#o-ring-mode").value; $("#o-rings-row").hidden = f.ringMode !== "custom"; }
+    if (f.kind === "sat" || f.kind === "nat") { f.ringMode = $("#o-ring-mode").value; $("#o-rings-row").hidden = f.ringMode !== "custom"; }
     f.eco.forestName = $("#o-forest-name").value.trim() || "산림생태계";
     f.eco.waterName = $("#o-water-name").value.trim() || "수생태계";
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { if (g) f[g][k] = $(`#${id}`).checked; else f[k] = $(`#${id}`).checked; });
@@ -169,7 +169,7 @@
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
     if (OCC[f.kind]) { await occList(f.kind).catch(() => null); prepOcc(f); }
-    if (f.kind === "sat" && f.ringMode !== "custom") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
+    if (regionRing(f)) await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
     if (my !== gen) return;
     resolveScale(f);
     scaleOptions();
@@ -558,6 +558,7 @@
   // 위성사진 현황도 주변 범위(사용자가 고른 사업 유형): 면사업은 사업대상지를 포함한 지역생태계 약 20 ㎢ — 사업지구 둘레를 넓혀 넓이가 20 ㎢가 되는 거리
   // (볼록 도형 공식으로 어림한 뒤 실제 넓이로 세 번 맞춤, 사업지구가 20 ㎢ 넘으면 주변 0.5 km), 선형사업은 중심선 양측 1 km
   let AR = { key: "", val: null };
+  const regionRing = (f) => (f.kind === "sat" || (f.kind === "nat" && f.nat.rings)) && f.ringMode !== "custom";
   const autoRing = async (f) => {
     const s = site(), key = JSON.stringify([U.bboxOf(s.features), s.features.length, f.ringMode]);
     if (AR.key !== key) {
@@ -2056,7 +2057,7 @@
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
     if (OCC[f.kind]) { await occList(f.kind).catch(() => null); prepOcc(f); }
-    if (f.kind === "sat" && f.ringMode !== "custom") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
+    if (regionRing(f)) await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;

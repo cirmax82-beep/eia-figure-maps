@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261030e">
+<link rel="stylesheet" href="css/style.css?v=20261030f">
 </head>
 <body>
 <header class="top">
@@ -109,7 +109,7 @@
       </div>
       <label class="row">제목 <input id="o-title" class="input"></label>
 
-      <div data-figpane="sat">
+      <div data-figpane="sat nat">
         <label class="row" title="면사업은 사업대상지를 포함한 지역생태계 약 20 ㎢, 선형사업은 중심선 양쪽 각각 1 km(환경영향평가 위성·항공사진 범위)">주변 범위 <select id="o-ring-mode" class="input">
           <option value="area">면사업 — 사업대상지 포함 지역생태계 약 20 ㎢</option><option value="line">선형사업 — 중심선 양측 각 1 km</option><option value="custom">직접(km)</option>
         </select></label>
@@ -122,7 +122,7 @@
           <label><input type="checkbox" id="n-g1" checked> 1등급</label>
           <label><input type="checkbox" id="n-g2" checked> 2등급</label>
           <label><input type="checkbox" id="n-sep" checked> 별도관리지역</label>
-          <label><input type="checkbox" id="n-rings"> 주변 범위</label>
+          <label><input type="checkbox" id="n-rings" checked> 주변 범위</label>
           <label title="도면에 보이는 범위 안의 1등급 권역까지 가장 가까운 거리를 치수선으로 표시"><input type="checkbox" id="n-dist1"> 1등급 이격거리</label>
         </div>
         <p class="site-box small" id="n-dist-text" hidden></p>
@@ -370,10 +370,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261030e"></script>
-<script src="js/input.js?v=20261030e"></script>
-<script src="js/render.js?v=20261030e"></script>
-<script src="js/field.js?v=20261030e"></script>
-<script src="js/app.js?v=20261030e"></script>
+<script src="js/util.js?v=20261030f"></script>
+<script src="js/input.js?v=20261030f"></script>
+<script src="js/render.js?v=20261030f"></script>
+<script src="js/field.js?v=20261030f"></script>
+<script src="js/app.js?v=20261030f"></script>
 </body>
 </html>
