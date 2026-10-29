@@ -947,6 +947,15 @@
   // 법정보호종 기호: 모양(동그라미·세모·네모·마름모·역세모·오각·별·육각) × 색, 반지름 1 기준 꼭짓점
   const SYM_SHAPES = ["circle", "triangle", "square", "diamond", "invtri", "pentagon", "star", "hexagon"];
   // 초록(1등급·산림)·빨강 계열(사업지구 #e8212b)은 쓰지 않음
+  // 이름표 글자색: 구역·기호 색과 맞추되, 흰 테 위에서 읽히게 밝은 색(노랑·연두·하늘 등)은 같은 색조로 어둡게(흰색 대비 4.5 이상)
+  const inkOf = (hex) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+    if (!m) return "#111111";
+    let c = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+    const lum = (v) => v.map((x) => { x /= 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }).reduce((s, x, i) => s + x * [0.2126, 0.7152, 0.0722][i], 0);
+    for (let k = 0; k < 40 && 1.05 / (lum(c) + 0.05) < 4.5; k++) c = c.map((x) => x * 0.94);
+    return "#" + c.map((x) => Math.round(x).toString(16).padStart(2, "0")).join("");
+  };
   const SYM_COLORS = ["#7048e8", "#f08c00", "#1c7ed6", "#fab005", "#212529", "#0c8599", "#ae3ec9", "#8d5524", "#f783ac", "#5c7cfa"];
   // 예전 기록·저장 파일에 남은 빨강 계열 기호 색은 그리기 전에 바꿈
   const SYM_RECOLOR = { "#e03131": "#fab005", "#c2255c": "#f783ac", "#d9480f": "#5c7cfa", "#2f9e44": "#212529", "#5c940d": "#ae3ec9" };
@@ -1452,15 +1461,15 @@
         });
         occupied.push([x0, y0, x0 + 4 * e + textW(first ? `${c.id} ${t}` : c.id, fsE, 800), y0 + 2.5 * e + fsE * PT]);
       });
-      // 보호구역 이름(칸 이름 자리를 잡은 뒤): 격자 안에 든 부분의 가운데(작은 것부터 자리를 잡고, 겹치면 위·아래로 비켜 보고 안 되면 뺌).
+      // 보호구역 이름(칸 이름 자리를 잡은 뒤, 글자는 그 구역 색): 격자 안에 든 부분의 가운데(작은 것부터 자리를 잡고, 겹치면 위·아래로 비켜 보고 안 되면 뺌).
       // 야생생물보호구역·산림보호구역(산림유전자원보호림 포함)은 시군 단위로 묶여 이름이 쓸모없어, 떨어진 덩어리마다 범례처럼 종류 이름
       // (같은 자리에 겹쳐 등재된 덩어리는 하나만)
       const GENERIC = { wildlife: "야생생물보호구역", forest: "산림보호구역", "forest-genetic": "산림유전자원보호림" };
       const nameJobs = [];
       if (pa && D.pa && fig.pa.names) D.pa.areas.forEach((A) => {
-        if (!GENERIC[A.layer]) return nameJobs.push({ text: A.name, rings: A.rings, size: A.ha });
+        if (!GENERIC[A.layer]) return nameJobs.push({ text: A.name, rings: A.rings, size: A.ha, color: A.color });
         (A.parts || []).filter((p) => p.inGrid && p.draw !== false && p.polys).forEach((p) =>
-          nameJobs.push({ text: GENERIC[A.layer], rings: p.polys.flat(), size: p.bb.reduce((n, b) => n + ((b[2] - b[0]) * (b[3] - b[1])) / 1e4, 0) }));
+          nameJobs.push({ text: GENERIC[A.layer], rings: p.polys.flat(), size: p.bb.reduce((n, b) => n + ((b[2] - b[0]) * (b[3] - b[1])) / 1e4, 0), color: A.color }));
       });
       nameJobs.sort((a, b) => a.size - b.size).forEach((J) => {
         let at = null;
@@ -1474,7 +1483,7 @@
         }
         if (!box) return;
         occupied.push(box);
-        litLater.push(() => pen.text(J.text, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: "#1f1f1f", halo: "#ffffff", haloWidth: 0.6 * e }));
+        litLater.push(() => pen.text(J.text, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: inkOf(J.color), halo: "#ffffff", haloWidth: 0.6 * e }));
       });
       // 문헌 번호표: 위치 가운데(점은 오른쪽), 다른 글자와 겹치면 위·아래·옆으로 비켜 봄
       marks.forEach((m) => litLater.push(() => {
@@ -1671,12 +1680,12 @@
     const hitNoSite = (box) => boxHit(box, occupied.filter((b) => b !== siteBox));
 
     // 지점 이름표: 기호 둘레 여덟 자리 중 빈 곳(오른쪽부터, 다 막히면 오른쪽)
-    const ptLabel = (t, x, y, size = 7.5) => {
+    const ptLabel = (t, x, y, size = 7.5, color = "#111111") => {
       const fs = size * e, h = fs * PT * 1.15, w = textW(t, fs, 700), g = 2.6 * e;
       const cands = [[x + g, y - h / 2], [x - g - w, y - h / 2], [x - w / 2, y - g - h], [x - w / 2, y + g], [x + g, y - g - h], [x + g, y + g], [x - g - w, y - g - h], [x - g - w, y + g]];
       const at = cands.find(([bx, by]) => !boxHit([bx, by, bx + w, by + h], occupied)) || cands[0];
       occupied.push([at[0], at[1], at[0] + w, at[1] + h]);
-      pen.text(t, at[0], at[1] + h / 2, { size: fs, weight: 700, align: "left", base: "middle", color: "#111111", halo: "#ffffff", haloWidth: 0.55 * e });
+      pen.text(t, at[0], at[1] + h / 2, { size: fs, weight: 700, align: "left", base: "middle", color, halo: "#ffffff", haloWidth: 0.55 * e });
     };
     // 현지조사 지점(St.·W.): 기호를 모두 그린 뒤 이름
     if (fld && !occ) {
@@ -1684,22 +1693,22 @@
       pts.forEach(({ q, at }) => { fieldSym(pen, q.kind, at[0], at[1], e); occupied.push([at[0] - 2.1 * e, at[1] - 2.1 * e, at[0] + 2.1 * e, at[1] + 2.1 * e]); });
       pts.forEach(({ q, at }) => ptLabel(q.label, at[0], at[1]));
     }
-    // 출현 기록 점: 종마다 기호(범례). 고르면 종명 이름표 — 점은 기호 옆, 면은 틀 안 부분의 가운데, 선은 길이 가운데
+    // 출현 기록 점: 종마다 기호(범례). 고르면 종명 이름표(글자는 그 종의 기호 색) — 점은 기호 옆, 면은 틀 안 부분의 가운데, 선은 길이 가운데
     if (occ) {
       const pts = occRecs.filter((r) => r.kind === "point").map((q) => ({ q, at: P(q.pts[0][0], q.pts[0][1]) })).filter(({ at }) => inF(at[0], at[1]));
       pts.forEach(({ q, at }) => { speciesSym(pen, q.sym, at[0], at[1], e); occupied.push([at[0] - 2.1 * e, at[1] - 2.1 * e, at[0] + 2.1 * e, at[1] + 2.1 * e]); });
       if (fig.occ.label === "name") {
-        pts.forEach(({ q, at }) => ptLabel(q.name, at[0], at[1]));
+        pts.forEach(({ q, at }) => ptLabel(q.name, at[0], at[1], 7.5, inkOf(q.sym.color)));
         occRecs.forEach((q) => {
           const pp = q.pts.map(([lon, lat]) => P(lon, lat));
           if (q.kind === "area") {
             const c = labelPt(clipRect(pp, F.x, F.y, F.x + F.w, F.y + F.h));
-            if (c && inF(c[0], c[1])) ptLabel(q.name, c[0], c[1]);
+            if (c && inF(c[0], c[1])) ptLabel(q.name, c[0], c[1], 7.5, inkOf(q.sym.color));
           } else if (q.kind === "line") {
             let L = 0;
             const cum = pp.map((p, i) => (L += i ? Math.hypot(p[0] - pp[i - 1][0], p[1] - pp[i - 1][1]) : 0));
             const i = Math.max(0, cum.findIndex((v) => v >= L / 2));
-            if (inF(pp[i][0], pp[i][1])) ptLabel(q.name, pp[i][0], pp[i][1]);
+            if (inF(pp[i][0], pp[i][1])) ptLabel(q.name, pp[i][0], pp[i][1], 7.5, inkOf(q.sym.color));
           }
         });
       }
