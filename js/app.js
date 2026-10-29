@@ -24,8 +24,8 @@
     basemap: baseOf(kind), base: 0, gray: false, baseLabels: kind === "eco",
     title: TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp", "inv"].includes(kind), grid: "none", size: 1, lsize: 1, sbsize: 1, nsize: 1 },
-    // 주변 범위: 위성사진 현황도는 자동(면사업 지역생태계 약 20 ㎢ · 선형사업 중심선 양측 1 km), 직접(rings, km)도 고를 수 있음
-    rings: [1, 2], ringMode: "auto", ringFade: true,
+    // 주변 범위: 위성사진 현황도는 사용자가 고름 — 면사업(area, 지역생태계 약 20 ㎢) · 선형사업(line, 중심선 양측 1 km) · 직접(custom, rings km)
+    rings: [1, 2], ringMode: "area", ringFade: true,
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
     nat: { g1: true, g2: true, sep: true, rings: false, dist1: false },
     natl: { inset: true },
@@ -74,7 +74,8 @@
     $("#o-labels").disabled = !Carto.hasVworld;
     $("#o-title").value = f.title;
     $("#o-rings").value = f.rings.join(", ");
-    $("#o-ring-mode").value = f.ringMode || "auto";
+    if (f.ringMode !== "line" && f.ringMode !== "custom") f.ringMode = "area"; // 예전 저장값 auto는 면사업으로
+    $("#o-ring-mode").value = f.ringMode;
     $("#o-rings-row").hidden = f.ringMode !== "custom";
     $("#o-forest-name").value = f.eco.forestName;
     $("#o-water-name").value = f.eco.waterName;
@@ -168,7 +169,7 @@
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
     if (OCC[f.kind]) { await occList(f.kind).catch(() => null); prepOcc(f); }
-    if (f.kind === "sat" && f.ringMode === "auto") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
+    if (f.kind === "sat" && f.ringMode !== "custom") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
     if (my !== gen) return;
     resolveScale(f);
     scaleOptions();
@@ -554,14 +555,14 @@
   const taxonRank = (t) => { const s = String(t || "").replace(/[\s·]/g, ""), i = TAXON_RANK.findIndex((g) => g.some((n) => s.startsWith(n))); return i < 0 ? TAXON_RANK.length : i; };
   const byTaxon = (a, b) => taxonRank(a) - taxonRank(b);
 
-  // 위성사진 현황도 주변 범위(자동): 면사업은 사업대상지를 포함한 지역생태계 약 20 ㎢ — 사업지구 둘레를 넓혀 넓이가 20 ㎢가 되는 거리
+  // 위성사진 현황도 주변 범위(사용자가 고른 사업 유형): 면사업은 사업대상지를 포함한 지역생태계 약 20 ㎢ — 사업지구 둘레를 넓혀 넓이가 20 ㎢가 되는 거리
   // (볼록 도형 공식으로 어림한 뒤 실제 넓이로 세 번 맞춤, 사업지구가 20 ㎢ 넘으면 주변 0.5 km), 선형사업은 중심선 양측 1 km
   let AR = { key: "", val: null };
   const autoRing = async (f) => {
-    const s = site(), key = JSON.stringify([U.bboxOf(s.features), s.features.length, siteKind()]);
+    const s = site(), key = JSON.stringify([U.bboxOf(s.features), s.features.length, f.ringMode]);
     if (AR.key !== key) {
       let val;
-      if (siteKind() === "line") val = { km: 1, label: "중심선 양측 1 km 범위", tag: "양측 1 km" };
+      if (f.ringMode === "line") val = { km: 1, label: "중심선 양측 1 km 범위", tag: "양측 1 km" };
       else {
         await loadScript(LIB.turf, "turf");
         const polys = s.features.filter((x) => U.kindOf(x.geometry) === "polygon");
@@ -2055,7 +2056,7 @@
     if (f.kind === "pa") await prepGrid(f);
     if (f.kind === "field") prepField(f);
     if (OCC[f.kind]) { await occList(f.kind).catch(() => null); prepOcc(f); }
-    if (f.kind === "sat" && f.ringMode === "auto") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
+    if (f.kind === "sat" && f.ringMode !== "custom") await autoRing(f).catch((err) => { console.warn(err); f.autoRing = null; });
     resolveScale(f);
     const dpi = +$("#o-dpi").value;
     const k = dpi / 25.4;
