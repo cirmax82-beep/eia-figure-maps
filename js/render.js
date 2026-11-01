@@ -1645,11 +1645,11 @@
         pen.path(parts, { closed: true, stroke: "#000000", width: 0.9 * e, strokeOpacity: fld ? 0.45 : 0.35 });
         // 현지조사 위치도는 조사경로(점선)와 헷갈리지 않게 실선
         pen.path(parts, fld ? { closed: true, stroke: col, width: 0.6 * e } : { closed: true, stroke: col, width: 0.55 * e, dash: [2.4 * e, 1.3 * e] });
-        // 이름: 범위 고리의 가장 위(북쪽) 점, 틀 밖이면 틀 안에서 가장 위 점
+        // 이름: 범위 고리의 가장 위(북쪽) 점 바로 위(고리 밖 — 안쪽의 사업지구 글자와 겹치지 않게), 틀 밖이면 틀 안에서 가장 위 점
         const all = parts.flat().filter(([x, y]) => inF(x, y, 6 * e));
         if (all.length) {
           const top = all.reduce((a, b) => (b[1] < a[1] ? b : a));
-          ringLabels.push({ t: fld ? `${fmtNum(Math.round(r.km * 1000))} m` : autoRingOf(fig) ? autoRingOf(fig).tag : `${fmtNum(r.km)} km`, x: top[0], y: top[1] + 1.2 * e, color: col });
+          ringLabels.push({ t: fld ? `${fmtNum(Math.round(r.km * 1000))} m` : autoRingOf(fig) ? autoRingOf(fig).tag : `${fmtNum(r.km)} km`, x: top[0], y: top[1] - 0.9 * e, color: col });
         }
       });
     }
@@ -2159,7 +2159,7 @@
       pen.unclip();
       pen.path([[[inset.x, inset.y], [inset.x + inset.w, inset.y], [inset.x + inset.w, inset.y + inset.h], [inset.x, inset.y + inset.h]]], { closed: true, stroke: "#111111", width: 0.3 * e, join: "miter" });
     }
-    ringLabels.forEach((r) => pen.text(r.t, r.x, r.y, { size: 7.5 * e, weight: 700, align: "center", base: "top", color: r.color, halo: "#000000", haloWidth: 0.45 * e }));
+    ringLabels.forEach((r) => pen.text(r.t, r.x, r.y, { size: 7.5 * e, weight: 700, align: "center", base: "bottom", color: r.color, halo: "#000000", haloWidth: 0.45 * e }));
     gridLabels.forEach((g) => pen.text(g.t, g.x, g.y, { size: 6 * e, align: g.align, base: g.base, color: "#ffffff", halo: "#222222", haloWidth: 0.4 * e }));
     pen.unclip();
 
