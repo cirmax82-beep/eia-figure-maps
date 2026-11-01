@@ -799,6 +799,23 @@
       const L = d.layers[a[1]];
       areas.push({ id: a[0], order: a[1], layer: L.id, layerName: L.name, color: L.color, law: L.law, name: a[2], sub: a[3], sido: a[4], sigg: a[5], notice: a[6], ha: a[7], rings, polys });
     }), 8);
+    // 조류센서스지역(포털 종류가 아님, 종류 목록의 census): 문헌조사 위치도와 같은 겨울철 조류 동시센서스 조사지역(data/lit/census.json).
+    // 다른 보호구역과 같은 꼴로 넣어 그리기·이름·이격거리·엑셀 목록을 같이 씀. 범례·그리기 순서는 백두대간보호지역 다음
+    if (want.has("census")) {
+      const cs = await litPlace("census").catch(() => []);
+      const ord = d.layers.findIndex((l) => l.id === "baekdu") + 0.5;
+      const inRing = ([x, y], r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
+      const ringHa = (r) => { const k = Math.cos((r[0][1] * Math.PI) / 180) * 111320 * 110540; let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += r[j][0] * r[i][1] - r[i][0] * r[j][1]; return (Math.abs(a / 2) * k) / 1e4; };
+      cs.forEach(([nm, rings], i) => {
+        if (!rings.some((r) => clipRect(r, w, s, e, n).length >= 3)) return;
+        // 첫 고리 안에 든 고리는 구멍, 아니면 떨어진 조각
+        const polys = [];
+        rings.forEach((r, k) => { if (k && inRing(r[0], rings[0])) polys[0].push(r); else polys.push([r]); });
+        const ha = polys.reduce((t, p) => t + ringHa(p[0]) - p.slice(1).reduce((h, r) => h + ringHa(r), 0), 0);
+        areas.push({ id: `census-${i}`, order: ord, layer: "census", layerName: "조류센서스지역", color: "#0b7285", law: "",
+          name: `${nm} 조류센서스지역`, sub: "겨울철 조류 동시센서스 조사지역", sido: "", sigg: "", notice: "", ha: Math.round(ha * 100) / 100, rings, polys });
+      });
+    }
     areas.sort((x, y) => x.order - y.order || x.name.localeCompare(y.name, "ko"));
     return { areas };
   };
@@ -2218,6 +2235,7 @@
       if (labels) src.push(LABELS.src);
       if ((lit || pa) && fig.lit.grid) src.push("도엽: BioGrid EIA 기준 1:25,000 도엽(국토지리정보원)");
       if (pa && D.pa) src.push("보호구역: 보호구역 종합포털(protect.biogrideia.com — 국토교통부 브이월드·한국보호지역 통합DB)");
+      if (pa && D.pa && D.pa.areas.some((A) => A.layer === "census")) src.push("조류센서스지역: 2025–2026 겨울철 조류 동시센서스 조사지역(국립생물자원관)");
       if (lit && fig.lit.imported) src.push("문헌 위치: BioGrid EIA");
       if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);

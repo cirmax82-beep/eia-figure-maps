@@ -5,11 +5,12 @@
 
   const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도", field: "현지조사 위치도", fsp: "현지조사시 법정보호종 출현위치도", inv: "현지조사시 생태계교란생물 출현위치도" };
   // 보호구역 종합포털의 종류(tools/layers.py 순서). on: 동식물상 관련이라 처음부터 켬.
-  // eco-g1(생태·자연도 1등급 권역)은 포털 종류가 아니라 이 사이트의 생태·자연도 자료로 그림(render.js paG1)
+  // eco-g1(생태·자연도 1등급 권역)은 포털 종류가 아니라 이 사이트의 생태·자연도 자료로 그림(render.js paG1),
+  // census(조류센서스지역)는 문헌조사 위치도와 같은 겨울철 조류 동시센서스 조사지역(render.js paLoad)
   const PA_LAYERS = [
     ["nature", "자연·생태 보호구역", [["wildlife-special", "야생생물특별보호구역", 1], ["wildlife", "야생생물보호구역", 1], ["wetland-coast", "연안습지보호지역", 1], ["wetland", "습지보호지역", 1],
       ["eco-landscape", "생태·경관보전지역", 1], ["special-island", "특정도서", 1], ["park-national", "국립공원", 1], ["park-province", "도립공원", 1], ["park-county", "군립공원", 1],
-      ["forest", "산림보호구역", 0], ["forest-genetic", "산림유전자원보호림", 1], ["baekdu", "백두대간보호지역", 1], ["eco-g1", "생태·자연도 1등급 권역", 1], ["kdpa-other", "기타 보전지역(자연휴양림·수목원 등)", 0]]],
+      ["forest", "산림보호구역", 0], ["forest-genetic", "산림유전자원보호림", 1], ["baekdu", "백두대간보호지역", 1], ["census", "조류센서스지역", 1], ["eco-g1", "생태·자연도 1등급 권역", 1], ["kdpa-other", "기타 보전지역(자연휴양림·수목원 등)", 0]]],
     ["heritage", "국가유산", [["natural-heritage", "천연기념물", 1], ["scenic", "명승", 0], ["heritage", "국가유산 보호구역", 0], ["temple", "전통사찰보존구역", 0]]],
     ["marine", "해양·연안", [["marine-mpa", "해양보호구역", 1], ["coast-conserve", "보전연안해역", 0], ["env-sea", "환경보전해역", 1], ["fishery", "수산자원보호구역", 0]]],
     ["env", "물·환경 규제지역", [["water", "상수원보호구역", 0], ["riparian", "수변구역", 0], ["special-measure", "수질보전 특별대책지역", 0], ["natenv", "자연환경보전지역", 0],
@@ -1352,7 +1353,7 @@
         ["보호구역 위치도 — 9격자 안 보호구역"], [],
         ["사업명", name || "-"],
         ["9격자 가운데 칸", `${c.name && c.name !== c.code ? `${c.name}(${c.code})` : c.code} ${c.id}`],
-        ["자료", "보호구역 종합포털(protect.biogrideia.com) — 국토교통부 브이월드·한국보호지역 통합DB(KDPA)"],
+        ["자료", "보호구역 종합포털(protect.biogrideia.com) — 국토교통부 브이월드·한국보호지역 통합DB(KDPA)" + (f.pa.layers.has("census") ? ", 조류센서스지역 — 2025–2026 겨울철 조류 동시센서스 조사지역(국립생물자원관)" : "")],
         ["계산", "이격거리는 사업지구 경계와 보호구역 경계 사이 최단 거리(EPSG:5186 평면), 방향은 사업지구 가운데에서 가장 가까운 지점을 본 8방위"], [],
         ["순번", "종류", "이름", "세부구분", "시도", "시군구", "고시", "면적(ha)", "관계", "이격거리(m)", "방향", "근거법령"],
         ...list.map((a, i) => [i + 1, a.layerName, a.name, a.sub, a.sido, a.sigg, a.notice, a.ha, a.rel, Number.isFinite(a.dist) ? Math.round(a.dist) : "", a.dir, a.law || ""]),
