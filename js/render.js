@@ -1426,10 +1426,22 @@
       });
       litOut = [...outside.values()].flat();
       // 보호구역 위치도: 9격자에 걸치는 보호구역을 종류 색으로(넓은 것부터 칠해 작은 것이 위에), 격자 안쪽만
+      const paSmall = [];   // 작은 구역(용지에서 8 mm 안쪽) 자리 — 이름표 등 글자가 가리지 않게 뒤에서 occupied에 넣음
       if (pa && D.pa) {
         const list = [...D.pa.areas].sort((a, b) => b.ha - a.ha);
         pen.clip(gx0, gy0, gx1 - gx0, gy1 - gy0);
         list.forEach((A) => pen.path(A.rings.map((r) => r.map(([lon, lat]) => P(lon, lat))), { closed: true, fill: A.color, fillOpacity: 0.32, stroke: A.color, width: 0.45 * e }));
+        // 아주 작은 조각(천연기념물 노거수·화석 산지처럼 용지에서 1.5 mm도 안 되는 것)은 칠한 면이 안 보여 그 자리에 점을 찍음
+        list.forEach((A) => (A.polys || [A.rings]).forEach((p) => {
+          const pts = clipRing(p[0].map(([lon, lat]) => P(lon, lat)));
+          if (pts.length < 3) return;
+          const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]), bb = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+          const big = Math.max(bb[2] - bb[0], bb[3] - bb[1]);
+          if (big >= 1.5) { if (big < 8) paSmall.push(bb); return; }
+          const c = labelPt(pts) || [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2], r = 1.1 * e;
+          pen.path([Array.from({ length: 21 }, (_, k) => [c[0] + r * Math.cos((k / 20) * 2 * Math.PI), c[1] + r * Math.sin((k / 20) * 2 * Math.PI)])], { closed: true, fill: A.color, stroke: "#ffffff", width: 0.3 * e });
+          paSmall.push([c[0] - r, c[1] - r, c[0] + r, c[1] + r]);
+        }));
         pen.unclip();
         // 이격거리(선택): 9격자 안에 든 조각마다 사업지구에서 가장 가까운 지점까지 치수선과 거리(1 m 단위, 1 km 넘으면 km 소수 둘째 자리).
         // 맞닿은 조각처럼 가까운 지점이 용지에서 1.5 mm 안이면 짧은 것 하나만
@@ -1491,14 +1503,23 @@
         (A.parts || []).filter((p) => p.inGrid && p.draw !== false && p.polys).forEach((p) =>
           nameJobs.push({ text: GENERIC[A.layer], rings: p.polys.flat(), size: p.bb.reduce((n, b) => n + ((b[2] - b[0]) * (b[3] - b[1])) / 1e4, 0), color: A.color }));
       });
+      occupied.push(...paSmall);
       nameJobs.sort((a, b) => a.size - b.size).forEach((J) => {
-        let at = null;
-        J.rings.forEach((r) => { const c = labelPt(clipRing(r.map(([lon, lat]) => P(lon, lat)))); if (c && (!at || c[2] > at[2])) at = c; });
+        let at = null, bb = null;
+        J.rings.forEach((r) => {
+          const pts = clipRing(r.map(([lon, lat]) => P(lon, lat))), c = labelPt(pts);
+          if (c && (!at || c[2] > at[2])) { at = c; bb = [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))]; }
+        });
         if (!at) return;
         const fs = 6.8 * e, w = textW(J.text, fs, 700) + 1, h = fs * PT + 0.8;
+        // 구역이 이름표보다 작으면(가로나 세로) 가운데에 쓰면 구역이 가려져, 구역 바로 위(막히면 아래·오른쪽·왼쪽)에 붙여 씀. 점을 찍은 아주 작은 조각은 점 둘레로
+        if (Math.max(bb[2] - bb[0], bb[3] - bb[1]) < 1.5) { const r = 1.1 * e + 0.2; bb = [at[0] - r, at[1] - r, at[0] + r, at[1] + r]; }
+        const cands = bb[2] - bb[0] < w || bb[3] - bb[1] < 2 * h
+          ? [[at[0] - w / 2, bb[1] - 0.5 - h], [at[0] - w / 2, bb[3] + 0.5], [bb[2] + 0.8, at[1] - h / 2], [bb[0] - 0.8 - w, at[1] - h / 2]]
+          : [0, -h - 0.6, h + 0.6].map((dy) => [at[0] - w / 2, at[1] - h / 2 + dy]);
         let box = null;
-        for (const dy of [0, -h - 0.6, h + 0.6]) {
-          const x = Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, at[0] - w / 2)), y = Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, at[1] - h / 2 + dy));
+        for (const [cx, cy] of cands) {
+          const x = Math.max(gx0 + 0.5, Math.min(gx1 - w - 0.5, cx)), y = Math.max(gy0 + 0.5, Math.min(gy1 - h - 0.5, cy));
           if (!boxHit([x, y, x + w, y + h], occupied)) { box = [x, y, x + w, y + h]; break; }
         }
         if (!box) return;
@@ -1645,11 +1666,18 @@
         pen.path(parts, { closed: true, stroke: "#000000", width: 0.9 * e, strokeOpacity: fld ? 0.45 : 0.35 });
         // 현지조사 위치도는 조사경로(점선)와 헷갈리지 않게 실선
         pen.path(parts, fld ? { closed: true, stroke: col, width: 0.6 * e } : { closed: true, stroke: col, width: 0.55 * e, dash: [2.4 * e, 1.3 * e] });
-        // 이름: 범위 고리의 가장 위(북쪽) 점 바로 위(고리 밖 — 안쪽의 사업지구 글자와 겹치지 않게), 틀 밖이면 틀 안에서 가장 위 점
+        // 이름: 범위 고리의 가장 위(북쪽) 점 바로 위(고리 밖 — 안쪽의 사업지구 글자와 겹치지 않게), 틀 밖이면 틀 안에서 가장 위 점.
+        // 보호구역 이름 등 먼저 자리 잡은 글자와 겹치면 고리 윗부분(위쪽 30%)을 따라 가장 위 점에서 가까운 곳부터 빈자리를 찾음
         const all = parts.flat().filter(([x, y]) => inF(x, y, 6 * e));
         if (all.length) {
-          const top = all.reduce((a, b) => (b[1] < a[1] ? b : a));
-          ringLabels.push({ t: fld ? `${fmtNum(Math.round(r.km * 1000))} m` : autoRingOf(fig) ? autoRingOf(fig).tag : `${fmtNum(r.km)} km`, x: top[0], y: top[1] - 0.9 * e, color: col });
+          const t = fld ? `${fmtNum(Math.round(r.km * 1000))} m` : autoRingOf(fig) ? autoRingOf(fig).tag : `${fmtNum(r.km)} km`;
+          const fs = 7.5 * e, tw = textW(t, fs, 700) + 0.6, th = fs * PT;
+          const top = all.reduce((a, b) => (b[1] < a[1] ? b : a)), low = all.reduce((a, b) => (b[1] > a[1] ? b : a));
+          const boxAt = ([x, y]) => [x - tw / 2, y - 0.9 * e - th, x + tw / 2, y - 0.9 * e];
+          const arc = all.filter(([, y]) => y <= top[1] + (low[1] - top[1]) * 0.3).sort((a, b) => Math.abs(a[0] - top[0]) - Math.abs(b[0] - top[0]));
+          const at = [top, ...arc].find((q) => !boxHit(boxAt(q), occupied)) || top;
+          occupied.push(boxAt(at));
+          ringLabels.push({ t, x: at[0], y: at[1] - 0.9 * e, color: col });
         }
       });
     }
