@@ -261,6 +261,8 @@
   };
   // 주변 범위를 그리는지: 위성 현황도는 늘, 생태축·생태·자연도는 켰을 때
   const FIELD_KINDS = ["field", "fsp", "inv"];
+  // 보호구역 위치도에 생태·자연도 1등급 권역을 겹침(보호구역 종류 목록의 eco-g1)
+  const paG1 = (fig) => fig.kind === "pa" && !!fig.pa && fig.pa.layers.has("eco-g1");
   const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
   // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m)
   // 위성사진 현황도·생태·자연도 사업 유형별 범위(autoRing: 면사업 약 20 ㎢ · 선형사업 양측 1 km), 직접(custom)이면 rings
@@ -1074,7 +1076,7 @@
     const baseSrc = baseKey === "none" ? null : BASES[baseKey];
     const labelsOn = fig.baseLabels && VW_KEY && baseKey !== "none";
     const jobs = {
-      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc, fig.gray, nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat)).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
+      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc, fig.gray, nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) || paG1(fig)).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
       labels: labelsOn ? basemap(v, k, null, alive, LABELS).catch((err) => { console.warn(err); return null; }) : null,
       lc: eco && (fig.eco.forest || fig.eco.water || fig.eco.tidal) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
       osm: eco && (fig.eco.peaks || fig.eco.wnames || fig.eco.flow || fig.eco.streams) ? osm(v).catch((err) => { console.warn(err); warn.push("이름·하천 자료를 받지 못했습니다."); return null; }) : null,
@@ -1097,7 +1099,7 @@
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
     const paJob = fig.kind === "pa" && fig.lit.grid ? paLoad(fig.lit.grid.bounds, [...fig.pa.layers]).then((r) => ({ areas: paMeasure(site, r.areas, fig.lit.grid.bounds) })).catch((err) => { console.warn(err); warn.push("보호구역 자료(보호구역 종합포털)를 받지 못했습니다."); return null; }) : null;
-    const natJob = nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
+    const natJob = nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) || paG1(fig) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const api1Job = nat && fig.nat.dist1 && fig.ecoKey ? eco1Frame(v, fig.ecoKey).catch((err) => { console.warn(err); warn.push(`${err.message} 1등급 이격거리는 정기고시 원본 경계로 계산했습니다.`); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
     // 원본 경계(API)가 늦으면(미리보기) 단순화 경계로 먼저 그리고, 도착하면 onLate로 다시 그림
@@ -1124,8 +1126,8 @@
     const { W, H, e, frame: F } = Lo;
     // sp(법정보호종 출현위치도)는 문헌조사 위치도(lit) 위에 종 이름을 더한 것
     const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", occ = fig.kind === "fsp" || fig.kind === "inv", fld = fig.kind === "field" || occ;
-    // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다)
-    const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : null;
+    // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다, 보호구역 위치도는 1등급 권역만)
+    const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : paG1(fig) ? { g1: true, g2: false, sep: false } : null;
     const natSolid = !!natOn && (!base || !!base.lines), natOp = natSolid ? 1 : NAT.op;
     const P = (lon, lat) => v.fromLL(lon, lat);
     const PM = (X, Y) => v.fromM(X, Y);
@@ -1193,8 +1195,8 @@
     if (pa && D.pa) [...new Map([...D.pa.areas].sort((a, b) => a.order - b.order).map((A) => [A.layer, A])).values()]
       .forEach((A) => legend.push({ type: "fill", color: A.color, opacity: 0.32, label: A.layerName }));
     if (natOn && (nat || nd)) {
-      const pre = lit ? "생태·자연도 " : "";
-      if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: natOp, label: `${pre}1등급` });
+      const pre = lit || pa ? "생태·자연도 " : "";
+      if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: natOp, label: `${pre}1등급${pa ? " 권역" : ""}` });
       if (natOn.g2) legend.push({ type: "fill", color: NAT.g2, opacity: natOp, label: `${pre}2등급` });
       if (nat) legend.push({ type: "box", label: "3등급" });
       if (natOn.sep) legend.push({ type: "fill", color: NAT.sep, opacity: natOp, label: "별도관리지역" });
@@ -1724,9 +1726,10 @@
       pen.path([shape], { closed: true, fill: a.kind === "forest" ? COLOR.arrowForest : COLOR.arrowWater, fillOpacity: 0.78, stroke: "#ffffff", width: 0.35 * e });
     });
 
-    // 1등급 권역까지 이격거리(선택): 도면 틀 안에 보이는 1등급만 보고, 사업지구 경계와 가장 가까운 두 점을 치수선으로 이음
+    // 1등급 권역까지 이격거리(선택 — 생태·자연도 도면의 1등급 이격거리, 보호구역 위치도는 1등급 권역을 켜고 이격거리를 고를 때):
+    // 도면 틀 안에 보이는 1등급만 보고, 사업지구 경계와 가장 가까운 두 점을 치수선으로 이음
     let dist1 = null;
-    if (nat && nd && fig.nat.dist1 && Number.isFinite(sb0[0])) {
+    if (((nat && fig.nat.dist1) || (pa && paG1(fig) && fig.pa.dist)) && nd && Number.isFinite(sb0[0])) {
       const x0 = F.x, y0 = F.y, x1 = F.x + F.w, y1 = F.y + F.h;
       // 선분을 틀 안으로 자름(리앙-바스키). 틀 밖이면 null
       const clipSeg = (ax, ay, bx, by) => {
