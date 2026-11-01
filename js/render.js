@@ -263,12 +263,12 @@
   const FIELD_KINDS = ["field", "fsp", "inv"];
   // 보호구역 위치도에 생태·자연도 1등급 권역을 겹침(보호구역 종류 목록의 eco-g1)
   const paG1 = (fig) => fig.kind === "pa" && !!fig.pa && fig.pa.layers.has("eco-g1");
-  const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings);
-  // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m)
+  const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings) || (fig.kind === "pa" && fig.pa.buffer);
+  // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m), 보호구역 위치도는 사업지구 버퍼(pa.bufKm)
   // 위성사진 현황도·생태·자연도 사업 유형별 범위(autoRing: 면사업 약 20 ㎢ · 선형사업 양측 1 km), 직접(custom)이면 rings
   const REGION_KINDS = ["sat", "nat"];
   const autoRingOf = (fig) => (REGION_KINDS.includes(fig.kind) && fig.ringMode !== "custom" && fig.autoRing ? fig.autoRing : null);
-  const ringKms = (fig) => (FIELD_KINDS.includes(fig.kind) ? (fig.fieldRings || []).map((r) => r.m / 1000) : autoRingOf(fig) ? [autoRingOf(fig).km] : fig.rings);
+  const ringKms = (fig) => (FIELD_KINDS.includes(fig.kind) ? (fig.fieldRings || []).map((r) => r.m / 1000) : fig.kind === "pa" ? fig.pa.bufKm : autoRingOf(fig) ? [autoRingOf(fig).km] : fig.rings);
   // 자동 축척: 위성 현황도는 가장 큰 주변 범위, 생태축·생태·자연도는 사업지구 둘레 1 km(주변 범위를 켜면 그 범위)가 틀에 들도록
   const autoScale = (fig, site) => {
     const { frame } = layout(fig);

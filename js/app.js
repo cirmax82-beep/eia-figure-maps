@@ -33,8 +33,8 @@
     natl: { inset: true },
     // 문헌조사 위치도: 생태·자연도 1·2등급 겹치기(기본 켬), 9격자(grid), 포털 공간자료(imported), 직접 찍은 문헌(manual), 목록에서 뺀 것·고친 이름·색
     lit: { nat: true, table: "below", sheetName: true, grid: null, gridKey: "", imported: null, xls: null, sp: null, picked: new Map(), manual: [], seq: 0, hide: new Set(), text: new Map(), colors: new Map() },
-    // 보호구역 위치도: 그릴 종류, 이름, 이격거리 치수선, 도엽 이름(9격자는 lit.grid를 같이 씀)
-    pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true },
+    // 보호구역 위치도: 그릴 종류, 이름, 이격거리 치수선, 도엽 이름(9격자는 lit.grid를 같이 씀), 사업지구 버퍼(켬, 거리 km — 기본 0.5)
+    pa: { layers: new Set(PA_DEFAULT), names: true, dist: false, sheetName: true, buffer: true, bufKm: [0.5] },
     // 현지조사 위치도: 사업 종류(auto·area·line), 조사범위([{m, name, on}], null이면 사업 종류의 처음 값), 경로 파일, 겹친 길 합치기 거리(m), 차량 이동 빼기, 다듬기(m), 자를 먼 거리(m),
     // 분류군별 색, 고친 것(지우개·그린 길), 조사지점(St.·W.)
     field: { type: "auto", ranges: null, rangesEdited: false, tracks: [], tseq: 0, tol: 15, car: true, soft: 12, far: 2000, byGroup: false, edits: [], redo: [], points: [], pseq: 0, stats: null },
@@ -56,7 +56,7 @@
     "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
     "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "n-dist1": ["nat", "dist1"], "v-inset": ["natl", "inset"],
-    "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"], "p-names": ["pa", "names"], "p-dist": ["pa", "dist"], "p-sheet": ["pa", "sheetName"] };
+    "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"], "p-names": ["pa", "names"], "p-dist": ["pa", "dist"], "p-sheet": ["pa", "sheetName"], "p-buffer": ["pa", "buffer"] };
   const scaleOptions = () => {
     const f = fig();
     if (f.kind === "field") prepField(f);
@@ -76,6 +76,8 @@
     $("#o-labels").disabled = !Carto.hasVworld;
     $("#o-title").value = f.title;
     $("#o-rings").value = f.rings.join(", ");
+    $("#p-buf").value = f.pa.bufKm.join(", ");
+    $("#p-buf-row").hidden = !f.pa.buffer;
     if (f.ringMode !== "line" && f.ringMode !== "custom") f.ringMode = "area"; // 예전 저장값 auto는 면사업으로
     $("#o-ring-mode").value = f.ringMode;
     $("#o-rings-row").hidden = f.ringMode !== "custom";
@@ -114,6 +116,7 @@
     f.basemap = $("#o-basemap").value;
     f.title = $("#o-title").value.trim();
     f.rings = parseRings($("#o-rings").value);
+    if (f.kind === "pa") { f.pa.bufKm = parseRings($("#p-buf").value); $("#p-buf-row").hidden = !$("#p-buffer").checked; }
     if (f.kind === "sat" || f.kind === "nat") { f.ringMode = $("#o-ring-mode").value; $("#o-rings-row").hidden = f.ringMode !== "custom"; }
     f.eco.forestName = $("#o-forest-name").value.trim() || "산림생태계";
     f.eco.waterName = $("#o-water-name").value.trim() || "수생태계";
@@ -2164,7 +2167,7 @@
     el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); if (/^o-(basemap|gray|labels)$/.test(el.id)) syncMapBase(); renderPreview(); });
   });
   $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
-  ["o-title", "o-rings", "o-forest-name", "o-water-name"].forEach((id) => $(`#${id}`).addEventListener("input", () => { readControls(); rerender(); }));
+  ["o-title", "o-rings", "p-buf", "o-forest-name", "o-water-name"].forEach((id) => $(`#${id}`).addEventListener("input", () => { readControls(); rerender(); }));
   $$("[data-dl]").forEach((b) => b.addEventListener("click", () => exportFig(b.dataset.dl)));
   $("#n-area").addEventListener("click", natAreaExcel);
   initEcoKey();
