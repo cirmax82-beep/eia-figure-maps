@@ -43,18 +43,18 @@
   class CanvasPen {
     constructor(ctx, k) { this.c = ctx; this.k = k; ctx.setTransform(k, 0, 0, k, 0, 0); ctx.imageSmoothingQuality = "high"; }
     path(parts, s) {
-      const c = this.c;
-      c.beginPath();
+      const c = this.c, d = new Path2D();
       let any = false;
       for (const p of parts) {
         if (p.length < 2) continue;
         any = true;
-        c.moveTo(p[0][0], p[0][1]);
-        for (let i = 1; i < p.length; i++) c.lineTo(p[i][0], p[i][1]);
-        if (s.closed) c.closePath();
+        d.moveTo(p[0][0], p[0][1]);
+        for (let i = 1; i < p.length; i++) d.lineTo(p[i][0], p[i][1]);
+        if (s.closed) d.closePath();
       }
       if (!any) return;
-      if (s.fill) { c.globalAlpha = s.fillOpacity ?? 1; c.fillStyle = s.fill; c.fill("evenodd"); }
+      if (s.fill) { c.globalAlpha = s.fillOpacity ?? 1; c.fillStyle = s.fill; c.fill(d, "evenodd"); }
+      if (s.hatch) this.hatch(d, parts, s.hatch);
       if (s.stroke) {
         c.globalAlpha = s.strokeOpacity ?? 1;
         c.strokeStyle = s.stroke;
@@ -62,10 +62,33 @@
         c.setLineDash(s.dash || []);
         c.lineJoin = s.join || "round";
         c.lineCap = s.cap || "round";
-        c.stroke();
+        c.stroke(d);
         c.setLineDash([]);
       }
       c.globalAlpha = 1;
+    }
+    // 빗금: angle(도) 방향 선을 gap(mm) 간격으로, 면 안쪽만. 선 자리는 용지 원점 기준이라 SVG 무늬와 같고, 조각끼리 이어짐
+    hatch(d, parts, h) {
+      const c = this.c, W = c.canvas.width / this.k, H = c.canvas.height / this.k;
+      const xs = parts.flat().map((q) => q[0]), ys = parts.flat().map((q) => q[1]);
+      const x0 = Math.max(0, Math.min(...xs)), y0 = Math.max(0, Math.min(...ys)), x1 = Math.min(W, Math.max(...xs)), y1 = Math.min(H, Math.max(...ys));
+      if (x1 <= x0 || y1 <= y0) return;
+      const a = (h.angle || 0) * RAD, u = [Math.cos(a), Math.sin(a)], nv = [-u[1], u[0]], g = h.gap;
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.hypot(x1 - x0, y1 - y0) / 2, cn = cx * nv[0] + cy * nv[1], cu = cx * u[0] + cy * u[1];
+      c.save();
+      c.clip(d, "evenodd");
+      c.beginPath();
+      for (let k = Math.ceil((cn - R) / g - 0.5); (k + 0.5) * g <= cn + R; k++) {
+        const t = (k + 0.5) * g;
+        c.moveTo(nv[0] * t + u[0] * (cu - R), nv[1] * t + u[1] * (cu - R));
+        c.lineTo(nv[0] * t + u[0] * (cu + R), nv[1] * t + u[1] * (cu + R));
+      }
+      c.globalAlpha = h.opacity ?? 1;
+      c.strokeStyle = h.color;
+      c.lineWidth = h.width;
+      c.lineCap = "butt";
+      c.stroke();
+      c.restore();
     }
     text(str, x, y, s) {
       const c = this.c, k = this.k;
@@ -96,7 +119,7 @@
   const n2 = (v) => +v.toFixed(2);
   const ex = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   class SvgPen {
-    constructor(W, H) { this.W = W; this.H = H; this.o = []; this.nClip = 0; }
+    constructor(W, H) { this.W = W; this.H = H; this.o = []; this.nClip = 0; this.pats = new Map(); }
     path(parts, s) {
       let d = "";
       for (const p of parts) {
@@ -104,6 +127,20 @@
         d += "M" + p.map((q) => `${n2(q[0])} ${n2(q[1])}`).join("L") + (s.closed ? "Z" : "");
       }
       if (!d) return;
+      if (s.hatch) {
+        const h = s.hatch, g = n2(h.gap), key = [h.color, h.angle || 0, g, n2(h.width), h.opacity ?? 1].join("|");
+        let id = this.pats.get(key);
+        if (!id) {
+          id = `hatch${this.pats.size + 1}`;
+          this.pats.set(key, id);
+          this.o.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" width="${g}" height="${g}" patternTransform="rotate(${n2(h.angle || 0)})">` +
+            `<path d="M0 ${n2(h.gap / 2)}H${g}" stroke="${h.color}" stroke-width="${n2(h.width)}"${h.opacity != null && h.opacity < 1 ? ` stroke-opacity="${h.opacity}"` : ""}/></pattern>`);
+        }
+        if (s.fill) this.path(parts, { ...s, hatch: null, stroke: null });
+        this.o.push(`<path d="${d}" fill="url(#${id})" fill-rule="evenodd"/>`);
+        if (s.stroke) this.path(parts, { ...s, hatch: null, fill: null });
+        return;
+      }
       const a = [`d="${d}"`, s.fill ? `fill="${s.fill}" fill-rule="evenodd"` : `fill="none"`];
       if (s.fill && s.fillOpacity != null && s.fillOpacity < 1) a.push(`fill-opacity="${s.fillOpacity}"`);
       if (s.stroke) {
@@ -967,13 +1004,13 @@
   // 법정보호종 기호: 모양(동그라미·세모·네모·마름모·역세모·오각·별·육각) × 색, 반지름 1 기준 꼭짓점
   const SYM_SHAPES = ["circle", "triangle", "square", "diamond", "invtri", "pentagon", "star", "hexagon"];
   // 초록(1등급·산림)·빨강 계열(사업지구 #e8212b)은 쓰지 않음
-  // 이름표 글자색: 구역·기호 색과 맞추되, 흰 테 위에서 읽히게 밝은 색(노랑·연두·하늘 등)은 같은 색조로 어둡게(흰색 대비 4.5 이상)
-  const inkOf = (hex) => {
+  // 이름표 글자색: 구역·기호 색과 맞추되, 흰 테 위에서 읽히게 밝은 색(노랑·연두·하늘 등)은 같은 색조로 어둡게(흰색 대비 4.5 이상, 빗금 선은 3 이상)
+  const inkOf = (hex, ratio = 4.5) => {
     const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
     if (!m) return "#111111";
     let c = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
     const lum = (v) => v.map((x) => { x /= 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }).reduce((s, x, i) => s + x * [0.2126, 0.7152, 0.0722][i], 0);
-    for (let k = 0; k < 40 && 1.05 / (lum(c) + 0.05) < 4.5; k++) c = c.map((x) => x * 0.94);
+    for (let k = 0; k < 40 && 1.05 / (lum(c) + 0.05) < ratio; k++) c = c.map((x) => x * 0.94);
     return "#" + c.map((x) => Math.round(x).toString(16).padStart(2, "0")).join("");
   };
   const SYM_COLORS = ["#7048e8", "#f08c00", "#1c7ed6", "#fab005", "#212529", "#0c8599", "#ae3ec9", "#8d5524", "#f783ac", "#5c7cfa"];
@@ -1209,8 +1246,38 @@
     if (pa && fig.lit.grid) legend.push({ type: "outline", color: "#1f1f1f", label: "검토 범위(9격자)" });
     if (sp && (fig.spRows || []).some((r) => r.kind === "point")) legend.push({ type: "point", color: "#a61e4d", label: "법정보호종 출현 지점" });
     // 보호구역: 9격자에 걸친 종류만(포털의 종류 순서)
+    // 보호구역이 겹치면 색을 겹쳐 칠해서는 뒤 구역의 경계가 안 보여, 겹치는 종류끼리는 한 종류만 칠하고 나머지는 빗금(종류 색 선, 종류마다 각도를 달리)으로 그림.
+    // 겹침은 9격자(틀 안)를 0.5 mm 칸에 종류별로 그려 셈: 넓게 보이는 종류부터 칠하고, 칠한 종류와 4 mm² 넘게(둘 중 작은 쪽의 5% 넘게) 겹치면 빗금
+    const paHatch = new Map();   // 종류 → 빗금 각도
+    if (pa && D.pa && fig.lit.grid && typeof document !== "undefined") {
+      const b = fig.lit.grid.bounds, ga = P(b[0], b[3]), gc = P(b[2], b[1]);
+      const x0 = Math.max(ga[0], F.x), y0 = Math.max(ga[1], F.y), x1 = Math.min(gc[0], F.x + F.w), y1 = Math.min(gc[1], F.y + F.h);
+      const cw = Math.max(1, Math.ceil((x1 - x0) * 2)), ch = Math.max(1, Math.ceil((y1 - y0) * 2));
+      const cv = document.createElement("canvas");
+      cv.width = cw; cv.height = ch;
+      const cx = cv.getContext("2d", { willReadFrequently: true }), by = new Map(), masks = [];
+      D.pa.areas.forEach((A) => (by.get(A.layer) || by.set(A.layer, []).get(A.layer)).push(A));
+      by.forEach((list, layer) => {
+        cx.clearRect(0, 0, cw, ch);
+        list.forEach((A) => {
+          cx.beginPath();
+          A.rings.forEach((r) => r.forEach(([lon, lat], i) => { const [x, y] = P(lon, lat); cx[i ? "lineTo" : "moveTo"]((x - x0) * 2, (y - y0) * 2); }));
+          cx.fill("evenodd");
+        });
+        const px = cx.getImageData(0, 0, cw, ch).data, m = new Uint8Array(cw * ch);
+        let n = 0;
+        for (let i = 0; i < m.length; i++) if (px[i * 4 + 3] > 127) { m[i] = 1; n++; }
+        if (n) masks.push({ layer, m, n });
+      });
+      const filled = [], ANG = [45, -45, 0, 90];
+      masks.sort((p, q) => q.n - p.n).forEach((L) => {
+        const hit = filled.some((M) => { let o = 0; for (let i = 0; i < L.m.length; i++) o += L.m[i] & M.m[i]; return o > 16 && o > 0.05 * Math.min(L.n, M.n); });
+        if (hit) paHatch.set(L.layer, ANG[paHatch.size % ANG.length]); else filled.push(L);
+      });
+    }
     if (pa && D.pa) [...new Map([...D.pa.areas].sort((a, b) => a.order - b.order).map((A) => [A.layer, A])).values()]
-      .forEach((A) => legend.push({ type: "fill", color: A.color, opacity: 0.32, label: A.layerName }));
+      .forEach((A) => legend.push(paHatch.has(A.layer) ? { type: "hatch", color: inkOf(A.color, 3), angle: paHatch.get(A.layer), label: A.layerName }
+        : { type: "fill", color: A.color, opacity: 0.32, label: A.layerName }));
     if (natOn && (nat || nd)) {
       const pre = lit || pa ? "생태·자연도 " : "";
       if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: natOp, label: `${pre}1등급${pa ? " 권역" : ""}` });
@@ -1425,12 +1492,14 @@
         marks.set(it.geoKey, { nums: [it.n], x: at[0], y: at[1], col, kind, edge });
       });
       litOut = [...outside.values()].flat();
-      // 보호구역 위치도: 9격자에 걸치는 보호구역을 종류 색으로(넓은 것부터 칠해 작은 것이 위에), 격자 안쪽만
+      // 보호구역 위치도: 9격자에 걸치는 보호구역을 종류 색으로(넓은 것부터 칠해 작은 것이 위에), 격자 안쪽만. 다른 종류와 겹치는 종류(paHatch)는 칠하지 않고 빗금을 맨 위에
       const paSmall = [];   // 작은 구역(용지에서 8 mm 안쪽) 자리 — 이름표 등 글자가 가리지 않게 뒤에서 occupied에 넣음
       if (pa && D.pa) {
         const list = [...D.pa.areas].sort((a, b) => b.ha - a.ha);
         pen.clip(gx0, gy0, gx1 - gx0, gy1 - gy0);
-        list.forEach((A) => pen.path(A.rings.map((r) => r.map(([lon, lat]) => P(lon, lat))), { closed: true, fill: A.color, fillOpacity: 0.32, stroke: A.color, width: 0.45 * e }));
+        list.filter((A) => !paHatch.has(A.layer)).forEach((A) => pen.path(A.rings.map((r) => r.map(([lon, lat]) => P(lon, lat))), { closed: true, fill: A.color, fillOpacity: 0.32, stroke: A.color, width: 0.45 * e }));
+        list.filter((A) => paHatch.has(A.layer)).forEach((A) => { const ink = inkOf(A.color, 3);
+          pen.path(A.rings.map((r) => r.map(([lon, lat]) => P(lon, lat))), { closed: true, hatch: { color: ink, angle: paHatch.get(A.layer), gap: 1.5 * e, width: 0.3 * e }, stroke: ink, width: 0.5 * e }); });
         // 아주 작은 조각(천연기념물 노거수·화석 산지처럼 용지에서 1.5 mm도 안 되는 것)은 칠한 면이 안 보여 그 자리에 점을 찍음
         list.forEach((A) => (A.polys || [A.rings]).forEach((p) => {
           const pts = clipRing(p[0].map(([lon, lat]) => P(lon, lat)));
@@ -2224,6 +2293,7 @@
         if (it.type === "outline") pen.path([r], { closed: true, stroke: it.color, width: 0.7 * e, join: "miter" });
         if (it.type === "box") pen.path([r], { closed: true, fill: "#ffffff", stroke: "#8a8a8a", width: 0.25 * e, join: "miter" });
         if (it.type === "fill") pen.path([r], { closed: true, fill: it.color, fillOpacity: Math.min(1, (it.opacity || 1) + 0.1) });
+        if (it.type === "hatch") pen.path([r], { closed: true, hatch: { color: it.color, angle: it.angle, gap: 1.2 * e, width: 0.3 * e }, stroke: it.color, width: 0.45 * e, join: "miter" });
         if (it.type === "line") pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.95 * e });
         if (it.type === "point") pen.path([Array.from({ length: 25 }, (_, k) => [sx + sym / 2 + 1.4 * e * Math.cos((k / 24) * 2 * Math.PI), cy + 1.4 * e * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: it.color });
         if (it.type === "dash") {
