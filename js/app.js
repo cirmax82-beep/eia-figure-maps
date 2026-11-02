@@ -217,6 +217,7 @@
       const over = $("#pv-over");
       over.width = off.width;
       over.height = off.height;
+      over.style.transform = "";
       // 둘째 쪽(문헌자료)은 지도가 없어 끌기·휠·찍기를 하지 않음(view 없음)
       S.last = { view: page2 ? null : out.view, layout: Lo, cssW, cssH, k, fig: f };
       // 위치가 9격자 밖에만 있어 도면에 그리지 않은 문헌은 목록에 「격자 밖」
@@ -247,13 +248,13 @@
     return [((e.clientX - r.left) / r.width) * Lo.W, ((e.clientY - r.top) / r.height) * Lo.H];
   };
 
-  // 마우스 휠로 축척 한 단계씩 확대·축소. 커서 아래 지점이 제자리에 있게 가운데를 옮기고, 그리는 동안은 그림을 늘려 보여 줌
+  // 마우스 휠로 축척 한 단계씩 확대·축소(점·선·구역을 찍는 중에도). 커서 아래 지점이 제자리에 있게 가운데를 옮기고, 다시 그리는 동안은 그림을 늘려 보여 줌
   const initWheel = () => {
     const over = $("#pv-over"), cv = $("#pv");
     let zoom = 1;
     const draw = debounce(() => { zoom = 1; renderPreview(); }, 280);
     over.addEventListener("wheel", (e) => {
-      if (!S.last || !S.last.view || A.mode) return;
+      if (!S.last || !S.last.view) return;
       e.preventDefault();
       const f = fig(), list = Carto.scalesFor(f), cur = f.scale;
       let i = list.findIndex((v) => v >= cur);
@@ -269,8 +270,8 @@
       f.scale = next;
       zoom *= cur / next;
       const r = $("#paper").getBoundingClientRect();
-      cv.style.transformOrigin = `${e.clientX - r.left}px ${e.clientY - r.top}px`;
-      cv.style.transform = `scale(${zoom})`;
+      cv.style.transformOrigin = over.style.transformOrigin = `${e.clientX - r.left}px ${e.clientY - r.top}px`;
+      cv.style.transform = over.style.transform = `scale(${zoom})`;
       status(`축척 1:${fmt(next)}`);
       draw();
     }, { passive: false });
@@ -287,14 +288,14 @@
     const movePinch = (a, b) => {
       const r = $("#paper").getBoundingClientRect();
       pinch.f = Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0; pinch.tx = (a.x + b.x) / 2 - pinch.x0; pinch.ty = (a.y + b.y) / 2 - pinch.y0;
-      pvc.style.transformOrigin = `${pinch.x0 - r.left}px ${pinch.y0 - r.top}px`;
-      pvc.style.transform = `translate(${pinch.tx}px, ${pinch.ty}px) scale(${pinch.f})`;
+      pvc.style.transformOrigin = cv.style.transformOrigin = `${pinch.x0 - r.left}px ${pinch.y0 - r.top}px`;
+      pvc.style.transform = cv.style.transform = `translate(${pinch.tx}px, ${pinch.ty}px) scale(${pinch.f})`;
     };
     const finishPinch = () => {
       const p = pinch;
       pinch = null;
       drag = null;
-      if (!p || (Math.abs(p.f - 1) < 0.05 && Math.hypot(p.tx, p.ty) < 4)) { pvc.style.transform = ""; return; }
+      if (!p || (Math.abs(p.f - 1) < 0.05 && Math.hypot(p.tx, p.ty) < 4)) { pvc.style.transform = cv.style.transform = ""; return; }
       const f = fig(), list = Carto.scalesFor(f), cur = f.scale, want = cur / p.f;
       const next = list.reduce((b, sc) => (Math.abs(Math.log(sc / want)) < Math.abs(Math.log(b / want)) ? sc : b), list[0]);
       const { view, layout: Lo } = S.last, r = $("#paper").getBoundingClientRect(), mmPerPx = Lo.W / r.width;
@@ -309,12 +310,13 @@
     const movePan = (x, y) => {
       const dx = x - drag.x, dy = y - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-      pvc.style.transform = `translate(${dx}px, ${dy}px)`;
+      pvc.style.transform = cv.style.transform = `translate(${dx}px, ${dy}px)`;
     };
     const finishPan = (x, y) => {
       const d = drag;
       drag = null;
-      if (!d.moved) { pvc.style.transform = ""; return; }
+      cv.classList.remove("panning");
+      if (!d.moved) { pvc.style.transform = cv.style.transform = ""; return; }
       const { view, layout: Lo, cssW } = S.last, mmPerPx = Lo.W / cssW, f = fig();
       f.offset = [f.offset[0] - (x - d.x) * mmPerPx * view.m, f.offset[1] + (y - d.y) * mmPerPx * view.m];
       renderPreview();
@@ -327,9 +329,14 @@
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       try { cv.setPointerCapture(e.pointerId); } catch (_) { /* 이미 끝난 손가락 */ }
       if (pts.size === 2) { startPinch(...two()); return; }
-      if (A.mode || pts.size > 2) return;
+      // 휠(가운데 단추)을 누르고 끌면 점·선·구역을 찍는 중에도 옮김. 왼쪽 단추는 찍는 중이면 찍기
+      const mid = e.pointerType === "mouse" && e.button === 1;
+      if ((A.mode && !mid) || pts.size > 2) return;
       drag = { x: e.clientX, y: e.clientY, moved: false };
+      if (mid) { e.preventDefault(); cv.classList.add("panning"); }
     });
+    // 휠 누르기의 자동 스크롤(윈도우) 막기
+    cv.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
     cv.addEventListener("pointermove", (e) => {
       if (skip(e)) return;
       if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -360,7 +367,7 @@
         if (pinch) { if (e.touches.length < 2) finishPinch(); return; }
         if (drag && !e.touches.length) { const t = e.changedTouches[0]; finishPan(t.clientX, t.clientY); }
       });
-      cv.addEventListener("touchcancel", () => { pinch = null; drag = null; pvc.style.transform = ""; });
+      cv.addEventListener("touchcancel", () => { pinch = null; drag = null; pvc.style.transform = cv.style.transform = ""; });
       // iOS 사파리: 두 손가락 제스처가 화면 전체 확대로 가지 않게
       ["gesturestart", "gesturechange"].forEach((t) => cv.addEventListener(t, (e) => e.preventDefault()));
     }
@@ -745,7 +752,7 @@
     let stroke = null;
     const at = (e) => { const [px, py] = toPage(e); return { px, py, ll: S.last.view.toLL(px, py) }; };
     const on = () => A.mode === "fld-erase" && S.last && S.last.view;
-    over.addEventListener("pointerdown", (e) => { if (!on()) return; stroke = [at(e)]; over.setPointerCapture(e.pointerId); drawEraseTemp(stroke); });
+    over.addEventListener("pointerdown", (e) => { if (!on() || e.button === 1) return; stroke = [at(e)]; over.setPointerCapture(e.pointerId); drawEraseTemp(stroke); });
     // 빨리 움직여도 지나간 길이 빈틈없이 지워지게 마지막 점과 사이를 반지름 절반 간격으로 채움
     const fill = (p) => {
       const l = stroke[stroke.length - 1], n = Math.floor(Math.hypot(p.px - l.px, p.py - l.py) / (ERASE_MM * 0.5));
