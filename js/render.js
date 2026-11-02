@@ -181,8 +181,9 @@
 
   // ---------- 용지·지도 변환 ----------
   const layout = (fig) => {
+    // 방향: 가로·세로, 정사각형(sq — 보고서 삽도용, 용지 폭 × 용지 폭: A4 210×210 mm, A3 297×297 mm)
     const [a, b] = PAPER[fig.paper] || PAPER.A4;
-    const W = fig.orient === "port" ? a : b, H = fig.orient === "port" ? b : a;
+    const W = fig.orient === "port" || fig.orient === "sq" ? a : b, H = fig.orient === "port" ? b : a;
     const e0 = fig.paper === "A3" ? 1.3 : 1;   // 용지 배율(여백)
     // 도면 요소 크기 배율: 용지 배율 × 고른 글자·기호 크기(el.size). 글자·기호·범례·축척 막대가 같이 커지고 여백은 그대로
     const e = e0 * ((fig.el && fig.el.size) || 1);
@@ -2357,7 +2358,7 @@
       });
       lines.forEach((t, i) => pen.text(t, F.x, fy + (i - (lines.length - 1) / 2) * 2.7 * e, { size: fs, align: "left", base: "middle", color: "#555555" }));
     }
-    pen.text(`축척 1:${fmtNum(v.scale)} (${fig.paper} ${fig.orient === "port" ? "세로" : "가로"})`, F.x + F.w, fy, { size: 6.2 * e, align: "right", base: "middle", color: "#555555" });
+    pen.text(`축척 1:${fmtNum(v.scale)} (${fig.orient === "sq" ? `정사각형 ${W}×${H} mm` : `${fig.paper} ${fig.orient === "port" ? "세로" : "가로"}`})`, F.x + F.w, fy, { size: 6.2 * e, align: "right", base: "middle", color: "#555555" });
     return { labels: labelsOut, dist1, litOut, pa: pa && D.pa ? D.pa.areas : null };
   };
 

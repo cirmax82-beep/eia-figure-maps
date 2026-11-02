@@ -47,6 +47,9 @@
   // 법정보호종 출현위치도는 문헌조사 위치도의 문헌 목록·직접 찍은 위치·9격자를 같이 씀
   S.figs.sp.lit = S.figs.lit.lit;
   const fig = () => S.figs[S.cur];
+  // 정사각형 용지(보고서 삽도용)를 고를 수 있는 도면
+  const SQ_KINDS = ["sat", "eco", "nat", "field", "fsp", "inv"];
+  const orientName = (f) => ({ port: "세로", sq: "정사각형" }[f.orient] || "가로");
   const site = () => IN.site;
   const resolveScale = (f) => { if (f.scaleMode === "auto") f.scale = Carto.autoScale(f, site()); return f.scale; };
 
@@ -68,6 +71,8 @@
   const syncControls = () => {
     const f = fig();
     $("#o-paper").value = f.paper;
+    $("#o-orient-sq").hidden = $("#o-orient-sq").disabled = !SQ_KINDS.includes(f.kind);
+    if (f.orient === "sq" && !SQ_KINDS.includes(f.kind)) f.orient = "land";
     $("#o-orient").value = f.orient;
     // 바탕지도 목록: 브이월드 바탕은 인증키가 있어야 고를 수 있음
     $("#o-basemap").innerHTML = Object.entries(Carto.BASES).map(([k, b]) => `<option value="${k}" ${b.key && !Carto.hasVworld ? "disabled" : ""}>${b.name}${b.key && !Carto.hasVworld ? " (인증키 필요)" : ""}</option>`).join("");
@@ -226,8 +231,8 @@
       const dt = $("#n-dist-text"), d = out.dist1;
       dt.hidden = !(f.kind === "nat" && f.nat.dist1);
       dt.textContent = !d ? "" : d.inside ? "사업지구가 1등급 권역과 겹칩니다." : d.none ? "도면에 보이는 범위 안에 1등급 권역이 없습니다." : `1등급 권역까지 ${d.m < 1 ? `${Math.round(d.m * 100)} cm` : `${fmt(Math.round(d.m))} m`}(도면에 보이는 범위 안, ${d.api ? "최신 DB·API" : "정기고시 원본 경계"})`;
-      status(page2 ? `2쪽 문헌자료 ${fmt((f.litRows || []).length)}건 · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`
-        : out.warn.length ? out.warn.join(" ") : `축척 1:${fmt(f.scale)} · ${f.paper} ${f.orient === "port" ? "세로" : "가로"}`);
+      status(page2 ? `2쪽 문헌자료 ${fmt((f.litRows || []).length)}건 · ${f.paper} ${orientName(f)}`
+        : out.warn.length ? out.warn.join(" ") : `축척 1:${fmt(f.scale)} · ${f.paper} ${orientName(f)}`);
     } catch (err) {
       console.error(err);
       if (my === gen) status(err.message || "도면을 그리지 못했습니다.");
@@ -2047,7 +2052,7 @@
   };
   const fileName = (f, ext, tail = "") => {
     const name = $("#site-name").value.trim();
-    return `${safeName([name, f.title || (f.kind === "sat" ? "위성사진현황도" : "생태축현황도")].filter(Boolean).join("_"))}_${f.paper}${f.orient === "port" ? "세로" : "가로"}_1-${f.scale}${tail}.${ext}`;
+    return `${safeName([name, f.title || (f.kind === "sat" ? "위성사진현황도" : "생태축현황도")].filter(Boolean).join("_"))}_${f.paper}${orientName(f)}_1-${f.scale}${tail}.${ext}`;
   };
   const exportFig = async (type) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
@@ -2096,11 +2101,12 @@
         } else {
           await loadScript(LIB.jspdf, "jspdf");
           const orient = Lo.W > Lo.H ? "landscape" : "portrait";
-          const doc = new jspdf.jsPDF({ orientation: orient, unit: "mm", format: f.paper.toLowerCase(), compress: true });
+          const pfmt = f.orient === "sq" ? [Lo.W, Lo.H] : f.paper.toLowerCase();
+          const doc = new jspdf.jsPDF({ orientation: orient, unit: "mm", format: pfmt, compress: true });
           doc.setProperties({ title: f.title || "도면", creator: "사업지 도면 만들기" });
           doc.addImage(cv.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, Lo.W, Lo.H, undefined, "FAST");
           if (cv2) {
-            doc.addPage(f.paper.toLowerCase(), orient);
+            doc.addPage(pfmt, orient);
             doc.addImage(cv2.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, Lo.W, Lo.H, undefined, "FAST");
           }
           blob = doc.output("blob");
