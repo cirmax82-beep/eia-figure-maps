@@ -2165,6 +2165,84 @@
     scaleOptions();
     if (s) setView("preview"); else renderPreview();
   };
+  // ---------- 작업 파일(.json): 모든 도면의 설정·찍은 것(경로·조사지점·출현 기록·문헌 위치·축 화살표·고친 이름표 등)과 경계를
+  // 사용자 컴퓨터에 파일로 저장하고, 용역 중에 고칠 때 그대로 다시 불러옴(서버에는 올리지 않음).
+  // 도면마다 newFig의 칸만 저장(그때그때 계산하는 값·인증키는 넣지 않음). Set·Map은 {$set}·{$map}으로
+  const PROJECT_FILE = "eia-figure-maps/project";
+  const BAD_KEY = new Set(["__proto__", "constructor", "prototype"]);
+  const enc = (v) => (v instanceof Set ? { $set: [...v].map(enc) } : v instanceof Map ? { $map: [...v].map(([k, x]) => [k, enc(x)]) }
+    : Array.isArray(v) ? v.map(enc) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x !== "function").map(([k, x]) => [k, enc(x)])) : v);
+  const dec = (v) => (Array.isArray(v) ? v.map(dec) : !v || typeof v !== "object" ? v : Array.isArray(v.$set) ? new Set(v.$set.map(dec))
+    : Array.isArray(v.$map) ? new Map(v.$map.filter((p) => Array.isArray(p)).map(([k, x]) => [k, dec(x)])) : Object.fromEntries(Object.entries(v).filter(([k]) => !BAD_KEY.has(k)).map(([k, x]) => [k, dec(x)])));
+  // 불러온 값을 기본값 모양에 맞춰 넣음: 모양(Set·Map·배열·객체·숫자·글자·참거짓)이 다르면 기본값, 기본값이 null이면 불러온 값. 새로 생긴 설정은 기본값
+  const fit = (t, v) => {
+    if (v === undefined) return t;
+    if (t === null || t === undefined) return dec(v);
+    if (t instanceof Set) return v && Array.isArray(v.$set) ? dec(v) : t;
+    if (t instanceof Map) return v && Array.isArray(v.$map) ? dec(v) : t;
+    if (Array.isArray(t)) return Array.isArray(v) ? dec(v) : t;
+    if (typeof t === "object") {
+      if (!v || typeof v !== "object" || Array.isArray(v)) return t;
+      const o = { ...t };
+      Object.entries(v).forEach(([k, x]) => { if (!BAD_KEY.has(k)) o[k] = fit(t[k], x); });
+      return o;
+    }
+    return typeof v === typeof t ? v : t;
+  };
+  const saveProject = () => {
+    if (!site()) { toast("저장할 작업이 없습니다. 먼저 사업지구 경계를 넣으세요."); return; }
+    const name = $("#site-name").value.trim(), st = $("#site-text"), d = new Date();
+    // 법정보호종(문헌조사)은 문헌조사 위치도의 문헌 목록을 같이 써서 한 번만
+    const figs = Object.fromEntries(Object.entries(S.figs).map(([k, f]) => [k, enc(Object.fromEntries(Object.keys(newFig(k)).filter((x) => !(k === "sp" && x === "lit")).map((x) => [x, f[x]])))]));
+    const data = { type: PROJECT_FILE, version: 1, saved: d.toISOString(), project: name, siteText: st.dataset.edited ? st.value : "", site: site().features, siteLabel: site().label || "", cur: S.cur, figs };
+    const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "도면작업"].filter(Boolean).join("_"))}_${day}.json`);
+    toast("모든 도면의 설정·찍은 것과 경계를 작업 파일로 저장했습니다. 고칠 때 「작업 불러오기」로 엽니다.", 4000);
+  };
+  const loadProject = async (file) => {
+    let d;
+    try { d = JSON.parse(await file.text()); } catch (_) { throw new Error("작업 파일(.json)을 읽지 못했습니다."); }
+    if (!d || d.type !== PROJECT_FILE || !d.figs || typeof d.figs !== "object") throw new Error("이 도구에서 저장한 작업 파일이 아닙니다(현지조사·출현 기록·문헌 목록 파일은 그 도면 칸의 불러오기로 엽니다).");
+    if (!Array.isArray(d.site) || !d.site.length) throw new Error("작업 파일에 사업지구 경계가 없습니다.");
+    if (site() && !confirm("지금 작업을 불러온 파일의 작업으로 바꿉니다. 계속할까요?")) return false;
+    stopArrow();
+    // 지금 작업을 비운 뒤 경계를 넣고(경계가 바뀔 때 하는 일은 빈 작업에), 파일의 도면 설정을 넣음
+    Object.keys(TITLES).forEach((k) => { S.figs[k] = newFig(k); });
+    S.figs.sp.lit = S.figs.lit.lit;
+    const st = $("#site-text");
+    st.dataset.edited = "";
+    if (!Input.setSite(d.site, typeof d.siteLabel === "string" && d.siteLabel ? d.siteLabel : "작업 파일의 경계")) throw new Error("작업 파일의 사업지구 경계를 읽지 못했습니다.");
+    Object.keys(TITLES).forEach((k) => {
+      const v = d.figs[k] && typeof d.figs[k] === "object" ? d.figs[k] : undefined;
+      S.figs[k] = fit(newFig(k), v);
+      S.figs[k].kind = k;
+    });
+    S.figs.sp.lit = S.figs.lit.lit;
+    Object.values(S.figs).forEach((f) => { f.lit.gridKey = ""; });
+    FR.key = "";
+    if (typeof d.project === "string") $("#site-name").value = d.project;
+    if (typeof d.siteText === "string" && d.siteText.trim()) { st.value = d.siteText; st.dataset.edited = "1"; }
+    if (TITLES[d.cur]) S.cur = d.cur;
+    renderPaLayers();
+    renderLitList();
+    renderSpList();
+    syncControls();
+    setView("preview");
+    renderPreview();
+    return true;
+  };
+  $("#proj-save").addEventListener("click", saveProject);
+  $("#proj-load").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      if (await loadProject(file)) toast(`작업 파일을 불러왔습니다(${TITLES[S.cur]}). 다른 도면도 저장할 때 그대로 열립니다.`, 4000);
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "작업 파일을 불러오지 못했습니다.", 5000);
+    }
+  });
   // 출현위치도 설정 칸은 같은 꼴이라 여기서 만듦(syncControls 전에)
   Object.keys(OCC).forEach((k) => { $(`#${k}-pane`).innerHTML = occPaneHtml(k); });
   syncControls();
