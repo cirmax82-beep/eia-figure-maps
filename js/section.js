@@ -17,8 +17,8 @@
     ["R-water", "우안 쪽 물속"], ["R-edge", "우안 물가"], ["R-berm", "우안 둔치"], ["R-slope", "우안 제방 사면"], ["R-crest", "우안 둑마루"], ["R-land", "우안 제내지(둑 밖)"],
   ];
   const AMT = [["few", "적게"], ["mid", "보통"], ["many", "많이"]];
-  const LAND = [["none", "없음(평지)"], ["farm", "농경지"], ["house", "주거지"], ["building", "건물"], ["road", "도로"], ["bike", "자전거도로"], ["forest", "산림"], ["park", "공원·산책로"]];
-  const LAND_NAME = { farm: "농경지", house: "주거지", building: "건물", road: "도로", bike: "자전거도로", forest: "산림", park: "공원" };
+  const LAND = [["none", "없음(평지)"], ["farm", "농경지"], ["house", "주거지"], ["building", "건물"], ["road", "도로"], ["bike", "자전거도로"], ["forest", "산림(평지)"], ["mountain", "산림(산지 경사)"], ["park", "공원·산책로"]];
+  const LAND_NAME = { farm: "농경지", house: "주거지", building: "건물", road: "도로", bike: "자전거도로", forest: "산림", mountain: "산림", park: "공원" };
   const REV = [["natural", "자연 사면(흙)"], ["riprap", "사석·돌붙임(경사)"], ["block", "블록·콘크리트(경사)"], ["stonewall", "돌쌓기(직립)"], ["wall", "콘크리트 옹벽(직립)"]];
   const BANKS = [["low", "낮게"], ["mid", "보통"], ["high", "높게"]];
   const SLOPES = [["gentle", "완만하게"], ["mid", "보통"], ["steep", "급하게"]];
@@ -292,7 +292,10 @@
     const run = VERT.has(P.rev) ? 0.12 : Math.max(0.4, (crest - foot) * (SLOPE[P.slope] || SLOPE.mid));
     const edgeRun = P.edge === "riprap" ? 2 : 3.2, uw = bedU ? 2.6 : 1.4, pts = [], z = {};
     let d = LANDW[P.landW] || LANDW.mid;
-    pts.push([0, crest], [d, crest]);
+    // 산림(산지 경사): 둑마루에서 바깥으로 산처럼 오르는 비탈
+    const hill = P.land === "mountain" ? 0.85 : 0;
+    if (hill) pts.push([0, crest + hill], [d * 0.25, crest + hill * 0.93], [d * 0.55, crest + hill * 0.56], [d * 0.82, crest + hill * 0.16], [d, crest]);
+    else pts.push([0, crest], [d, crest]);
     z.land = [0, d];
     z.crest = [d, d + CRESTW]; d += CRESTW; pts.push([d, crest]);
     z.slope = [d, d + run]; d += run; pts.push([d, foot]);
@@ -302,7 +305,7 @@
     if (bedU) pts.push([d + uw * 0.35, wl * 0.45], [d + uw * 0.7, wl * 0.1]);
     d += uw;
     pts.push([d, 0]);
-    return { pts, z, we, end: d, crest };
+    return { pts, z, we, end: d, crest, top: crest + hill };
   };
   const geom = (st, F, needBar) => {
     // 건천은 물을 그리지 않고 지형만 얕은 물 높이로 잡음
@@ -327,7 +330,7 @@
     }
     up.push(...Rt.pts.map(([d, y]) => [total - d, y]).reverse());
     // 단위 → 용지 mm: 둑마루가 틀 위에서 36%, 하상이 86%(세로는 과장)
-    const maxY = Math.max(L.crest, Rt.crest), hs = F.w / total, vs = (F.h * 0.5) / maxY, y0 = F.y + F.h * 0.86;
+    const maxY = Math.max(L.top, Rt.top), hs = F.w / total, vs = (F.h * 0.5) / maxY, y0 = F.y + F.h * 0.86;
     const X = (u) => F.x + u * hs, Y = (v) => y0 - v * vs;
     const pts = up.map(([u, v]) => [X(u), Y(v)]);
     const zmm = Object.fromEntries(Object.entries(zones).map(([k, [a, b]]) => [k, [X(a), X(b)]]));
@@ -543,7 +546,7 @@
     const landIcon = (sd) => {
       const P = st[sd];
       if (P.land === "none") return;
-      const [a, b] = g.zones[`${sd}-land`], full = P.landW === "narrow", x0 = sd === "L" || full ? a : a + (b - a) * 0.5, x1 = sd === "L" && !full ? a + (b - a) * 0.5 : b, y = groundY(g.pts, (x0 + x1) / 2);
+      const [a, b] = g.zones[`${sd}-land`], full = P.landW === "narrow" || P.land === "mountain", x0 = sd === "L" || full ? a : a + (b - a) * 0.5, x1 = sd === "L" && !full ? a + (b - a) * 0.5 : b, y = groundY(g.pts, (x0 + x1) / 2);
       let cx = (x0 + x1) / 2;
       const ks = Math.min(s, (x1 - x0) / 9.5);   // 좁은 제내지는 그림을 줄임
       const fillOr = (c) => (mono ? "#ffffff" : c);
@@ -579,6 +582,16 @@
           [-1, 1].forEach((k) => pen.path([lens(curve(fx, y - 0.7 * ks, k * 30, 1.8 * ks, k * 25, 4), 0.45 * ks)], shape(fillOr("#7cb342"), mono ? ink : "#4e7a2e", 0.1)));
         }
         top = y - 3 * ks;
+      } else if (P.land === "mountain") {
+        // 비탈을 따라 침엽수·활엽수를 번갈아(둑 쪽 끝은 조금 비움)
+        const th = 13 * s, pad = th * 0.3, a0 = sd === "L" ? x0 + pad : x0 + (x1 - x0) * 0.14, a1 = sd === "L" ? x1 - (x1 - x0) * 0.14 : x1 - pad;
+        const n = Math.max(2, Math.round((a1 - a0) / (4.6 * s))), R = rng(hash(`${st.id}${sd}land`));
+        top = Infinity;
+        for (let i = 0; i < n; i++) {
+          const tx = n === 1 ? (a0 + a1) / 2 : a0 + (i * (a1 - a0)) / (n - 1) + (R() - 0.5) * s, f = i % 2 ? "tree" : "conifer";
+          const r = G[f](pen, tx, groundY(g.pts, tx) + 0.3, th * (0.8 + R() * 0.35), R, colors(f, "", mono));
+          if (Math.abs(tx - cx) < (a1 - a0) / 2) top = Math.min(top, r.top);
+        }
       } else if (P.land === "forest" || P.land === "park") {
         const n = P.land === "forest" ? 3 : 1, C = colors("tree", "", mono), R = rng(hash(`${st.id}${sd}land`));
         const th = 15 * ks, a0 = x0 + th * 0.4, a1 = x1 - th * 0.4;
