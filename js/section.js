@@ -8,7 +8,7 @@
   const FORMS = [
     ["tallgrass", "키 큰 벼과(갈대·달뿌리풀·억새)"], ["emergent", "정수식물(줄·창포)"], ["cattail", "부들류"], ["sedge", "고랭이·사초·골풀"],
     ["grass", "낮은 벼과(강아지풀·바랭이)"], ["forb", "키 큰 풀(쑥·개망초·소리쟁이)"], ["flower", "꽃 피는 풀(코스모스·금계국)"], ["lowherb", "낮은 풀(고마리·여뀌)"],
-    ["vine", "덩굴(환삼덩굴·칡)"], ["shrub", "관목(갯버들·찔레)"], ["tree", "교목(버드나무·아까시나무)"], ["floating", "부엽·부유(마름·개구리밥)"],
+    ["vine", "덩굴(환삼덩굴·칡)"], ["shrub", "관목(갯버들·찔레)"], ["tree", "교목(버드나무·아까시나무)"], ["conifer", "침엽수(소나무·잣나무·낙엽송)"], ["floating", "부엽·부유(마름·개구리밥)"],
   ];
   // 위치는 왼쪽(좌안)에서 오른쪽(우안) 차례 — 번호 매기는 차례도 이것
   const ZONES = [
@@ -25,7 +25,9 @@
   const BERMS = [["none", "없음"], ["narrow", "좁게"], ["wide", "넓게"]];
   const EDGES = [["natural", "자연(흙·모래)"], ["riprap", "사석·자갈"]];
   const WIDTHS = [["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
-  const DEPTHS = [["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"]];
+  const DEPTHS = [["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["dry", "건천(물 없음)"]];
+  const MATS = [["none", "모래·흙"], ["gravel", "자갈"], ["cobble", "호박돌"], ["boulder", "거석"], ["mix", "호박돌 + 거석"], ["rock", "암반"]];
+  const LANDWS = [["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
   const BEDS = [["u", "둥글게"], ["flat", "평평하게"]];
   const BARS = [["none", "없음"], ["left", "좌안 쪽"], ["center", "가운데"], ["right", "우안 쪽"]];
   const SIZES = [["180x80", "가로 180×80 mm"], ["180x100", "가로 180×100 mm"], ["160x120", "가로 160×120 mm"], ["a4", "A4 가로(297×210 mm)"]];
@@ -49,6 +51,7 @@
   put("vine", "환삼덩굴 칡 사위질빵 가시박 며느리배꼽 며느리밑씻개 새삼 돌콩 덩굴");
   put("shrub", "갯버들 키버들 찔레꽃 찔레 국수나무 싸리 족제비싸리 산딸기 조팝나무");
   put("tree", "버드나무 왕버들 선버들 능수버들 수양버들 아까시나무 느티나무 오리나무 물오리나무 팽나무 가중나무 신나무 은행나무 벚나무");
+  put("conifer", "소나무 곰솔 해송 리기다소나무 잣나무 낙엽송 일본잎갈나무 메타세쿼이아 삼나무 편백 전나무 측백나무 향나무 가문비나무 스트로브잣나무");
   put("floating", "마름 개구리밥 좀개구리밥 노랑어리연꽃 자라풀 가래 생이가래 물달개비");
   const formOf = (name) => {
     const n = String(name || "").replace(/\s/g, "");
@@ -62,14 +65,15 @@
     애기똥풀: "#fcc419", 노랑어리연꽃: "#fcc419", 미국쑥부쟁이: "#f8f9fa", 쑥부쟁이: "#b197fc", 억새: "#e3d9c4", 물억새: "#ece6d6" };
   const DOCK = /소리쟁이/;      // 갈색 열매 이삭
   const WILLOW = /버들|버드나무/;         // 늘어진 가지
+  const PINE = /소나무|곰솔|해송/;          // 우산 모양으로 층진 수관(아니면 원뿔꼴)
 
   // ---------- 새 지점 ----------
-  const side = (o) => ({ land: "none", landText: "", bank: "mid", rev: "natural", slope: "mid", berm: "none", edge: "natural", ...o });
+  const side = (o) => ({ land: "none", landW: "mid", landText: "", bank: "mid", rev: "natural", slope: "mid", berm: "none", edge: "natural", ...o });
   const veg = (name, zone, amt = "mid") => ({ name, form: formOf(name) || "forb", zone, amt, auto: true });
   let seq = 0;
   const newStation = (n, example) => ({
     id: `s${Date.now().toString(36)}${(seq++).toString(36)}`, name: `St.${n}`, river: "", loc: "",
-    water: { w: "mid", d: "mid", bed: "u", bar: "none", wText: "", hText: "" },
+    water: { w: "mid", d: "mid", bed: "u", bar: "none", mat: "none", wText: "", hText: "" },
     L: side(example ? { land: "house", rev: "riprap", berm: "narrow" } : {}),
     R: side(example ? { land: "bike", berm: "wide", slope: "gentle" } : {}),
     veg: example ? [veg("쑥", "L-crest"), veg("환삼덩굴", "L-slope"), veg("고마리", "L-berm"), veg("달뿌리풀", "L-edge"), veg("줄", "L-water"),
@@ -125,6 +129,7 @@
     if (form === "vine") Object.assign(C, { leaf: /칡/.test(n) ? "#4f8f2f" : "#63a33a", line: "#3d7222", stem: "#4c7a2a" });
     if (form === "shrub") Object.assign(C, { crown: "#7aa84a", line: "#4e7a2e", stem: "#6b5136" });
     if (form === "tree") Object.assign(C, { crown: "#4f8f3a", line: "#2f6122", trunk: "#7a5a3a", leaf: "#5d9a3e" });
+    if (form === "conifer") Object.assign(C, { crown: "#3d7340", line: "#23502a", trunk: "#7a5a3a" });
     if (form === "floating") Object.assign(C, { leaf: "#4f9a4a", line: "#2f6b2e", accent: acc || null });
     return C;
   };
@@ -236,6 +241,26 @@
       }
       return { top: y - h * 0.92, half: h * 0.36 };
     },
+    // 침엽수: 소나무류는 굽은 줄기에 납작한 잎뭉치 층, 나머지(잣나무·낙엽송·메타세쿼이아 등)는 원뿔꼴로 층층이
+    conifer(pen, x, y, h, R, C, nm) {
+      const tw = h * 0.04;
+      if (PINE.test(nm || "")) {
+        const lean = (R() - 0.5) * h * 0.12, top = [x + lean, y - h * 0.78];
+        pen.path([[[x - tw, y], [top[0] - tw * 0.35, top[1]], [top[0] + tw * 0.35, top[1]], [x + tw, y]]], shape(C.trunk, C.line, 0.18));
+        [[0.5, -1], [0.62, 1], [0.76, -0.6], [0.9, 0.3]].forEach(([t, sd], i) => {
+          const cx = x + lean * t + sd * h * (0.13 - i * 0.02), cy = y - h * t, rx = h * (0.2 - i * 0.025), ry = h * 0.065;
+          pen.path([[[x + lean * t, cy + ry * 0.6], [cx, cy]]], { stroke: C.trunk === "#ffffff" ? C.line : C.trunk, width: 0.3 });
+          [[-0.35, 0.15, 0.6], [0.3, 0.1, 0.65], [0, -0.25, 0.75]].forEach(([dx, dy, k]) => pen.path([ellipse(cx + dx * rx, cy + dy * ry * 2, rx * k, ry * (0.9 + R() * 0.3), (R() - 0.5) * 10, 16)], shape(C.crown, C.line, 0.16)));
+        });
+        return { top: y - h * 1.0, half: h * 0.32 };
+      }
+      pen.path([[[x - tw, y], [x - tw * 0.6, y - h * 0.3], [x + tw * 0.6, y - h * 0.3], [x + tw, y]]], shape(C.trunk, C.line, 0.18));
+      for (let i = 0; i < 4; i++) {
+        const yb = y - h * (0.16 + i * 0.19), yt = yb - h * (0.36 - i * 0.02), hw = h * (0.24 - i * 0.045) * (0.93 + R() * 0.14);
+        pen.path([[[x - hw, yb], [x - hw * 0.15, yt + (yb - yt) * 0.12], [x, yt], [x + hw * 0.15, yt + (yb - yt) * 0.12], [x + hw, yb], [x + hw * 0.35, yb - h * 0.035], [x, yb - h * 0.015], [x - hw * 0.35, yb - h * 0.035]]], shape(C.crown, C.line, 0.16));
+      }
+      return { top: y - h * 1.02, half: h * 0.25 };
+    },
   };
   // 덩굴: 땅 꺾은선(pts)을 따라 잎을 깔아 감음. 잎은 공기 쪽(꺾은선 진행 방향의 왼쪽 법선)으로
   const vine = (pen, pts, s, R, C, nm) => {
@@ -267,22 +292,22 @@
     return { top: y - 1.2 * s, half: 3.2 * s };
   };
   // 생활형별 크기(mm, 배율 1)·차지하는 폭·그리는 차례(뒤 → 앞)
-  const SIZE = { tallgrass: 15, emergent: 10.5, cattail: 12.5, sedge: 9.5, grass: 4.5, forb: 9.5, flower: 8.5, lowherb: 4.2, shrub: 9, tree: 21, floating: 1, vine: 1 };
-  const WIDE = { tallgrass: 6, emergent: 6, cattail: 5, sedge: 3.4, grass: 4.4, forb: 4.6, flower: 4.4, lowherb: 4.2, shrub: 9.5, tree: 13, floating: 6, vine: 2 };
-  const ORDER = ["tree", "shrub", "tallgrass", "cattail", "emergent", "sedge", "forb", "flower", "grass", "lowherb", "vine", "floating"];
+  const SIZE = { tallgrass: 15, emergent: 10.5, cattail: 12.5, sedge: 9.5, grass: 4.5, forb: 9.5, flower: 8.5, lowherb: 4.2, shrub: 9, tree: 21, conifer: 22, floating: 1, vine: 1 };
+  const WIDE = { tallgrass: 6, emergent: 6, cattail: 5, sedge: 3.4, grass: 4.4, forb: 4.6, flower: 4.4, lowherb: 4.2, shrub: 9.5, tree: 13, conifer: 10, floating: 6, vine: 2 };
+  const ORDER = ["tree", "conifer", "shrub", "tallgrass", "cattail", "emergent", "sedge", "forb", "flower", "grass", "lowherb", "vine", "floating"];
   const COUNT = { few: 2, mid: 3, many: 5 };
 
   // ---------- 지형 ----------
   // 세로를 6배쯤 과장해 그리므로 사면 가로 길이(높이 1에 대한)도 그만큼 늘려 잡음
   const BANK = { low: 1.5, mid: 2.1, high: 2.7 }, SLOPE = { gentle: 9, mid: 5.5, steep: 3 }, BERM = { none: 0, narrow: 5, wide: 11 };
   const WIDTH = { narrow: 9, mid: 15, wide: 24 }, DEPTH = { shallow: 0.3, mid: 0.48, deep: 0.75 }, VERT = new Set(["stonewall", "wall"]);
-  const LANDW = 8, CRESTW = 2.6;
+  const LANDW = { narrow: 3.5, mid: 8, wide: 13 }, CRESTW = 2.6;
   // 한쪽 기슭(바깥 끝 0에서 물 쪽으로 [거리, 높이]): 제내지 → 둑마루 → 제방 사면(호안) → 둔치 → 물가 → 물속 기슭
   const half = (P, wl, bedU) => {
     const crest = BANK[P.bank] || BANK.mid, low = wl + 0.38, berm = BERM[P.berm] || 0, bermY = low + 0.2, foot = berm ? bermY : low;
     const run = VERT.has(P.rev) ? 0.12 : Math.max(0.4, (crest - foot) * (SLOPE[P.slope] || SLOPE.mid));
     const edgeRun = P.edge === "riprap" ? 2 : 3.2, uw = bedU ? 2.6 : 1.4, pts = [], z = {};
-    let d = LANDW;
+    let d = LANDW[P.landW] || LANDW.mid;
     pts.push([0, crest], [d, crest]);
     z.land = [0, d];
     z.crest = [d, d + CRESTW]; d += CRESTW; pts.push([d, crest]);
@@ -296,7 +321,8 @@
     return { pts, z, we, end: d, crest };
   };
   const geom = (st, F, needBar) => {
-    const W = st.water, wl = DEPTH[W.d] || DEPTH.mid, bedU = W.bed !== "flat";
+    // 건천은 물을 그리지 않고 지형만 얕은 물 높이로 잡음
+    const W = st.water, dry = W.d === "dry", wl = dry ? 0.3 : DEPTH[W.d] || DEPTH.mid, bedU = W.bed !== "flat";
     // 사주·하중도: 물이 깊을수록 넓고 완만하게
     const barOn = W.bar !== "none" || needBar, bw = 7 + wl * 8, bs = 1.5 + wl * 4, WW = (WIDTH[W.w] || WIDTH.mid) + (barOn ? bw + 3 : 0);
     const L = half(st.L, wl, bedU), Rt = half(st.R, wl, bedU);
@@ -313,6 +339,7 @@
       const bc = Math.max(L.end + bw / 2 + 0.5, Math.min(L.end + bed - bw / 2 - 0.5, L.end + bed * f));
       up.push([bc - bw / 2, 0], [bc - bw / 2 + bs, wl + 0.3], [bc + bw / 2 - bs, wl + 0.3], [bc + bw / 2, 0]);
       zones.bar = [bc - bw / 2 + bs, bc + bw / 2 - bs];
+      zones.barBase = [bc - bw / 2, bc + bw / 2];
     }
     up.push(...Rt.pts.map(([d, y]) => [total - d, y]).reverse());
     // 단위 → 용지 mm: 둑마루가 틀 위에서 36%, 하상이 86%(세로는 과장)
@@ -335,9 +362,10 @@
       }
       if (under && run) run.push(p);
     });
+    if (dry) runs.length = 0;
     const wide = runs.reduce((b, r) => (!b || r[r.length - 1][0] - r[0][0] > b[b.length - 1][0] - b[0][0] ? r : b), null);
     if (wide) { const a = wide[0][0], b = wide[wide.length - 1][0]; zmm.surface = [a + (b - a) * 0.28, b - (b - a) * 0.28]; }
-    return { pts, zones: zmm, wlY, runs, wide, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
+    return { pts, zones: zmm, wlY, runs, wide, dry, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
   };
   // x(mm)에서 땅 높이(y mm). 직립 호안처럼 같은 x가 둘이면 위쪽
   const groundY = (pts, x) => {
@@ -437,14 +465,14 @@
       list.forEach((v, k) => {
         const a1 = a + ((b - a) * k) / list.length, b1 = a + ((b - a) * (k + 1)) / list.length, R = rng(hash(`${st.id}|${v.i}|${v.name}`));
         if (v.form === "vine") { plants.push({ v, form: "vine", pts: slice(g.pts, a1, b1), R }); return; }
-        const w = WIDE[v.form] * s, n0 = v.form === "tree" || v.form === "shrub" ? { few: 1, mid: 2, many: 3 }[v.amt] || 2 : COUNT[v.amt] || 3;
+        const w = WIDE[v.form] * s, n0 = ["tree", "conifer", "shrub"].includes(v.form) ? { few: 1, mid: 2, many: 3 }[v.amt] || 2 : COUNT[v.amt] || 3;
         const n = Math.max(1, Math.min(n0, Math.floor((b1 - a1) / (w * 0.5))));
         const narrow = z.endsWith("-slope") && b1 - a1 < 3;   // 직립 호안: 위(둑 가장자리)와 발치에 번갈아
         for (let i = 0; i < n; i++) {
           let x = n === 1 ? (a1 + b1) / 2 : a1 + ((i + 0.5) * (b1 - a1)) / n + (R() - 0.5) * ((b1 - a1) / n) * 0.3;
           if (narrow) x = (i % 2 === 0) === (sd === "L") ? a1 - 1.6 * s : b1 + 1.6 * s;
-          if (v.form === "floating") { plants.push({ v, form: "floating", x, y: g.wlY, R }); continue; }
-          const y = groundY(g.pts, x), sub = Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * (0.88 + R() * 0.24);
+          if (v.form === "floating") { if (!g.dry) plants.push({ v, form: "floating", x, y: g.wlY, R }); continue; }
+          const y = groundY(g.pts, x), sub = g.dry ? 0 : Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * (0.88 + R() * 0.24);
           plants.push({ v, form: v.form, x, y, h: sub > 0 ? Math.max(h0, sub + h0 * 0.55) : h0, R, wet: sub > 0 });
         }
       });
@@ -465,6 +493,29 @@
     const groundPoly = [...g.pts, [F.x + F.w + 1, F.y + F.h + 2], [F.x - 1, F.y + F.h + 2]];
     pen.path([groundPoly], GROUND.hatch ? { closed: true, fill: GROUND.fill, hatch: { color: "#9a9a9a", angle: 45, gap: 1.3 * e, width: 0.15 * e } } : { closed: true, fill: GROUND.fill });
     // 물속에 뿌리 둔 식생은 물보다 먼저(잠긴 아랫부분이 물빛 아래로)
+    // 하상 재료(자갈·호박돌·거석·암반): 양쪽 물가 끝 사이 바닥
+    const mat = st.water.mat || "none";
+    if (mat !== "none") {
+      const xa = g.zones["L-water"][0], xb = g.zones["R-water"][1], R = rng(hash(`${st.id}bed`)), bedPts = slice(g.pts, xa, xb);
+      const stoneCol = { gravel: "#b8b2a6", cobble: "#a9a39a", boulder: "#9a958c" };
+      const rock = (x, r, kind) => {
+        const bb = g.zones.barBase;   // 하중도·사주 위는 비움
+        if (bb && x > bb[0] - r && x < bb[1] + r) return;
+        const y = groundY(g.pts, x), n = 9, rot = R() * Math.PI, sink = kind === "gravel" ? 0.1 : kind === "cobble" ? 0.35 : 0.3;
+        const ptsR = Array.from({ length: n }, (_, i) => { const t = rot + (i / n) * 2 * Math.PI, rr = r * (0.82 + R() * 0.3); return [x + Math.cos(t) * rr * 1.15, y - r * (1 - sink) + Math.sin(t) * rr * 0.8]; });
+        pen.path([ptsR], mono ? shape("#ffffff", ink, 0.16) : shape(stoneCol[kind], "#57534e", 0.16));
+        if (!mono && kind !== "gravel") pen.path([[[x - r * 0.5, y - r * (1 - sink) - r * 0.35], [x + r * 0.1, y - r * (1 - sink) - r * 0.55]]], { stroke: "#d6d1c8", width: 0.18 * r });
+      };
+      if (mat === "rock") {
+        const t = 1.4 * s, band = [...bedPts, ...bedPts.map(([x, y]) => [x, y + t]).reverse()];
+        pen.path([band], mono ? shape("#ffffff", ink, 0.2) : shape("#a8a29a", "#57534e", 0.2));
+        for (let x = xa + 2 * s; x < xb - 1 * s; x += (2.2 + R() * 2) * s) { const y = groundY(g.pts, x); pen.path([[[x, y + 0.1], [x + (R() - 0.5) * s, y + t * 0.55], [x + (R() - 0.3) * s, y + t]]], { stroke: mono ? ink : "#57534e", width: 0.14 }); }
+      } else {
+        if (mat === "gravel") for (let x = xa + 0.4 * s; x < xb; x += (0.65 + R() * 0.4) * s) rock(x, (0.3 + R() * 0.12) * s, "gravel");
+        if (mat === "boulder" || mat === "mix") for (let x = xa + 2.6 * s; x < xb - 2 * s; x += (6.5 + R() * 4) * s) rock(x, (2.3 + R() * 0.9) * s, "boulder");
+        if (mat === "cobble" || mat === "mix") for (let x = xa + 0.9 * s; x < xb; x += (1.7 + R() * 1.4) * s) rock(x, (0.75 + R() * 0.3) * s, "cobble");
+      }
+    }
     plants.filter((p) => p.wet).sort(byOrder).forEach(drawPlant);
     if (S.water !== "line") g.runs.forEach((r) => pen.path([r], { closed: true, fill: "#74c0fc", fillOpacity: 0.72 }));
     pen.path([g.pts], { stroke: GROUND.line, width: 0.5 * e, join: "round" });
@@ -508,58 +559,61 @@
     const landIcon = (sd) => {
       const P = st[sd];
       if (P.land === "none") return;
-      const [a, b] = g.zones[`${sd}-land`], x0 = sd === "L" ? a : a + (b - a) * 0.5, x1 = sd === "L" ? a + (b - a) * 0.5 : b, y = groundY(g.pts, (x0 + x1) / 2);
+      const [a, b] = g.zones[`${sd}-land`], full = P.landW === "narrow", x0 = sd === "L" || full ? a : a + (b - a) * 0.5, x1 = sd === "L" && !full ? a + (b - a) * 0.5 : b, y = groundY(g.pts, (x0 + x1) / 2);
       let cx = (x0 + x1) / 2;
+      const ks = Math.min(s, (x1 - x0) / 9.5);   // 좁은 제내지는 그림을 줄임
       const fillOr = (c) => (mono ? "#ffffff" : c);
-      let top = y - 3 * s;
+      let top = y - 3 * ks;
       if (P.land === "house") {
-        const w = 8 * s, h = 5 * s;
+        const w = 8 * ks, h = 5 * ks;
         pen.path([[[cx - w / 2, y], [cx - w / 2, y - h], [cx + w / 2, y - h], [cx + w / 2, y]]], shape(fillOr("#efe2cf"), ink, 0.22));
-        pen.path([[[cx - w * 0.62, y - h], [cx, y - h - 3.6 * s], [cx + w * 0.62, y - h]]], shape(fillOr("#b5523b"), ink, 0.22));
+        pen.path([[[cx - w * 0.62, y - h], [cx, y - h - 3.6 * ks], [cx + w * 0.62, y - h]]], shape(fillOr("#b5523b"), ink, 0.22));
         pen.path([[[cx - w * 0.3, y - h * 0.75], [cx - w * 0.05, y - h * 0.75], [cx - w * 0.05, y - h * 0.4], [cx - w * 0.3, y - h * 0.4]]], shape(fillOr("#ffe8a3"), ink, 0.15));
         pen.path([[[cx + w * 0.12, y], [cx + w * 0.12, y - h * 0.65], [cx + w * 0.32, y - h * 0.65], [cx + w * 0.32, y]]], shape(fillOr("#8d6748"), ink, 0.15));
-        top = y - h - 3.6 * s;
+        top = y - h - 3.6 * ks;
       } else if (P.land === "building") {
-        const w = 7 * s, h = 9 * s;
+        const w = 7 * ks, h = 9 * ks;
         pen.path([[[cx - w / 2, y], [cx - w / 2, y - h], [cx + w / 2, y - h], [cx + w / 2, y]]], shape(fillOr("#d6d3cc"), ink, 0.22));
-        for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) { const wx = cx - w * 0.3 + c * w * 0.38, wy = y - h + 1.2 * s + r * 2.5 * s; pen.path([[[wx, wy], [wx + w * 0.22, wy], [wx + w * 0.22, wy + 1.3 * s], [wx, wy + 1.3 * s]]], shape(fillOr("#a5c8e4"), ink, 0.12)); }
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) { const wx = cx - w * 0.3 + c * w * 0.38, wy = y - h + 1.2 * ks + r * 2.5 * ks; pen.path([[[wx, wy], [wx + w * 0.22, wy], [wx + w * 0.22, wy + 1.3 * ks], [wx, wy + 1.3 * ks]]], shape(fillOr("#a5c8e4"), ink, 0.12)); }
         top = y - h;
       } else if (P.land === "road" || P.land === "bike") {
-        const t = 0.9 * s;
+        const t = 0.9 * ks;
         pen.path([[[x0 + 0.5, y], [x1 - 0.5, y], [x1 - 0.5, y - t], [x0 + 0.5, y - t]]], shape(mono ? "#ffffff" : P.land === "road" ? "#5c5f66" : "#b0705a", ink, 0.18));
         pen.path([[[x0 + 1, y - t / 2], [x1 - 1, y - t / 2]]], { stroke: mono ? ink : "#ffffff", width: 0.18, dash: [0.9, 0.7] });
         if (P.land === "bike") {
-          const r = 1.5 * s, bx = cx, by = y - t - r - 0.3;
-          [-1, 1].forEach((k) => pen.path([circle(bx + k * 2 * s, by, r, 16)], { closed: true, stroke: ink, width: 0.25 }));
-          pen.path([[[bx - 2 * s, by], [bx - 0.4 * s, by - 1.8 * s], [bx + 1.2 * s, by - 1.8 * s], [bx + 2 * s, by], [bx + 0.1 * s, by], [bx - 0.4 * s, by - 1.8 * s]]], { stroke: ink, width: 0.25 });
-          pen.path([[[bx + 1.2 * s, by - 1.8 * s], [bx + 1.4 * s, by - 2.6 * s]], [[bx - 0.6 * s, by - 2.3 * s], [bx + 0.2 * s, by - 2.3 * s]]], { stroke: ink, width: 0.25 });
-          top = by - 2.8 * s;
-        } else top = y - 3 * s;
+          const r = 1.5 * ks, bx = cx, by = y - t - r - 0.3;
+          [-1, 1].forEach((k) => pen.path([circle(bx + k * 2 * ks, by, r, 16)], { closed: true, stroke: ink, width: 0.25 }));
+          pen.path([[[bx - 2 * ks, by], [bx - 0.4 * ks, by - 1.8 * ks], [bx + 1.2 * ks, by - 1.8 * ks], [bx + 2 * ks, by], [bx + 0.1 * ks, by], [bx - 0.4 * ks, by - 1.8 * ks]]], { stroke: ink, width: 0.25 });
+          pen.path([[[bx + 1.2 * ks, by - 1.8 * ks], [bx + 1.4 * ks, by - 2.6 * ks]], [[bx - 0.6 * ks, by - 2.3 * ks], [bx + 0.2 * ks, by - 2.3 * ks]]], { stroke: ink, width: 0.25 });
+          top = by - 2.8 * ks;
+        } else top = y - 3 * ks;
       } else if (P.land === "farm") {
-        const n = Math.max(3, Math.round((x1 - x0) / (2.2 * s)));
+        const n = Math.max(3, Math.round((x1 - x0) / (2.2 * ks)));
         for (let i = 0; i < n; i++) {
           const fx = x0 + ((i + 0.5) * (x1 - x0)) / n;
-          pen.path([[[fx - 0.9 * s, y], [fx, y - 0.7 * s], [fx + 0.9 * s, y]]], shape(fillOr("#a8865a"), mono ? ink : "#6b4f2a", 0.15));
-          [-1, 1].forEach((k) => pen.path([lens(curve(fx, y - 0.7 * s, k * 30, 1.8 * s, k * 25, 4), 0.45 * s)], shape(fillOr("#7cb342"), mono ? ink : "#4e7a2e", 0.1)));
+          pen.path([[[fx - 0.9 * ks, y], [fx, y - 0.7 * ks], [fx + 0.9 * ks, y]]], shape(fillOr("#a8865a"), mono ? ink : "#6b4f2a", 0.15));
+          [-1, 1].forEach((k) => pen.path([lens(curve(fx, y - 0.7 * ks, k * 30, 1.8 * ks, k * 25, 4), 0.45 * ks)], shape(fillOr("#7cb342"), mono ? ink : "#4e7a2e", 0.1)));
         }
-        top = y - 3 * s;
+        top = y - 3 * ks;
       } else if (P.land === "forest" || P.land === "park") {
         const n = P.land === "forest" ? 3 : 1, C = colors("tree", "", mono), R = rng(hash(`${st.id}${sd}land`));
-        const th = 15 * s, a0 = x0 + th * 0.4, a1 = x1 - th * 0.4;
+        const th = 15 * ks, a0 = x0 + th * 0.4, a1 = x1 - th * 0.4;
         for (let i = 0; i < n; i++) { const r = G.tree(pen, n === 1 ? (a0 + a1) / 2 : a0 + (i * (a1 - a0)) / (n - 1), y, th * (0.85 + R() * 0.3), R, C, ""); top = Math.min(top, r.top); }
-        if (P.land === "park") { const bx = cx + 3 * s; pen.path([[[bx - 1.6 * s, y - 1.2 * s], [bx + 1.6 * s, y - 1.2 * s]], [[bx - 1.3 * s, y - 1.2 * s], [bx - 1.3 * s, y]], [[bx + 1.3 * s, y - 1.2 * s], [bx + 1.3 * s, y]]], { stroke: ink, width: 0.3 }); }
+        if (P.land === "park") { const bx = cx + 3 * ks; pen.path([[[bx - 1.6 * ks, y - 1.2 * ks], [bx + 1.6 * ks, y - 1.2 * ks]], [[bx - 1.3 * ks, y - 1.2 * ks], [bx - 1.3 * ks, y]], [[bx + 1.3 * ks, y - 1.2 * ks], [bx + 1.3 * ks, y]]], { stroke: ink, width: 0.3 }); }
       }
       const t = (P.landText || "").trim() || LAND_NAME[P.land], fs = 7.2 * e, tw = textW(t, fs, 700), ty = top - 1.2 * e;
       cx = Math.max(F.x + tw / 2 + 1, Math.min(F.x + F.w - tw / 2 - 1, cx));
-      pen.text(t, cx, ty, { size: fs, weight: 700, align: "center", base: "bottom", color: "#111", halo: "#ffffff", haloWidth: 0.5 * e });
+      landLabels.push(() => pen.text(t, cx, ty, { size: fs, weight: 700, align: "center", base: "bottom", color: "#111", halo: "#ffffff", haloWidth: 0.5 * e }));
       occupied.push([cx - tw / 2 - 0.5, ty - fs * PT - 0.5, cx + tw / 2 + 0.5, ty + 0.5]);
     };
+    const landLabels = [];   // 제내지 이름은 식생을 그린 뒤 위에
     landIcon("L");
     landIcon("R");
 
     // 물 밖 식생(뒤 → 앞)
     plants.filter((p) => !p.wet && p.form !== "floating").sort(byOrder).forEach(drawPlant);
     plants.filter((p) => p.form === "floating").forEach(drawPlant);
+    landLabels.forEach((f) => f());
     // 수면·W.L
     const wlCol = mono ? ink : "#1971c2";
     g.runs.forEach((r) => pen.path([[r[0], r[r.length - 1]]], { stroke: wlCol, width: (S.water === "line" ? 0.75 : 0.4) * e }));
@@ -660,6 +714,6 @@
     return paint(pen, fig);
   };
 
-  window.Section = { FORMS, ZONES, AMT, LAND, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  window.Section = { FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();

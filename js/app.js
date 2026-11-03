@@ -2241,7 +2241,7 @@
     const X = Section, Q = SF(), st = X.cur(Q);
     const sel = (key, list, v, label) => `<label>${label} <select class="input" data-sk="${key}">${secOpts(list, v)}</select></label>`;
     const txt = (key, v, label, ph = "") => `<label>${label} <input class="input" data-sk="${key}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
-    const both = (k, label, list) => sel(`L.${k}`, list, st.L[k], `좌안 ${label}`) + sel(`R.${k}`, list, st.R[k], `우안 ${label}`);
+    const both = (k, label, list) => sel(`L.${k}`, list, st.L[k] || list[Math.min(1, list.length - 1)][0], `좌안 ${label}`) + sel(`R.${k}`, list, st.R[k] || list[Math.min(1, list.length - 1)][0], `우안 ${label}`);
     $("#sec-pane").innerHTML = `
       <div class="sec-stations">
         <select class="input" data-sa="pick" title="조사지점">${Q.list.map((x, i) => `<option value="${i}"${i === Q.cur ? " selected" : ""}>${esc(x.name || `지점 ${i + 1}`)}</option>`).join("")}</select>
@@ -2253,12 +2253,13 @@
       <b class="small sec-h">하도</b>
       <div class="grid2">
         ${sel("water.w", X.WIDTHS, st.water.w, "수폭")}${sel("water.d", X.DEPTHS, st.water.d, "수심")}
-        ${sel("water.bed", X.BEDS, st.water.bed, "하상")}${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}
+        ${sel("water.bed", X.BEDS, st.water.bed, "하상 모양")}${sel("water.mat", X.MATS, st.water.mat || "none", "하상 재료")}
+        ${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}<span></span>
         ${txt("water.hText", st.water.hText, "하폭 글자", "예: 약 20 m")}${txt("water.wText", st.water.wText, "수폭 글자", "예: 약 7 m")}
       </div>
       <b class="small sec-h">좌안 · 우안</b>
       <div class="grid2">
-        ${both("land", "제내지", X.LAND)}
+        ${both("land", "제내지", X.LAND)}${both("landW", "제내지 폭", X.LANDWS)}
         ${txt("L.landText", st.L.landText, "좌안 제내지 글자", "비우면 종류 이름")}${txt("R.landText", st.R.landText, "우안 제내지 글자", "비우면 종류 이름")}
         ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${both("edge", "물가", X.EDGES)}
       </div>
