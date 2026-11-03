@@ -235,9 +235,11 @@
       for (let i = 0; i < 9; i++) { const a = (i / 9) * 2 * Math.PI + R() * 0.4; rs.push([cx + Math.cos(a) * h * 0.2, cy + Math.sin(a) * h * 0.13, h * (0.12 + R() * 0.05)]); }
       rs.push([cx, cy, h * 0.16]);
       rs.sort((a, b) => b[1] - a[1]).forEach(([px, py, r]) => pen.path([circle(px, py, r)], shape(C.crown, C.line, 0.16)));
-      if (willow) for (let i = 0; i < 9; i++) {
-        const sx = cx + (i - 4) * h * 0.06, d = curve(sx, cy + h * 0.06, (i - 4) * 6, h * (0.28 + R() * 0.12), 180 - (i - 4) * 4, 6);
-        pen.path([d], { stroke: C.leaf === "#ffffff" ? C.line : C.leaf, width: 0.28 });
+      // 버드나무류: 수관 아랫가장자리에서 아래로 늘어진 가는 잎줄기(바깥쪽으로 조금 벌어짐)
+      if (willow) for (let i = 0; i < 11; i++) {
+        const t = (i / 10) * 2 - 1, sx = cx + t * h * 0.27, sy = cy + h * (0.07 - 0.05 * t * t);
+        const d = curve(sx, sy, 180 - t * 10, h * (0.24 + R() * 0.1) * (1 - 0.3 * Math.abs(t)), -t * 6, 6);
+        pen.path([lens(d, h * 0.032, 0.35)], shape(C.leaf, C.line, 0.1));
       }
       return { top: y - h * 0.92, half: h * 0.36 };
     },
