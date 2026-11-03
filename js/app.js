@@ -2424,7 +2424,9 @@
     stopArrow();
     S.cur = b.dataset.fig;
     syncControls();
+    // 경계가 없으면 지도 도면은 그릴 수 없어(단면도에서 넘어올 때 단면도 그림이 남지 않게) 경계 지도로
     if (site() || S.cur === "sec") setView("preview");
+    else if (S.view === "preview") setView("map");
   }));
   $$("#view-tabs button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $$(".side select, .side input[type=checkbox]").forEach((el) => {
