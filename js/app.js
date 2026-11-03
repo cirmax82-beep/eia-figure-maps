@@ -3,7 +3,7 @@
   const { $, $$, esc, fmt, debounce, toast, LIB, loadScript, saveBlob, safeName } = U;
   const { IN } = Input;
 
-  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도", field: "현지조사 위치도", fsp: "현지조사시 법정보호종 출현위치도", inv: "현지조사시 생태계교란생물 출현위치도" };
+  const TITLES = { sat: "위성사진 현황도", eco: "생태축 현황도", nat: "생태·자연도", veg: "한국 식생기후대 분포도", flo: "한국 식물상 지역", lit: "문헌조사 위치도", sp: "문헌조사시 법정보호종 출현위치도", pa: "보호구역 위치도", field: "현지조사 위치도", fsp: "현지조사시 법정보호종 출현위치도", inv: "현지조사시 생태계교란생물 출현위치도", sec: "하천식생단면도" };
   // 보호구역 종합포털의 종류(tools/layers.py 순서). on: 동식물상 관련이라 처음부터 켬.
   // eco-g1(생태·자연도 1등급 권역)은 포털 종류가 아니라 이 사이트의 생태·자연도 자료로 그림(render.js paG1),
   // census(조류센서스지역)는 문헌조사 위치도와 같은 겨울철 조류 동시센서스 조사지역(render.js paLoad)
@@ -24,7 +24,7 @@
   const newFig = (kind) => ({
     kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || ["lit", "sp", "pa"].includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
     basemap: baseOf(kind), base: 0, gray: false, baseLabels: kind === "eco",
-    title: TITLES[kind],
+    title: kind === "sec" ? "하천식생단면도(하류방향)" : TITLES[kind],
     el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp", "inv"].includes(kind), grid: "none", size: 1, lsize: 1, sbsize: 1, nsize: 1 },
     // 주변 범위: 위성사진 현황도·생태·자연도는 사용자가 고름 — 면사업(area, 지역생태계 약 20 ㎢) · 선형사업(line, 중심선 양측 1 km) · 직접(custom, rings km)
     rings: [1, 2], ringMode: "area", ringFade: true,
@@ -42,6 +42,8 @@
     // 출현 기록([{id, name, kind: point·line·area, pts, note}]), 종별 기호
     occ: { ring: 0, out: "all", label: "name", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
     arrows: [], labelHide: new Set(), labelText: new Map(),
+    // 하천식생단면도: 지점(조사지점)마다 지형·호안·식생과 공통 모양(크기·표기·색) — section.js
+    ...(kind === "sec" ? { sec: Section.newSec() } : {}),
   });
   const S = { cur: "sat", figs: Object.fromEntries(Object.keys(TITLES).map((k) => [k, newFig(k)])), view: "map", last: null, busy: false, page: 1 };
   // 법정보호종 출현위치도는 문헌조사 위치도의 문헌 목록·직접 찍은 위치·9격자를 같이 씀
@@ -98,6 +100,8 @@
     syncPageTabs();
     scaleOptions();
     $$("[data-figpane]").forEach((p) => { p.hidden = !p.dataset.figpane.split(" ").includes(f.kind); });
+    $$("[data-nofig]").forEach((p) => { p.hidden = p.dataset.nofig.split(" ").includes(f.kind); });
+    if (f.kind === "sec") renderSecPane();
     $$("#fig-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.fig === S.cur));
     renderArrowList();
     renderFieldPane();
@@ -162,6 +166,7 @@
   const renderPreview = async () => {
     if (S.view !== "preview") return;
     const cv = $("#pv");
+    if (fig().kind === "sec") { renderSection(); return; }
     if (!site()) {
       cv.width = cv.height = 1;
       $("#paper").classList.add("empty");
@@ -240,6 +245,39 @@
     }
   };
   const rerender = debounce(renderPreview, 250);
+  // 하천식생단면도 미리보기(지도가 아니라 끌기·휠·찍기 없음)
+  const renderSection = async () => {
+    const f = fig(), my = ++gen, cv = $("#pv"), Lo = Section.layout(f), box = $("#preview");
+    $("#paper").classList.remove("empty");
+    $("#page-tabs").hidden = true;
+    const narrow = window.innerWidth <= 860;
+    const availW = Math.max(200, box.clientWidth - (narrow ? 24 : 32)), availH = narrow ? availW * 2 : Math.max(200, box.clientHeight - 64);
+    const sc = Math.min(availW / Lo.W, availH / Lo.H), cssW = Math.floor(Lo.W * sc), cssH = Math.floor(Lo.H * sc);
+    const k = (cssW * Math.min(2.5, window.devicePixelRatio || 1)) / Lo.W, off = document.createElement("canvas");
+    off.width = Math.round(Lo.W * k);
+    off.height = Math.round(Lo.H * k);
+    try {
+      await Section.render(new Carto.CanvasPen(off.getContext("2d"), k), f);
+      if (my !== gen) return;
+      const paper = $("#paper");
+      paper.style.width = `${cssW}px`;
+      paper.style.height = `${cssH}px`;
+      cv.width = off.width;
+      cv.height = off.height;
+      cv.style.transform = "";
+      cv.getContext("2d").drawImage(off, 0, 0);
+      const over = $("#pv-over");
+      over.width = off.width;
+      over.height = off.height;
+      over.style.transform = "";
+      S.last = { view: null, layout: Lo, cssW, cssH, k, fig: f };
+      const st = Section.cur(f.sec);
+      status(`${st.name || "지점"} · ${Lo.W}×${Lo.H} mm · 지점 ${f.sec.list.length}곳`);
+    } catch (err) {
+      console.error(err);
+      if (my === gen) status(err.message || "단면도를 그리지 못했습니다.");
+    }
+  };
 
   // 미리보기 화면 좌표 → 용지 mm
   const toPage = (e) => {
@@ -2061,7 +2099,38 @@
     const name = $("#site-name").value.trim();
     return `${safeName([name, f.title || (f.kind === "sat" ? "위성사진현황도" : "생태축현황도")].filter(Boolean).join("_"))}_${f.paper}${orientName(f)}_1-${f.scale}${tail}.${ext}`;
   };
+  // 하천식생단면도 받기: 고른 지점 하나(크기는 고른 삽도 크기 그대로)
+  const exportSection = async (type, f) => {
+    const st = Section.cur(f.sec), Lo = Section.layout(f), dpi = +$("#o-dpi").value, k = dpi / 25.4;
+    const name = safeName([$("#site-name").value.trim(), f.title || TITLES.sec, st.name].filter(Boolean).join("_"));
+    let blob;
+    if (type === "svg") {
+      const pen = new Carto.SvgPen(Lo.W, Lo.H);
+      await Section.render(pen, f);
+      blob = new Blob([pen.toString()], { type: "image/svg+xml" });
+    } else {
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(Lo.W * k);
+      cv.height = Math.round(Lo.H * k);
+      await Section.render(new Carto.CanvasPen(cv.getContext("2d"), k), f);
+      if (type === "png") blob = await withDpi(await new Promise((r) => cv.toBlob(r, "image/png")), dpi);
+      else {
+        await loadScript(LIB.jspdf, "jspdf");
+        const doc = new jspdf.jsPDF({ orientation: Lo.W > Lo.H ? "landscape" : "portrait", unit: "mm", format: [Lo.W, Lo.H], compress: true });
+        doc.setProperties({ title: f.title || TITLES.sec, creator: "사업지 도면 만들기" });
+        doc.addImage(cv.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, Lo.W, Lo.H, undefined, "FAST");
+        blob = doc.output("blob");
+      }
+    }
+    saveBlob(blob, `${name}.${type}`);
+  };
   const exportFig = async (type) => {
+    if (fig().kind === "sec") {
+      if (S.busy) return;
+      S.busy = true;
+      try { await exportSection(type, fig()); } catch (err) { console.error(err); toast(err.message || "파일을 만들지 못했습니다."); } finally { S.busy = false; }
+      return;
+    }
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
     if (S.busy) return;
     S.busy = true;
@@ -2165,6 +2234,109 @@
     scaleOptions();
     if (s) setView("preview"); else renderPreview();
   };
+  // ---------- 하천식생단면도 설정 칸 ----------
+  const SF = () => S.figs.sec.sec;
+  const secOpts = (list, v) => list.map(([k, t]) => `<option value="${k}"${k === v ? " selected" : ""}>${esc(t)}</option>`).join("");
+  const renderSecPane = () => {
+    const X = Section, Q = SF(), st = X.cur(Q);
+    const sel = (key, list, v, label) => `<label>${label} <select class="input" data-sk="${key}">${secOpts(list, v)}</select></label>`;
+    const txt = (key, v, label, ph = "") => `<label>${label} <input class="input" data-sk="${key}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
+    const both = (k, label, list) => sel(`L.${k}`, list, st.L[k], `좌안 ${label}`) + sel(`R.${k}`, list, st.R[k], `우안 ${label}`);
+    $("#sec-pane").innerHTML = `
+      <div class="sec-stations">
+        <select class="input" data-sa="pick" title="조사지점">${Q.list.map((x, i) => `<option value="${i}"${i === Q.cur ? " selected" : ""}>${esc(x.name || `지점 ${i + 1}`)}</option>`).join("")}</select>
+        <button class="btn ghost" data-sa="add">추가</button><button class="btn ghost" data-sa="dup" title="고른 지점을 그대로 하나 더">복제</button><button class="btn ghost" data-sa="del">빼기</button>
+      </div>
+      <p class="hint">측량 단면이 아니라 지형 특징을 나타내는 개념도입니다. 조사지점마다 만들고 고른 지점을 PNG·PDF·SVG로 받습니다. 좌안·우안은 하류 방향을 보고 왼쪽·오른쪽입니다.</p>
+      <div class="grid2">${txt("name", st.name, "조사지점", "St.1")}${txt("river", st.river, "하천명", "○○천")}</div>
+      <label class="row">위치 <input class="input" data-sk="loc" value="${esc(st.loc)}" placeholder="N 35°43′31.8″ E 126°39′57.5″"></label>
+      <b class="small sec-h">하도</b>
+      <div class="grid2">
+        ${sel("water.w", X.WIDTHS, st.water.w, "수폭")}${sel("water.d", X.DEPTHS, st.water.d, "수심")}
+        ${sel("water.bed", X.BEDS, st.water.bed, "하상")}${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}
+        ${txt("water.hText", st.water.hText, "하폭 글자", "예: 약 20 m")}${txt("water.wText", st.water.wText, "수폭 글자", "예: 약 7 m")}
+      </div>
+      <b class="small sec-h">좌안 · 우안</b>
+      <div class="grid2">
+        ${both("land", "제내지", X.LAND)}
+        ${txt("L.landText", st.L.landText, "좌안 제내지 글자", "비우면 종류 이름")}${txt("R.landText", st.R.landText, "우안 제내지 글자", "비우면 종류 이름")}
+        ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${both("edge", "물가", X.EDGES)}
+      </div>
+      <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림</span></b>
+      <div class="sec-veg">${st.veg.map((v, i) => `
+        <div class="sec-vrow" data-vi="${i}">
+          <input class="input" data-vk="name" value="${esc(v.name)}" placeholder="식물 이름" list="sec-species">
+          <select class="input" data-vk="zone" title="자리">${secOpts(X.ZONES, v.zone)}</select>
+          <select class="input" data-vk="form" title="생활형(그림 모양)">${secOpts(X.FORMS, v.form)}</select>
+          <select class="input" data-vk="amt" title="양">${secOpts(X.AMT, v.amt)}</select>
+          <button class="btn ghost" data-sa="vdel" title="빼기">×</button>
+        </div>`).join("")}</div>
+      <button class="btn ghost" data-sa="vadd">식생 더하기</button>
+      <label class="row">아래 설명(줄마다 ◦를 붙임) <textarea class="input sec-note" data-sk="note" rows="3" placeholder="하천폭은 20 m 내외, 수폭은 7~12 m 내외이며 …">${esc(st.note)}</textarea></label>
+      <b class="small sec-h">모양(모든 지점 같이)</b>
+      <div class="grid2">
+        ${sel("o.size", X.SIZES, Q.size, "크기")}${sel("o.label", X.LABELS, Q.label, "식물 표기")}
+        ${sel("o.style", X.STYLES, Q.style, "그림")}${sel("o.ground", X.GROUNDS, Q.ground, "땅")}
+        ${sel("o.water", X.WATERS, Q.water, "물")}
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" data-sk="o.sides" ${Q.sides ? "checked" : ""}> 좌안·우안 글자</label>
+        <label><input type="checkbox" data-sk="o.info" ${Q.info ? "checked" : ""}> 조사지점·하천명 줄</label>
+        <label><input type="checkbox" data-sk="o.frame" ${Q.frame ? "checked" : ""}> 테두리</label>
+      </div>
+      <datalist id="sec-species">${Object.keys(X.SPECIES).map((n) => `<option value="${esc(n)}">`).join("")}</datalist>`;
+  };
+  const initSec = () => {
+    const pane = $("#sec-pane");
+    const setKey = (key, val) => {
+      const Q = SF(), st = Section.cur(Q), [a, b] = key.split(".");
+      if (a === "o") Q[b] = val; else if (b) st[a][b] = val; else st[a] = val;
+    };
+    pane.addEventListener("input", (e) => {
+      const t = e.target;
+      if (t.dataset.sk && t.type !== "checkbox" && t.tagName !== "SELECT") {
+        setKey(t.dataset.sk, t.value);
+        if (t.dataset.sk === "name") { const o = pane.querySelector('[data-sa="pick"]').options[SF().cur]; if (o) o.textContent = t.value || "지점"; }
+        rerender();
+      }
+      if (t.dataset.vk === "name") {
+        const row = t.closest("[data-vi]"), v = Section.cur(SF()).veg[+row.dataset.vi];
+        v.name = t.value;
+        const fm = v.auto ? Section.formOf(t.value) : null;
+        if (fm) { v.form = fm; row.querySelector('[data-vk="form"]').value = fm; }
+        rerender();
+      }
+    });
+    pane.addEventListener("change", (e) => {
+      const t = e.target;
+      if (t.dataset.sa === "pick") { SF().cur = +t.value; renderSecPane(); renderPreview(); return; }
+      if (t.dataset.sk && t.type === "checkbox") { setKey(t.dataset.sk, t.checked); renderPreview(); return; }
+      if (t.dataset.sk && t.tagName === "SELECT") { setKey(t.dataset.sk, t.value); renderPreview(); return; }
+      if (t.dataset.vk && t.tagName === "SELECT") {
+        const v = Section.cur(SF()).veg[+t.closest("[data-vi]").dataset.vi];
+        v[t.dataset.vk] = t.value;
+        if (t.dataset.vk === "form") v.auto = false;
+        renderPreview();
+      }
+    });
+    pane.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-sa]");
+      if (!b) return;
+      const Q = SF(), a = b.dataset.sa;
+      if (a === "add") { Q.list.push(Section.newStation(Q.list.length + 1)); Q.cur = Q.list.length - 1; }
+      if (a === "dup") { const c = JSON.parse(JSON.stringify(Section.cur(Q))); c.id = Section.newStation(0).id; c.name = `St.${Q.list.length + 1}`; Q.list.splice(Q.cur + 1, 0, c); Q.cur += 1; }
+      if (a === "del") {
+        if (Q.list.length === 1) { toast("지점이 하나뿐이라 뺄 수 없습니다."); return; }
+        if (!confirm(`「${Section.cur(Q).name}」 지점을 뺄까요?`)) return;
+        Q.list.splice(Q.cur, 1);
+        Q.cur = Math.min(Q.cur, Q.list.length - 1);
+      }
+      if (a === "vadd") Section.cur(Q).veg.push({ name: "", form: "forb", zone: "L-edge", amt: "mid", auto: true });
+      if (a === "vdel") Section.cur(Q).veg.splice(+b.closest("[data-vi]").dataset.vi, 1);
+      renderSecPane();
+      renderPreview();
+    });
+  };
   // ---------- 작업 파일(.json): 모든 도면의 설정·찍은 것(경로·조사지점·출현 기록·문헌 위치·축 화살표·고친 이름표 등)과 경계를
   // 사용자 컴퓨터에 파일로 저장하고, 용역 중에 고칠 때 그대로 다시 불러옴(서버에는 올리지 않음).
   // 도면마다 newFig의 칸만 저장(그때그때 계산하는 값·인증키는 넣지 않음). Set·Map은 {$set}·{$map}으로
@@ -2190,11 +2362,11 @@
     return typeof v === typeof t ? v : t;
   };
   const saveProject = () => {
-    if (!site()) { toast("저장할 작업이 없습니다. 먼저 사업지구 경계를 넣으세요."); return; }
+    if (!site() && !S.figs.sec.sec.list.some((x) => x.veg.length || x.river || x.note)) { toast("저장할 작업이 없습니다. 먼저 사업지구 경계를 넣으세요."); return; }
     const name = $("#site-name").value.trim(), st = $("#site-text"), d = new Date();
     // 법정보호종(문헌조사)은 문헌조사 위치도의 문헌 목록을 같이 써서 한 번만
     const figs = Object.fromEntries(Object.entries(S.figs).map(([k, f]) => [k, enc(Object.fromEntries(Object.keys(newFig(k)).filter((x) => !(k === "sp" && x === "lit")).map((x) => [x, f[x]])))]));
-    const data = { type: PROJECT_FILE, version: 1, saved: d.toISOString(), project: name, siteText: st.dataset.edited ? st.value : "", site: site().features, siteLabel: site().label || "", cur: S.cur, figs };
+    const data = { type: PROJECT_FILE, version: 1, saved: d.toISOString(), project: name, siteText: st.dataset.edited ? st.value : "", site: site() ? site().features : null, siteLabel: site() ? site().label || "" : "", cur: S.cur, figs };
     const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
     saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, "도면작업"].filter(Boolean).join("_"))}_${day}.json`);
     toast("모든 도면의 설정·찍은 것과 경계를 작업 파일로 저장했습니다. 고칠 때 「작업 불러오기」로 엽니다.", 4000);
@@ -2203,7 +2375,7 @@
     let d;
     try { d = JSON.parse(await file.text()); } catch (_) { throw new Error("작업 파일(.json)을 읽지 못했습니다."); }
     if (!d || d.type !== PROJECT_FILE || !d.figs || typeof d.figs !== "object") throw new Error("이 도구에서 저장한 작업 파일이 아닙니다(현지조사·출현 기록·문헌 목록 파일은 그 도면 칸의 불러오기로 엽니다).");
-    if (!Array.isArray(d.site) || !d.site.length) throw new Error("작업 파일에 사업지구 경계가 없습니다.");
+    const hasSite = Array.isArray(d.site) && d.site.length;
     if (site() && !confirm("지금 작업을 불러온 파일의 작업으로 바꿉니다. 계속할까요?")) return false;
     stopArrow();
     // 지금 작업을 비운 뒤 경계를 넣고(경계가 바뀔 때 하는 일은 빈 작업에), 파일의 도면 설정을 넣음
@@ -2211,7 +2383,8 @@
     S.figs.sp.lit = S.figs.lit.lit;
     const st = $("#site-text");
     st.dataset.edited = "";
-    if (!Input.setSite(d.site, typeof d.siteLabel === "string" && d.siteLabel ? d.siteLabel : "작업 파일의 경계")) throw new Error("작업 파일의 사업지구 경계를 읽지 못했습니다.");
+    if (hasSite && !Input.setSite(d.site, typeof d.siteLabel === "string" && d.siteLabel ? d.siteLabel : "작업 파일의 경계")) throw new Error("작업 파일의 사업지구 경계를 읽지 못했습니다.");
+    if (!hasSite && site()) Input.clearSite();
     Object.keys(TITLES).forEach((k) => {
       const v = d.figs[k] && typeof d.figs[k] === "object" ? d.figs[k] : undefined;
       S.figs[k] = fit(newFig(k), v);
@@ -2223,12 +2396,12 @@
     if (typeof d.project === "string") $("#site-name").value = d.project;
     if (typeof d.siteText === "string" && d.siteText.trim()) { st.value = d.siteText; st.dataset.edited = "1"; }
     if (TITLES[d.cur]) S.cur = d.cur;
+    if (!S.figs.sec.sec.list.length) S.figs.sec.sec = Section.newSec();
     renderPaLayers();
     renderLitList();
     renderSpList();
     syncControls();
-    setView("preview");
-    renderPreview();
+    if (site() || S.cur === "sec") setView("preview");
     return true;
   };
   $("#proj-save").addEventListener("click", saveProject);
@@ -2250,11 +2423,11 @@
     stopArrow();
     S.cur = b.dataset.fig;
     syncControls();
-    if (site()) setView("preview");
+    if (site() || S.cur === "sec") setView("preview");
   }));
   $$("#view-tabs button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $$(".side select, .side input[type=checkbox]").forEach((el) => {
-    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.id === "s-where" || el.closest("#label-list") || el.closest("#lit-list") || el.closest("#field-pane") || el.closest(".occ-pane") || el.type === "file") return;
+    if (el.closest("[data-pane]") || el.id === "o-dpi" || el.id === "s-where" || el.closest("#label-list") || el.closest("#lit-list") || el.closest("#field-pane") || el.closest("#sec-pane") || el.closest(".occ-pane") || el.type === "file") return;
     el.addEventListener("change", () => { readControls(); if (el.id !== "o-scale") scaleOptions(); if (/^o-(basemap|gray|labels)$/.test(el.id)) syncMapBase(); renderPreview(); });
   });
   $("#site-text").addEventListener("input", (e) => { e.target.dataset.edited = e.target.value.trim() ? "1" : ""; rerender(); });
@@ -2274,6 +2447,7 @@
   renderSpList();
   initField();
   Object.keys(OCC).forEach(initOcc);
+  initSec();
   $$("#page-tabs button").forEach((b) => b.addEventListener("click", () => {
     S.page = +b.dataset.page;
     syncPageTabs();

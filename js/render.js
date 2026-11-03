@@ -2537,5 +2537,5 @@
     return { total, ...splitGrades(total, S1, S2, SS), source: nd.source, sepGeom: SS };
   };
 
-  window.Carto = { render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin, paLoad, paMeasure, symPts, symOf, SYM_RECOLOR };
+  window.Carto = { textW, PT, NullPen, ensureFonts, render, natAreas, natAreasApi, layout, makeView, autoScale, centerOf, SCALES, scalesFor, NATIONAL, BASES, hasVworld: !!VW_KEY, CanvasPen, SvgPen, mx, my, ilon, ilat, COLOR, arrowShape, litData, nineGrid, renderLitPage, litPlace, litBasin, paLoad, paMeasure, symPts, symOf, SYM_RECOLOR };
 })();
