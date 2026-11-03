@@ -8,7 +8,7 @@
   const FORMS = [
     ["tallgrass", "키 큰 벼과(갈대·달뿌리풀·억새)"], ["emergent", "정수식물(줄·창포)"], ["cattail", "부들류"], ["sedge", "고랭이·사초·골풀"],
     ["grass", "낮은 벼과(강아지풀·바랭이)"], ["forb", "키 큰 풀(쑥·개망초·소리쟁이)"], ["flower", "꽃 피는 풀(코스모스·금계국)"], ["lowherb", "낮은 풀(고마리·여뀌)"],
-    ["vine", "덩굴(환삼덩굴·칡)"], ["shrub", "관목(갯버들·찔레)"], ["tree", "교목(버드나무·아까시나무)"], ["conifer", "침엽수(소나무·잣나무·낙엽송)"], ["floating", "부엽·부유(마름·개구리밥)"],
+    ["vine", "덩굴(환삼덩굴·칡)"], ["shrub", "관목(갯버들·찔레)"], ["tree", "활엽수 교목(버드나무·아까시나무)"], ["conifer", "침엽수 교목(소나무·잣나무·낙엽송)"], ["floating", "부엽·부유(마름·개구리밥)"],
   ];
   // 위치는 왼쪽(좌안)에서 오른쪽(우안) 차례 — 번호 매기는 차례도 이것
   const ZONES = [
@@ -64,8 +64,6 @@
     붓꽃: "#7048e8", 고마리: "#f06595", 여뀌: "#e599a7", 흰여뀌: "#f1f3f5", 명아자여뀌: "#e599a7", 이삭여뀌: "#c2255c", 개여뀌: "#d6336c", 토끼풀: "#f8f9fa", 닭의장풀: "#4dabf7",
     애기똥풀: "#fcc419", 노랑어리연꽃: "#fcc419", 미국쑥부쟁이: "#f8f9fa", 쑥부쟁이: "#b197fc", 억새: "#e3d9c4", 물억새: "#ece6d6" };
   const DOCK = /소리쟁이/;      // 갈색 열매 이삭
-  const WILLOW = /버들|버드나무/;         // 늘어진 가지
-  const PINE = /소나무|곰솔|해송/;          // 우산 모양으로 층진 수관(아니면 원뿔꼴)
 
   // ---------- 새 지점 ----------
   const side = (o) => ({ land: "none", landW: "mid", landText: "", bank: "mid", rev: "natural", slope: "mid", berm: "none", edge: "natural", ...o });
@@ -227,35 +225,19 @@
       rs.sort((a, b) => b[1] - a[1]).forEach(([px, py, r]) => pen.path([circle(px, py, r)], shape(C.crown, C.line, 0.16)));
       return { top: y - h * 1.0, half: h * 0.6 };
     },
-    tree(pen, x, y, h, R, C, nm) {
-      const tw = h * 0.045, willow = WILLOW.test(nm || "");
+    tree(pen, x, y, h, R, C) {
+      const tw = h * 0.045;
       pen.path([[[x - tw, y], [x - tw * 0.45, y - h * 0.55], [x + tw * 0.45, y - h * 0.55], [x + tw, y]]], shape(C.trunk, C.line, 0.18));
       [-1, 1].forEach((sd) => pen.path([curve(x, y - h * 0.4, sd * 40, h * 0.18, sd * 10, 4)], { stroke: C.trunk === "#ffffff" ? C.line : C.trunk, width: 0.35 }));
       const cx = x, cy = y - h * 0.7, rs = [];
       for (let i = 0; i < 9; i++) { const a = (i / 9) * 2 * Math.PI + R() * 0.4; rs.push([cx + Math.cos(a) * h * 0.2, cy + Math.sin(a) * h * 0.13, h * (0.12 + R() * 0.05)]); }
       rs.push([cx, cy, h * 0.16]);
       rs.sort((a, b) => b[1] - a[1]).forEach(([px, py, r]) => pen.path([circle(px, py, r)], shape(C.crown, C.line, 0.16)));
-      // 버드나무류: 수관 아랫가장자리에서 아래로 늘어진 가는 잎줄기(바깥쪽으로 조금 벌어짐)
-      if (willow) for (let i = 0; i < 11; i++) {
-        const t = (i / 10) * 2 - 1, sx = cx + t * h * 0.27, sy = cy + h * (0.07 - 0.05 * t * t);
-        const d = curve(sx, sy, 180 - t * 10, h * (0.24 + R() * 0.1) * (1 - 0.3 * Math.abs(t)), -t * 6, 6);
-        pen.path([lens(d, h * 0.032, 0.35)], shape(C.leaf, C.line, 0.1));
-      }
       return { top: y - h * 0.92, half: h * 0.36 };
     },
-    // 침엽수: 소나무류는 굽은 줄기에 납작한 잎뭉치 층, 나머지(잣나무·낙엽송·메타세쿼이아 등)는 원뿔꼴로 층층이
-    conifer(pen, x, y, h, R, C, nm) {
+    // 교목은 활엽수(위 tree — 둥근 수관)와 침엽수(원뿔꼴로 층층이) 두 모양
+    conifer(pen, x, y, h, R, C) {
       const tw = h * 0.04;
-      if (PINE.test(nm || "")) {
-        const lean = (R() - 0.5) * h * 0.12, top = [x + lean, y - h * 0.78];
-        pen.path([[[x - tw, y], [top[0] - tw * 0.35, top[1]], [top[0] + tw * 0.35, top[1]], [x + tw, y]]], shape(C.trunk, C.line, 0.18));
-        [[0.5, -1], [0.62, 1], [0.76, -0.6], [0.9, 0.3]].forEach(([t, sd], i) => {
-          const cx = x + lean * t + sd * h * (0.13 - i * 0.02), cy = y - h * t, rx = h * (0.2 - i * 0.025), ry = h * 0.065;
-          pen.path([[[x + lean * t, cy + ry * 0.6], [cx, cy]]], { stroke: C.trunk === "#ffffff" ? C.line : C.trunk, width: 0.3 });
-          [[-0.35, 0.15, 0.6], [0.3, 0.1, 0.65], [0, -0.25, 0.75]].forEach(([dx, dy, k]) => pen.path([ellipse(cx + dx * rx, cy + dy * ry * 2, rx * k, ry * (0.9 + R() * 0.3), (R() - 0.5) * 10, 16)], shape(C.crown, C.line, 0.16)));
-        });
-        return { top: y - h * 1.0, half: h * 0.32 };
-      }
       pen.path([[[x - tw, y], [x - tw * 0.6, y - h * 0.3], [x + tw * 0.6, y - h * 0.3], [x + tw, y]]], shape(C.trunk, C.line, 0.18));
       for (let i = 0; i < 4; i++) {
         const yb = y - h * (0.16 + i * 0.19), yt = yb - h * (0.36 - i * 0.02), hw = h * (0.24 - i * 0.045) * (0.93 + R() * 0.14);
