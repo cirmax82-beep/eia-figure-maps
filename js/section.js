@@ -26,13 +26,15 @@
   // 물가: 소하천은 물가가 거의 없거나 좁고 낮아 수폭이 하폭과 거의 같음
   const EDGES = [["natural", "자연(흙·모래)"], ["low", "좁고 낮게"], ["none", "없음(물이 호안까지)"], ["riprap", "사석·자갈"]];
   const WIDTHS = [["xnarrow", "아주 좁게"], ["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
+  // 하폭(양쪽 둑마루 안쪽 끝 사이) : 제방 높이(하상~둑마루). 자동은 고른 수폭·사면·둔치대로 틀 폭을 채움
+  const RATIOS = [["auto", "자동(고른 값대로)"], ["0.5", "1 : 2"], ["0.75", "1 : 1.5"], ["1", "1 : 1"], ["1.5", "1.5 : 1"], ["2", "2 : 1"], ["3", "3 : 1"], ["5", "5 : 1"], ["8", "8 : 1"], ["12", "12 : 1"], ["20", "20 : 1"]];
   const DEPTHS = [["xshallow", "아주 얕게"], ["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["dry", "건천(물 없음)"]];
-  // 하천 유형 빠른 설정: 하도·물가·사면·둔치·제내지 폭만 바꿈(호안 종류·제내지 이용·식생은 그대로)
+  // 하천 유형 빠른 설정: 하폭:제방 높이·하도·물가·사면·둔치만 바꿈(호안 종류·제내지 이용·폭·식생은 그대로)
   const PRESETS = [["small", "소하천(좁은 하도·높은 둑)"], ["local", "지방하천"], ["large", "넓은 하천(둔치 있음)"]];
   const PRESET = {
-    small: { water: { w: "xnarrow", d: "xshallow", bed: "flat", bar: "none" }, side: { slope: "steep", berm: "none", edge: "none", landW: "wide", bank: "mid" } },
-    local: { water: { w: "narrow", d: "shallow", bed: "u" }, side: { slope: "mid", berm: "narrow", edge: "low", landW: "mid", bank: "mid" } },
-    large: { water: { w: "wide", d: "mid", bed: "u" }, side: { slope: "gentle", berm: "wide", edge: "natural", landW: "mid", bank: "mid" } },
+    small: { water: { w: "xnarrow", d: "xshallow", bed: "flat", bar: "none", ratio: "1" }, side: { slope: "steep", berm: "none", edge: "none", bank: "mid" } },
+    local: { water: { w: "narrow", d: "shallow", bed: "u", ratio: "3" }, side: { slope: "mid", berm: "narrow", edge: "low", bank: "mid" } },
+    large: { water: { w: "wide", d: "mid", bed: "u", ratio: "auto" }, side: { slope: "gentle", berm: "wide", edge: "natural", bank: "mid" } },
   };
   const applyPreset = (st, k) => {
     const p = PRESET[k];
@@ -80,12 +82,12 @@
   const DOCK = /소리쟁이/;      // 갈색 열매 이삭
 
   // ---------- 새 지점 ----------
-  const side = (o) => ({ land: "none", landW: "mid", landText: "", bank: "mid", rev: "natural", slope: "mid", berm: "none", edge: "natural", ...o });
+  const side = (o) => ({ land: "none", landW: "narrow", landText: "", bank: "mid", rev: "natural", slope: "mid", berm: "none", edge: "natural", ...o });
   const veg = (name, zone, amt = "mid") => ({ name, form: formOf(name) || "forb", zone, amt, auto: true });
   let seq = 0;
   const newStation = (n, example) => ({
     id: `s${Date.now().toString(36)}${(seq++).toString(36)}`, name: `St.${n}`, river: "", loc: "",
-    water: { w: "mid", d: "mid", bed: "u", bar: "none", mat: "none", wText: "", hText: "" },
+    water: { w: "mid", d: "mid", bed: "u", bar: "none", mat: "none", ratio: "auto", wText: "", hText: "" },
     L: side(example ? { land: "house", rev: "riprap", berm: "narrow" } : {}),
     R: side(example ? { land: "bike", berm: "wide", slope: "gentle" } : {}),
     veg: example ? [veg("쑥", "L-crest"), veg("환삼덩굴", "L-slope"), veg("고마리", "L-berm"), veg("달뿌리풀", "L-edge"), veg("줄", "L-water"),
@@ -346,8 +348,22 @@
     }
     up.push(...Rt.pts.map(([d, y]) => [total - d, y]).reverse());
     // 단위 → 용지 mm: 둑마루가 틀 위에서 36%, 하상이 86%(세로는 과장)
-    const maxY = Math.max(L.top, Rt.top), hs = F.w / total, vs = (F.h * 0.5) / maxY, y0 = F.y + F.h * 0.86;
-    const X = (u) => F.x + u * hs, Y = (v) => y0 - v * vs;
+    const maxY = Math.max(L.top, Rt.top);
+    let hs = F.w / total, vs = (F.h * 0.5) / maxY, rx = (u) => u;
+    // 하폭 : 제방 높이를 고르면 가로 배율을 그 비율에 맞추고 제내지(평지)가 남는 폭을 채움.
+    // 틀 폭이 모자라면(아주 넓은 하천) 세로를 줄여 비율을 지킴
+    const ratio = +W.ratio;
+    if (ratio > 0) {
+      const lwL = L.z.land[1], lwR = Rt.z.land[1], inner = total - lwL - lwR, minLand = 2;
+      const hap = zones["R-slope"][1] - zones["L-slope"][0], bankH = Math.max(L.crest, Rt.crest);
+      hs = (ratio * bankH * vs) / hap;
+      if (hs * (inner + 2 * minLand) > F.w) { hs = F.w / (inner + 2 * minLand); vs = (hs * hap) / (ratio * bankH); }
+      const land = (F.w / hs - inner) / 2;
+      rx = (u) => (u <= lwL ? (u * land) / lwL : u >= total - lwR ? land + inner + ((u - (total - lwR)) * land) / lwR : u - lwL + land);
+    }
+    // 세로를 줄였으면(넓은 하천) 둑마루가 틀 위에서 42%쯤 오게 올림(위가 비지 않게), 하상은 86%보다 내려가지 않음
+    const y0 = Math.min(F.y + F.h * 0.86, F.y + F.h * 0.42 + maxY * vs);
+    const X = (u) => F.x + rx(u) * hs, Y = (v) => y0 - v * vs;
     const pts = up.map(([u, v]) => [X(u), Y(v)]);
     const zmm = Object.fromEntries(Object.entries(zones).map(([k, [a, b]]) => [k, [X(a), X(b)]]));
     const wlY = Y(wl);
@@ -727,6 +743,6 @@
     return paint(pen, fig);
   };
 
-  window.Section = { PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  window.Section = { RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();

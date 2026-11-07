@@ -2258,8 +2258,9 @@
       <div class="grid2">${txt("name", st.name, "조사지점", "St.1")}${txt("river", st.river, "하천명", "○○천")}</div>
       <label class="row">위치 <input class="input" data-sk="loc" value="${esc(st.loc)}" placeholder="N 35°43′31.8″ E 126°39′57.5″"></label>
       <b class="small sec-h">하도</b>
-      <label class="row" title="하도·물가·사면·둔치·제내지 폭을 한 번에 바꿈(호안 종류·제내지 이용·식생은 그대로)">하천 유형 빠른 설정 <select class="input" data-sa="preset"><option value="">고르기…</option>${secOpts(X.PRESETS, "")}</select></label>
+      <label class="row" title="하폭:제방 높이·하도·물가·사면·둔치를 한 번에 바꿈(호안 종류·제내지 이용·폭·식생은 그대로)">하천 유형 빠른 설정 <select class="input" data-sa="preset"><option value="">고르기…</option>${secOpts(X.PRESETS, "")}</select></label>
       <div class="grid2">
+        <label class="row" title="하폭(양쪽 둑마루 안쪽 끝 사이) : 제방 높이(하상~둑마루). 고르면 그 비율로 그리고 제내지는 남는 폭을 채움(제내지 폭 설정은 쓰지 않음)">하폭 : 제방 높이 <select class="input" data-sk="water.ratio">${secOpts(X.RATIOS, st.water.ratio || "auto")}</select></label><span></span>
         ${sel("water.w", X.WIDTHS, st.water.w, "수폭")}${sel("water.d", X.DEPTHS, st.water.d, "수심")}
         ${sel("water.bed", X.BEDS, st.water.bed, "하상 모양")}${sel("water.mat", X.MATS, st.water.mat || "none", "하상 재료")}
         ${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}<span></span>
