@@ -28,11 +28,11 @@
   const WIDTHS = [["xnarrow", "아주 좁게"], ["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
   // 하폭(양쪽 둑마루 안쪽 끝 사이) : 제방 높이(하상~둑마루). 자동은 고른 수폭·사면·둔치대로 틀 폭을 채움
   const RATIOS = [["auto", "자동(고른 값대로)"], ["0.5", "1 : 2"], ["0.75", "1 : 1.5"], ["1", "1 : 1"], ["1.5", "1.5 : 1"], ["2", "2 : 1"], ["3", "3 : 1"], ["5", "5 : 1"], ["8", "8 : 1"], ["12", "12 : 1"], ["20", "20 : 1"]];
-  const DEPTHS = [["xshallow", "아주 얕게"], ["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["dry", "건천(물 없음)"]];
+  const DEPTHS = [["xxshallow", "가장 얕게(물이 조금)"], ["xshallow", "아주 얕게"], ["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["dry", "건천(물 없음)"]];
   // 하천 유형 빠른 설정: 하폭:제방 높이·하도·물가·사면·둔치만 바꿈(호안 종류·제내지 이용·폭·식생은 그대로)
   const PRESETS = [["small", "소하천(좁은 하도·높은 둑)"], ["local", "지방하천"], ["large", "넓은 하천(둔치 있음)"]];
   const PRESET = {
-    small: { water: { w: "xnarrow", d: "xshallow", bed: "flat", bar: "none", ratio: "1" }, side: { slope: "steep", berm: "none", edge: "none", bank: "mid" } },
+    small: { water: { w: "wide", d: "xshallow", bed: "flat", bar: "none", ratio: "2" }, side: { slope: "vsteep", berm: "none", edge: "none", bank: "mid" } },
     local: { water: { w: "narrow", d: "shallow", bed: "u", ratio: "3" }, side: { slope: "mid", berm: "narrow", edge: "low", bank: "mid" } },
     large: { water: { w: "wide", d: "mid", bed: "u", ratio: "auto" }, side: { slope: "gentle", berm: "wide", edge: "natural", bank: "mid" } },
   };
@@ -300,7 +300,7 @@
   // ---------- 지형 ----------
   // 세로를 6배쯤 과장해 그리므로 사면 가로 길이(높이 1에 대한)도 그만큼 늘려 잡음
   const BANK = { low: 1.5, mid: 2.1, high: 2.7 }, SLOPE = { gentle: 9, mid: 5.5, steep: 3, vsteep: 1.5 }, BERM = { none: 0, narrow: 5, wide: 11 };
-  const WIDTH = { xnarrow: 4, narrow: 9, mid: 15, wide: 24 }, DEPTH = { xshallow: 0.16, shallow: 0.3, mid: 0.48, deep: 0.75 }, VERT = new Set(["stonewall", "wall"]);
+  const WIDTH = { xnarrow: 4, narrow: 9, mid: 15, wide: 24 }, DEPTH = { xxshallow: 0.07, xshallow: 0.16, shallow: 0.3, mid: 0.48, deep: 0.75 }, VERT = new Set(["stonewall", "wall"]);
   const LANDW = { narrow: 3.5, mid: 8, wide: 13 }, CRESTW = 2.6;
   // 한쪽 기슭(바깥 끝 0에서 물 쪽으로 [거리, 높이]): 제내지 → 둑마루 → 제방 사면(호안) → 둔치 → 물가 → 물속 기슭
   const half = (P, wl, bedU) => {
