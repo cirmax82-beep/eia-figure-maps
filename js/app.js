@@ -42,7 +42,7 @@
     // 출현 기록([{id, name, kind: point·line·area, pts, note}]), 종별 기호
     occ: { ring: 0, out: "all", label: "name", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
     arrows: [], labelHide: new Set(), labelText: new Map(),
-    // 현지조사 위치도·출현위치도: 생태·자연도 겹치기
+    // 현지조사 위치도·출현위치도: 생태·자연도 1등급 겹치기
     natBase: false,
     // 하천식생단면도: 지점(조사지점)마다 지형·호안·식생과 공통 모양(크기·표기·색) — section.js
     ...(kind === "sec" ? { sec: Section.newSec() } : {}),

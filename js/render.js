@@ -301,7 +301,7 @@
   const FIELD_KINDS = ["field", "fsp", "inv"];
   // 보호구역 위치도에 생태·자연도 1등급 권역을 겹침(보호구역 종류 목록의 eco-g1)
   const paG1 = (fig) => fig.kind === "pa" && !!fig.pa && fig.pa.layers.has("eco-g1");
-  // 현지조사 위치도·현지조사 출현위치도에 생태·자연도(1·2등급·별도관리지역) 겹치기
+  // 현지조사 위치도·현지조사 출현위치도에 생태·자연도 1등급 겹치기
   const natBase = (fig) => ["field", "fsp", "inv"].includes(fig.kind) && !!fig.natBase;
   const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings) || (fig.kind === "pa" && fig.pa.buffer);
   // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m), 보호구역 위치도는 사업지구 버퍼(pa.bufKm)
@@ -1184,7 +1184,7 @@
     // sp(법정보호종 출현위치도)는 문헌조사 위치도(lit) 위에 종 이름을 더한 것
     const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", occ = fig.kind === "fsp" || fig.kind === "inv", fld = fig.kind === "field" || occ;
     // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다, 보호구역 위치도는 1등급 권역만)
-    const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : paG1(fig) ? { g1: true, g2: false, sep: false } : natBase(fig) ? { g1: true, g2: true, sep: true } : null;
+    const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : paG1(fig) ? { g1: true, g2: false, sep: false } : natBase(fig) ? { g1: true, g2: false, sep: false } : null;
     const natSolid = !!natOn && (!base || !!base.lines), natOp = natSolid ? 1 : NAT.op;
     const P = (lon, lat) => v.fromLL(lon, lat);
     const PM = (X, Y) => v.fromM(X, Y);
