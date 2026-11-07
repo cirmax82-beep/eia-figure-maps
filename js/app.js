@@ -2258,6 +2258,7 @@
       <div class="grid2">${txt("name", st.name, "조사지점", "St.1")}${txt("river", st.river, "하천명", "○○천")}</div>
       <label class="row">위치 <input class="input" data-sk="loc" value="${esc(st.loc)}" placeholder="N 35°43′31.8″ E 126°39′57.5″"></label>
       <b class="small sec-h">하도</b>
+      <label class="row" title="하도·물가·사면·둔치·제내지 폭을 한 번에 바꿈(호안 종류·제내지 이용·식생은 그대로)">하천 유형 빠른 설정 <select class="input" data-sa="preset"><option value="">고르기…</option>${secOpts(X.PRESETS, "")}</select></label>
       <div class="grid2">
         ${sel("water.w", X.WIDTHS, st.water.w, "수폭")}${sel("water.d", X.DEPTHS, st.water.d, "수심")}
         ${sel("water.bed", X.BEDS, st.water.bed, "하상 모양")}${sel("water.mat", X.MATS, st.water.mat || "none", "하상 재료")}
@@ -2318,6 +2319,7 @@
     pane.addEventListener("change", (e) => {
       const t = e.target;
       if (t.dataset.sa === "pick") { SF().cur = +t.value; renderSecPane(); renderPreview(); return; }
+      if (t.dataset.sa === "preset") { if (t.value) { Section.applyPreset(Section.cur(SF()), t.value); renderSecPane(); renderPreview(); } return; }
       if (t.dataset.sk && t.type === "checkbox") { setKey(t.dataset.sk, t.checked); renderPreview(); return; }
       if (t.dataset.sk && t.tagName === "SELECT") { setKey(t.dataset.sk, t.value); renderPreview(); return; }
       if (t.dataset.vk && t.tagName === "SELECT") {

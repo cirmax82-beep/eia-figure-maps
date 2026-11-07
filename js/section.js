@@ -21,11 +21,25 @@
   const LAND_NAME = { farm: "농경지", house: "주거지", building: "건물", road: "도로", bike: "자전거도로", forest: "산림", mountain: "산림", park: "공원" };
   const REV = [["natural", "자연 사면(흙)"], ["riprap", "사석·돌붙임(경사)"], ["block", "블록·콘크리트(경사)"], ["stonewall", "돌쌓기(직립)"], ["wall", "콘크리트 옹벽(직립)"]];
   const BANKS = [["low", "낮게"], ["mid", "보통"], ["high", "높게"]];
-  const SLOPES = [["gentle", "완만하게"], ["mid", "보통"], ["steep", "급하게"]];
+  const SLOPES = [["gentle", "완만하게"], ["mid", "보통"], ["steep", "급하게"], ["vsteep", "아주 급하게"]];
   const BERMS = [["none", "없음"], ["narrow", "좁게"], ["wide", "넓게"]];
-  const EDGES = [["natural", "자연(흙·모래)"], ["riprap", "사석·자갈"]];
-  const WIDTHS = [["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
-  const DEPTHS = [["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["dry", "건천(물 없음)"]];
+  // 물가: 소하천은 물가가 거의 없거나 좁고 낮아 수폭이 하폭과 거의 같음
+  const EDGES = [["natural", "자연(흙·모래)"], ["low", "좁고 낮게"], ["none", "없음(물이 호안까지)"], ["riprap", "사석·자갈"]];
+  const WIDTHS = [["xnarrow", "아주 좁게"], ["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
+  const DEPTHS = [["xshallow", "아주 얕게"], ["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["dry", "건천(물 없음)"]];
+  // 하천 유형 빠른 설정: 하도·물가·사면·둔치·제내지 폭만 바꿈(호안 종류·제내지 이용·식생은 그대로)
+  const PRESETS = [["small", "소하천(좁은 하도·높은 둑)"], ["local", "지방하천"], ["large", "넓은 하천(둔치 있음)"]];
+  const PRESET = {
+    small: { water: { w: "xnarrow", d: "xshallow", bed: "flat", bar: "none" }, side: { slope: "steep", berm: "none", edge: "none", landW: "wide", bank: "mid" } },
+    local: { water: { w: "narrow", d: "shallow", bed: "u" }, side: { slope: "mid", berm: "narrow", edge: "low", landW: "mid", bank: "mid" } },
+    large: { water: { w: "wide", d: "mid", bed: "u" }, side: { slope: "gentle", berm: "wide", edge: "natural", landW: "mid", bank: "mid" } },
+  };
+  const applyPreset = (st, k) => {
+    const p = PRESET[k];
+    if (!p) return;
+    Object.assign(st.water, p.water);
+    ["L", "R"].forEach((sd) => Object.assign(st[sd], p.side));
+  };
   const MATS = [["none", "모래·흙"], ["gravel", "자갈"], ["cobble", "호박돌"], ["boulder", "거석"], ["mix", "호박돌 + 거석"], ["rock", "암반"]];
   const LANDWS = [["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
   const BEDS = [["u", "둥글게"], ["flat", "평평하게"]];
@@ -283,14 +297,16 @@
 
   // ---------- 지형 ----------
   // 세로를 6배쯤 과장해 그리므로 사면 가로 길이(높이 1에 대한)도 그만큼 늘려 잡음
-  const BANK = { low: 1.5, mid: 2.1, high: 2.7 }, SLOPE = { gentle: 9, mid: 5.5, steep: 3 }, BERM = { none: 0, narrow: 5, wide: 11 };
-  const WIDTH = { narrow: 9, mid: 15, wide: 24 }, DEPTH = { shallow: 0.3, mid: 0.48, deep: 0.75 }, VERT = new Set(["stonewall", "wall"]);
+  const BANK = { low: 1.5, mid: 2.1, high: 2.7 }, SLOPE = { gentle: 9, mid: 5.5, steep: 3, vsteep: 1.5 }, BERM = { none: 0, narrow: 5, wide: 11 };
+  const WIDTH = { xnarrow: 4, narrow: 9, mid: 15, wide: 24 }, DEPTH = { xshallow: 0.16, shallow: 0.3, mid: 0.48, deep: 0.75 }, VERT = new Set(["stonewall", "wall"]);
   const LANDW = { narrow: 3.5, mid: 8, wide: 13 }, CRESTW = 2.6;
   // 한쪽 기슭(바깥 끝 0에서 물 쪽으로 [거리, 높이]): 제내지 → 둑마루 → 제방 사면(호안) → 둔치 → 물가 → 물속 기슭
   const half = (P, wl, bedU) => {
-    const crest = BANK[P.bank] || BANK.mid, low = wl + 0.38, berm = BERM[P.berm] || 0, bermY = low + 0.2, foot = berm ? bermY : low;
+    // 물가 높이(수면 위)·폭: 자연 0.38·3.2, 좁고 낮게 0.15·1.3, 없음 0.04·0.15(물속 기슭도 가파르게), 사석 0.38·2
+    const edgeUp = { low: 0.15, none: 0.04 }[P.edge] ?? 0.38;
+    const crest = BANK[P.bank] || BANK.mid, low = wl + edgeUp, berm = BERM[P.berm] || 0, bermY = low + 0.2, foot = berm ? bermY : low;
     const run = VERT.has(P.rev) ? 0.12 : Math.max(0.4, (crest - foot) * (SLOPE[P.slope] || SLOPE.mid));
-    const edgeRun = P.edge === "riprap" ? 2 : 3.2, uw = bedU ? 2.6 : 1.4, pts = [], z = {};
+    const edgeRun = { riprap: 2, low: 1.3, none: 0.15 }[P.edge] ?? 3.2, uw = P.edge === "none" ? (bedU ? 0.9 : 0.35) : bedU ? 2.6 : 1.4, pts = [], z = {};
     let d = LANDW[P.landW] || LANDW.mid;
     // 산림(산지 경사): 둑마루에서 바깥으로 산처럼 오르는 비탈
     const hill = P.land === "mountain" ? 0.85 : 0;
@@ -711,6 +727,6 @@
     return paint(pen, fig);
   };
 
-  window.Section = { FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  window.Section = { PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();
