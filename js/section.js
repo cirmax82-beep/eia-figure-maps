@@ -353,13 +353,17 @@
     // 하폭 : 제방 높이를 고르면 가로 배율을 그 비율에 맞추고 제내지(평지)가 남는 폭을 채움.
     // 틀 폭이 모자라면(아주 넓은 하천) 세로를 줄여 비율을 지킴
     const ratio = +W.ratio;
+    let need = null;   // 제내지를 고른 폭(제내지 폭 설정) 그대로 둘 때 필요한 그림 폭(mm) — 틀보다 좁으면 쪽 배치에서 그림 폭을 줄임
     if (ratio > 0) {
-      const lwL = L.z.land[1], lwR = Rt.z.land[1], inner = total - lwL - lwR, minLand = 2;
+      // 제내지 폭은 가로 배율과 상관없이 그림 높이에 맞춘 mm(좁게 10·보통 22·넓게 36, 틀 높이 80 mm 기준)
+      const lwL = L.z.land[1], lwR = Rt.z.land[1], inner = total - lwL - lwR, kk = F.h / 80, LMM = { narrow: 10, mid: 22, wide: 36 };
+      const mL = (LMM[st.L.landW] || LMM.mid) * kk, mR = (LMM[st.R.landW] || LMM.mid) * kk, minMM = 6 * kk;
       const hap = zones["R-slope"][1] - zones["L-slope"][0], bankH = Math.max(L.crest, Rt.crest);
       hs = (ratio * bankH * vs) / hap;
-      if (hs * (inner + 2 * minLand) > F.w) { hs = F.w / (inner + 2 * minLand); vs = (hs * hap) / (ratio * bankH); }
-      const land = (F.w / hs - inner) / 2;
-      rx = (u) => (u <= lwL ? (u * land) / lwL : u >= total - lwR ? land + inner + ((u - (total - lwR)) * land) / lwR : u - lwL + land);
+      if (hs * inner + 2 * minMM > F.w) { hs = (F.w - 2 * minMM) / inner; vs = (hs * hap) / (ratio * bankH); } else need = hs * inner + mL + mR;
+      // 남는 폭은 양쪽 제내지가 고른 폭의 비율대로 나눠 가짐
+      const spare = F.w - hs * inner, landL = (spare * mL) / (mL + mR) / hs, landR = (spare * mR) / (mL + mR) / hs;
+      rx = (u) => (u <= lwL ? (u * landL) / lwL : u >= total - lwR ? landL + inner + ((u - (total - lwR)) * landR) / lwR : u - lwL + landL);
     }
     // 세로를 줄였으면(넓은 하천) 둑마루가 틀 위에서 42%쯤 오게 올림(위가 비지 않게), 하상은 86%보다 내려가지 않음
     const y0 = Math.min(F.y + F.h * 0.86, F.y + F.h * 0.42 + maxY * vs);
@@ -384,7 +388,7 @@
     if (dry) runs.length = 0;
     const wide = runs.reduce((b, r) => (!b || r[r.length - 1][0] - r[0][0] > b[b.length - 1][0] - b[0][0] ? r : b), null);
     if (wide) { const a = wide[0][0], b = wide[wide.length - 1][0]; zmm.surface = [a + (b - a) * 0.28, b - (b - a) * 0.28]; }
-    return { pts, zones: zmm, wlY, runs, wide, dry, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
+    return { pts, zones: zmm, wlY, runs, wide, dry, need, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
   };
   // x(mm)에서 땅 높이(y mm). 직립 호안처럼 같은 x가 둘이면 위쪽
   const groundY = (pts, x) => {
@@ -433,8 +437,8 @@
     });
     return rows[0].length ? rows : [];
   };
-  const layout = (fig) => {
-    const S = fig.sec, st = cur(S), [W, H] = SIZE_MM[S.size] || SIZE_MM["180x100"];
+  const layout = (fig, Wfit) => {
+    const S = fig.sec, st = cur(S), [W0, H] = SIZE_MM[S.size] || SIZE_MM["180x100"], W = Wfit || W0;
     const e0 = S.size === "a4" ? 1.4 : 1, e = e0 * ((fig.el && fig.el.size) || 1), m = (S.size === "a4" ? 10 : 2.5) * e0;
     const info = S.info && (st.river || st.loc) ? 7 * e : 0;
     const title = fig.el.title && fig.title ? 8.5 * e : 0;
@@ -442,7 +446,16 @@
     const legendH = legend.length ? legend.length * 4.6 * e + 3 * e : 0;
     const notes = wrap(st.note, 7.4 * e, W - 2 * m - 4 * e), notesH = notes.length ? notes.length * 3.9 * e + 2.5 * e : 0;
     const top = m + info + title;
-    return { W, H, e, m, info, title, legend, legendH, notes, notesH, frame: { x: m, y: top, w: W - 2 * m, h: H - top - m - legendH - notesH } };
+    const Lo = { W, H, e, m, info, title, legend, legendH, notes, notesH, frame: { x: m, y: top, w: W - 2 * m, h: H - top - m - legendH - notesH } };
+    // 하폭 : 제방 높이를 고른 좁은 하천(소하천 등)은 제내지를 늘려 채우지 않고 그림 폭을 줄임(높이는 그대로).
+    // 제목·조사지점 줄이 들어갈 만큼은 남김
+    if (!Wfit && +st.water.ratio > 0) {
+      const need = geom(st, Lo.frame, usedVeg(st).some((v) => v.zone === "bar")).need;
+      const minW = Math.max(70 * e0, textW(fig.title || "", 10.5 * e, 700) + 12 * e, info ? 105 * e : 0);
+      const W2 = need ? Math.ceil(Math.max(minW, need + 2 * m)) : W0;
+      if (W2 < W0 - 1) return layout(fig, W2);
+    }
+    return Lo;
   };
 
   // ---------- 그리기 ----------
