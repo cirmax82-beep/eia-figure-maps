@@ -25,7 +25,7 @@
     kind, paper: "A4", orient: Carto.NATIONAL.includes(kind) || ["lit", "sp", "pa"].includes(kind) ? "port" : "land", scaleMode: "auto", scale: 5000, offset: [0, 0],
     basemap: baseOf(kind), base: 0, gray: false, baseLabels: kind === "eco",
     title: kind === "sec" ? "하천식생단면도(하류방향)" : TITLES[kind],
-    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp", "inv"].includes(kind), grid: "none", size: 1, lsize: 1, sbsize: 1, nsize: 1 },
+    el: { title: true, north: true, scalebar: true, legend: true, source: true, sitelabel: ["sat", "lit", "sp", "pa", "field", "fsp", "inv"].includes(kind), grid: "none", size: 1, lsize: 1, sbsize: 1, nsize: 1, sitePos: "auto" },
     // 주변 범위: 위성사진 현황도·생태·자연도는 사용자가 고름 — 면사업(area, 지역생태계 약 20 ㎢) · 선형사업(line, 중심선 양측 1 km) · 직접(custom, rings km)
     rings: [1, 2], ringMode: "area", ringFade: true,
     eco: { forest: true, water: true, sea: true, tidal: false, rzone: true, szone: true, topo: true, peaks: true, wnames: true, flow: true, streams: true, rings: false, forestName: "산림생태계", waterName: "수생태계" },
@@ -42,6 +42,8 @@
     // 출현 기록([{id, name, kind: point·line·area, pts, note}]), 종별 기호
     occ: { ring: 0, out: "all", label: "name", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
     arrows: [], labelHide: new Set(), labelText: new Map(),
+    // 현지조사 위치도·출현위치도: 생태·자연도 겹치기
+    natBase: false,
     // 하천식생단면도: 지점(조사지점)마다 지형·호안·식생과 공통 모양(크기·표기·색) — section.js
     ...(kind === "sec" ? { sec: Section.newSec() } : {}),
   });
@@ -58,7 +60,7 @@
   // ---------- 설정 칸 ↔ 도면 ----------
   const CHECKS = { "o-forest": ["eco", "forest"], "o-water": ["eco", "water"], "o-tidal": ["eco", "tidal"], "o-sea": ["eco", "sea"], "o-rzone": ["eco", "rzone"], "o-szone": ["eco", "szone"], "o-topo": ["eco", "topo"], "o-peaks": ["eco", "peaks"], "o-wnames": ["eco", "wnames"], "o-flow": ["eco", "flow"],
     "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "o-ring-fade": ["", "ringFade"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
-    "e-legend": ["el", "legend"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
+    "e-legend": ["el", "legend"], "o-natbase": ["", "natBase"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
     "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "n-dist1": ["nat", "dist1"], "v-inset": ["natl", "inset"],
     "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"], "p-names": ["pa", "names"], "p-dist": ["pa", "dist"], "p-sheet": ["pa", "sheetName"], "p-buffer": ["pa", "buffer"] };
@@ -92,6 +94,7 @@
     $("#o-water-name").value = f.eco.waterName;
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { $(`#${id}`).checked = !!(g ? f[g][k] : f[k]); });
     $("#e-grid").value = f.el.grid;
+    $("#e-sitepos").value = f.el.sitePos || "auto";
     $("#e-size").value = String(f.el.size || 1);
     $("#e-lsize").value = String(f.el.lsize || 1);
     $("#e-sbsize").value = String(f.el.sbsize || 1);
@@ -131,6 +134,7 @@
     f.eco.waterName = $("#o-water-name").value.trim() || "수생태계";
     Object.entries(CHECKS).forEach(([id, [g, k]]) => { if (g) f[g][k] = $(`#${id}`).checked; else f[k] = $(`#${id}`).checked; });
     f.el.grid = $("#e-grid").value;
+    f.el.sitePos = $("#e-sitepos").value;
     f.el.size = +$("#e-size").value || 1;
     f.el.lsize = +$("#e-lsize").value || 1;
     f.el.sbsize = +$("#e-sbsize").value || 1;
@@ -415,12 +419,14 @@
   // ---------- 축 화살표 그리기(문헌조사 위치도의 지점·선·구역 찍기도 같이 씀: 모드 lit-point·lit-line·lit-area) ----------
   const A = { mode: null, pts: [] };
   const isLit = (m) => !!m && m.startsWith("lit-");
-  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점", "lit-pick": "문헌 위치",
+  const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점", "lit-pick": "문헌 위치", "lit-pickline": "문헌 위치(선)", "lit-pickarea": "문헌 위치(구역)",
     "fld-line": "조사경로", "fld-erase": "지우개", "fld-veg": "식생 조사지점", "fld-water": "육수 조사지점", "fld-etc": "기타 조사지점",
     "occ-point": "출현 지점", "occ-line": "출현 선", "occ-area": "출현 구역" };
   const arrowName = (k) => LIT_NAME[k] || (k === "forest" ? "산림축" : "수계축");
   const ONE_PT = ["lit-point", "lit-sp", "lit-pick", "fld-veg", "fld-water", "fld-etc", "occ-point"];
-  const needPts = (m) => (ONE_PT.includes(m) ? 1 : m === "lit-area" || m === "occ-area" ? 3 : 2);
+  const needPts = (m) => (ONE_PT.includes(m) ? 1 : m === "lit-area" || m === "lit-pickarea" || m === "occ-area" ? 3 : 2);
+  // 엑셀 문헌(평가서 등 위치 없는 것)의 위치 찍기: 점(lit-pick)·선(lit-pickline)·구역(lit-pickarea)
+  const PICK_KIND = { "lit-pick": "point", "lit-pickline": "line", "lit-pickarea": "area" };
   const startArrow = (kind) => {
     if (!site()) { toast("먼저 사업지구 경계를 넣으세요."); return; }
     if (S.page === 2) { S.page = 1; syncPageTabs(); renderPreview(); }
@@ -455,8 +461,9 @@
       return;
     }
     const n = needPts(A.mode);
-    const pickName = A.mode === "lit-pick" || (A.mode === "lit-sp" && A.target) ? ((litItems(S.figs.lit.lit).find((x) => x.id === A.target) || {}).text || "문헌").slice(0, 24) : "";
-    $("#arrow-msg").textContent = A.mode === "lit-pick" ? `「${pickName}」 위치를 도면 위에서 누르세요` : A.mode === "lit-sp" ? `${pickName ? `「${pickName}」의 ` : ""}법정보호종 출현 지점을 도면 위에서 누르세요` : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
+    const pickName = PICK_KIND[A.mode] || (A.mode === "lit-sp" && A.target) ? ((litItems(S.figs.lit.lit).find((x) => x.id === A.target) || {}).text || "문헌").slice(0, 24) : "";
+    $("#arrow-msg").textContent = A.mode === "lit-pick" ? `「${pickName}」 위치를 도면 위에서 누르세요`
+      : PICK_KIND[A.mode] ? `「${pickName}」 ${A.mode === "lit-pickline" ? "선" : "구역"}: 꼭짓점을 차례로 누르고 두 번 눌러 끝냅니다(점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상` : ""})` : A.mode === "lit-sp" ? `${pickName ? `「${pickName}」의 ` : ""}법정보호종 출현 지점을 도면 위에서 누르세요` : A.mode === "lit-point" ? "문헌 지점을 도면 위에서 누르세요"
       : `${arrowName(A.mode)} 점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상 찍으세요${isLit(A.mode) || A.mode === "fld-line" ? "" : "(마지막 점이 화살 머리)"}` : ""}`;
   };
   const finishArrow = () => {
@@ -494,9 +501,9 @@
       renderPreview();
       return;
     }
-    if (A.mode === "lit-pick") {
-      const L = S.figs.lit.lit;
-      L.picked.set(A.target, { geo: { kind: "point", parts: [[A.pts[0]]] }, color: MAN_COLORS[L.picked.size % MAN_COLORS.length] });
+    if (PICK_KIND[A.mode]) {
+      const L = S.figs.lit.lit, kind = PICK_KIND[A.mode];
+      L.picked.set(A.target, { geo: { kind, parts: [kind === "point" ? [A.pts[0]] : A.pts.slice()] }, color: MAN_COLORS[L.picked.size % MAN_COLORS.length] });
       stopArrow();
       renderPreview();
       renderLitList();
@@ -536,7 +543,7 @@
       const col = A.mode === "fld-line" ? "#ff3fd2" : occDraw ? (OF(S.cur).syms[A.target] || {}).color || "#e8590c" : MAN_COLORS[S.figs.lit.lit.seq % MAN_COLORS.length];
       c.beginPath();
       pp.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
-      if (A.mode === "lit-area" || A.mode === "occ-area") { c.closePath(); c.globalAlpha = 0.3; c.fillStyle = col; c.fill(); c.globalAlpha = 1; }
+      if (A.mode === "lit-area" || A.mode === "lit-pickarea" || A.mode === "occ-area") { c.closePath(); c.globalAlpha = 0.3; c.fillStyle = col; c.fill(); c.globalAlpha = 1; }
       c.lineWidth = 0.8;
       c.strokeStyle = col;
       c.stroke();
@@ -1696,7 +1703,7 @@
         <input class="input" data-ltext="${esc(it.id)}" value="${esc(L.text.has(it.id) ? L.text.get(it.id) : it.text)}" title="${esc(it.cat)}">
         ${it.geo ? `<input type="color" data-lcolor="${esc(it.id)}" value="${col}" title="기호 색">`
           : it.cat === "전국자연환경조사" ? `<span class="muted small" title="도엽 단위 문헌(위치 기호 없음)">도엽</span>`
-          : `<button class="link small" data-lpick="${esc(it.id)}" title="위치 정보가 없는 문헌 — 도면 위를 눌러 위치를 정함">위치 찍기</button>`}
+          : `<span class="lit-pick" title="위치 정보가 없는 문헌 — 도면 위에 점·선·구역으로 위치를 정함">위치 <button class="link small" data-lpick="${esc(it.id)}" data-lkind="lit-pick">점</button><button class="link small" data-lpick="${esc(it.id)}" data-lkind="lit-pickline">선</button><button class="link small" data-lpick="${esc(it.id)}" data-lkind="lit-pickarea">면</button></span>`}
         ${it.src === "man" ? `<button class="link" data-ldel="${esc(it.id)}">지우기</button>` : it.picked ? `<button class="link small" data-lunpick="${esc(it.id)}">위치 지우기</button>` : "<span></span>"}
       </div>`;
     }).join("") || `<p class="hint">${site() ? "9격자 안에 넣을 문헌이 없습니다. 위치를 직접 찍어 넣으세요." : ""}</p>`;
@@ -1952,7 +1959,7 @@
     });
     box.addEventListener("click", (e) => {
       const pk = e.target.closest("button[data-lpick]"), up = e.target.closest("button[data-lunpick]");
-      if (pk) { A.target = pk.dataset.lpick; startArrow("lit-pick"); return; }
+      if (pk) { A.target = pk.dataset.lpick; startArrow(pk.dataset.lkind || "lit-pick"); return; }
       if (up) { L().picked.delete(up.dataset.lunpick); renderPreview(); renderLitList(); return; }
       const b = e.target.closest("button[data-ldel]");
       if (!b) return;

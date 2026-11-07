@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261104e">
+<link rel="stylesheet" href="css/style.css?v=20261107b">
 </head>
 <body>
 <header class="top">
@@ -112,6 +112,9 @@
         </select></label>
       </div>
       <label class="row">제목 <input id="o-title" class="input"></label>
+      <div class="checks" data-figpane="field fsp inv" hidden>
+        <label title="1·2등급·별도관리지역을 위성영상 위에 반투명하게 겹침"><input type="checkbox" id="o-natbase"> 생태·자연도 겹치기</label>
+      </div>
 
       <div data-figpane="sat nat">
         <label class="row" title="면사업은 사업대상지를 포함한 지역생태계 약 20 ㎢, 선형사업은 중심선 양쪽 각각 1 km(환경영향평가 위성·항공사진 범위)">주변 범위 <select id="o-ring-mode" class="input">
@@ -324,6 +327,9 @@
           <label><input type="checkbox" id="e-source" checked> 출처</label>
           <label><input type="checkbox" id="e-sitelabel"> ‘사업지구’ 글자</label>
         </div>
+        <label class="row" title="경계·노선과 겹치면 사업지구 둘레 바깥 쪽을 골라 옮김">‘사업지구’ 글자 위치 <select id="e-sitepos" class="input">
+          <option value="auto">자동(경계·노선에 붙여)</option><option value="top">위</option><option value="bottom">아래</option><option value="left">왼쪽</option><option value="right">오른쪽</option>
+        </select></label>
         <label class="row">좌표 격자 <select id="e-grid" class="input">
           <option value="none">없음</option><option value="geo">경위도</option><option value="tm">TM 중부원점(EPSG:5186)</option>
         </select></label>
@@ -378,11 +384,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261104e"></script>
-<script src="js/input.js?v=20261104e"></script>
-<script src="js/render.js?v=20261104e"></script>
-<script src="js/section.js?v=20261104e"></script>
-<script src="js/field.js?v=20261104e"></script>
-<script src="js/app.js?v=20261104e"></script>
+<script src="js/util.js?v=20261107b"></script>
+<script src="js/input.js?v=20261107b"></script>
+<script src="js/render.js?v=20261107b"></script>
+<script src="js/section.js?v=20261107b"></script>
+<script src="js/field.js?v=20261107b"></script>
+<script src="js/app.js?v=20261107b"></script>
 </body>
 </html>

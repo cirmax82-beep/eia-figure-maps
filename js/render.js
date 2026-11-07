@@ -301,6 +301,8 @@
   const FIELD_KINDS = ["field", "fsp", "inv"];
   // 보호구역 위치도에 생태·자연도 1등급 권역을 겹침(보호구역 종류 목록의 eco-g1)
   const paG1 = (fig) => fig.kind === "pa" && !!fig.pa && fig.pa.layers.has("eco-g1");
+  // 현지조사 위치도·현지조사 출현위치도에 생태·자연도(1·2등급·별도관리지역) 겹치기
+  const natBase = (fig) => ["field", "fsp", "inv"].includes(fig.kind) && !!fig.natBase;
   const ringsOn = (fig) => fig.kind === "sat" || FIELD_KINDS.includes(fig.kind) || (fig.kind === "eco" && fig.eco.rings) || (fig.kind === "nat" && fig.nat.rings) || (fig.kind === "pa" && fig.pa.buffer);
   // 주변 범위(km). 현지조사 위치도·현지조사시 법정보호종 출현위치도는 조사범위(fieldRings, m), 보호구역 위치도는 사업지구 버퍼(pa.bufKm)
   // 위성사진 현황도·생태·자연도 사업 유형별 범위(autoRing: 면사업 약 20 ㎢ · 선형사업 양측 1 km), 직접(custom)이면 rings
@@ -1131,7 +1133,7 @@
     const baseSrc = baseKey === "none" ? null : BASES[baseKey];
     const labelsOn = fig.baseLabels && VW_KEY && baseKey !== "none";
     const jobs = {
-      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc, fig.gray, nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) || paG1(fig)).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
+      base: baseSrc ? basemap(v, k, ctl.onTiles, alive, baseSrc, fig.gray, nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) || paG1(fig) || natBase(fig)).catch((err) => { console.warn(err); warn.push("바탕지도를 받지 못했습니다."); return null; }) : null,
       labels: labelsOn ? basemap(v, k, null, alive, LABELS).catch((err) => { console.warn(err); return null; }) : null,
       lc: eco && (fig.eco.forest || fig.eco.water || fig.eco.tidal) ? landcover(v).catch((err) => { console.warn(err); warn.push(err.message && /범위|자료/.test(err.message) ? err.message : "토지피복 자료를 받지 못했습니다."); return null; }) : null,
       osm: eco && (fig.eco.peaks || fig.eco.wnames || fig.eco.flow || fig.eco.streams) ? osm(v).catch((err) => { console.warn(err); warn.push("이름·하천 자료를 받지 못했습니다."); return null; }) : null,
@@ -1154,7 +1156,7 @@
     const clsJob = fig.kind === "veg" ? vegLayer() : fig.kind === "flo" ? floLayer() : null;
     const clsSafe = clsJob ? clsJob.catch((err) => { console.warn(err); warn.push("구분도 자료를 받지 못했습니다."); return null; }) : null;
     const paJob = fig.kind === "pa" && fig.lit.grid ? paLoad(fig.lit.grid.bounds, [...fig.pa.layers]).then((r) => ({ areas: paMeasure(site, r.areas, fig.lit.grid.bounds) })).catch((err) => { console.warn(err); warn.push("보호구역 자료(보호구역 종합포털)를 받지 못했습니다."); return null; }) : null;
-    const natJob = nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) || paG1(fig) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
+    const natJob = nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) || paG1(fig) || natBase(fig) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const api1Job = nat && fig.nat.dist1 && fig.ecoKey ? eco1Frame(v, fig.ecoKey).catch((err) => { console.warn(err); warn.push(`${err.message} 1등급 이격거리는 정기고시 원본 경계로 계산했습니다.`); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
     // 원본 경계(API)가 늦으면(미리보기) 단순화 경계로 먼저 그리고, 도착하면 onLate로 다시 그림
@@ -1182,7 +1184,7 @@
     // sp(법정보호종 출현위치도)는 문헌조사 위치도(lit) 위에 종 이름을 더한 것
     const eco = fig.kind === "eco", nat = fig.kind === "nat", sp = fig.kind === "sp", lit = fig.kind === "lit" || sp, pa = fig.kind === "pa", occ = fig.kind === "fsp" || fig.kind === "inv", fld = fig.kind === "field" || occ;
     // 생태·자연도 등급을 그리는지(생태·자연도 도면은 고른 것만, 문헌조사 위치도는 켰을 때 셋 다, 보호구역 위치도는 1등급 권역만)
-    const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : paG1(fig) ? { g1: true, g2: false, sep: false } : null;
+    const natOn = nat ? fig.nat : lit && fig.lit.nat ? { g1: true, g2: true, sep: true } : paG1(fig) ? { g1: true, g2: false, sep: false } : natBase(fig) ? { g1: true, g2: true, sep: true } : null;
     const natSolid = !!natOn && (!base || !!base.lines), natOp = natSolid ? 1 : NAT.op;
     const P = (lon, lat) => v.fromLL(lon, lat);
     const PM = (X, Y) => v.fromM(X, Y);
@@ -1280,7 +1282,7 @@
       .forEach((A) => legend.push(paHatch.has(A.layer) ? { type: "hatch", color: inkOf(A.color, 3), angle: paHatch.get(A.layer), label: A.layerName }
         : { type: "fill", color: A.color, opacity: 0.32, label: A.layerName }));
     if (natOn && (nat || nd)) {
-      const pre = lit || pa ? "생태·자연도 " : "";
+      const pre = lit || pa || natBase(fig) ? "생태·자연도 " : "";
       if (natOn.g1) legend.push({ type: "fill", color: NAT.g1, opacity: natOp, label: `${pre}1등급${pa ? " 권역" : ""}` });
       if (natOn.g2) legend.push({ type: "fill", color: NAT.g2, opacity: natOp, label: `${pre}2등급` });
       if (nat) legend.push({ type: "box", label: "3등급" });
@@ -1490,7 +1492,23 @@
           edge.sort((u, w) => u.d - w.d);
           if (!edge.length) edge = null;
         }
-        marks.set(it.geoKey, { nums: [it.n], x: at[0], y: at[1], col, kind, edge });
+        // 번호표 둘레 자리가 모두 막혔을 때(범례 등) 쓸 다른 자리: 구역은 격자 안 구역 속 점들, 선은 선 위 점들(번호표 가까운 차례)
+        let alt = null;
+        if (kind === "area" && !it.outline) {
+          const inPoly = (x, y, r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
+          alt = [];
+          parts.forEach((p) => {
+            const c = clipRing(p);
+            if (c.length < 3) return;
+            const xs = c.map((q) => q[0]), ys = c.map((q) => q[1]);
+            for (let x = Math.min(...xs); x <= Math.max(...xs); x += 2.5 * e) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 2.5 * e) if (inPoly(x, y, c)) alt.push([x, y]);
+          });
+        } else if (kind === "line") {
+          alt = [];
+          parts.forEach((p) => { for (let i = 1; i < p.length; i++) { const c = clipSegG(p[i - 1][0], p[i - 1][1], p[i][0], p[i][1]); if (!c) continue; const L = Math.hypot(c[2] - c[0], c[3] - c[1]); for (let t = 0; t <= L; t += 2.5 * e) alt.push([c[0] + ((c[2] - c[0]) * t) / (L || 1), c[1] + ((c[3] - c[1]) * t) / (L || 1)]); } });
+        }
+        if (alt) alt = alt.sort((u, w) => Math.hypot(u[0] - at[0], u[1] - at[1]) - Math.hypot(w[0] - at[0], w[1] - at[1])).slice(0, 600);
+        marks.set(it.geoKey, { nums: [it.n], x: at[0], y: at[1], col, kind, edge, alt });
       });
       litOut = [...outside.values()].flat();
       // 보호구역 위치도: 9격자에 걸치는 보호구역을 종류 색으로(넓은 것부터 칠해 작은 것이 위에), 격자 안쪽만. 다른 종류와 겹치는 종류(paHatch)는 칠하지 않고 빗금을 맨 위에
@@ -1610,8 +1628,13 @@
           x = bx; y = by;
           return true;
         });
+        let found = !!onEdge;
         if (!onEdge) for (const [dx, dy] of [[0, 0], [0, -h - 1], [0, h + 1], [w * 0.6, 0], [-w * 0.6, 0]]) {
           const [bx, by] = keep(x + dx, y + dy);
+          if (!boxHit([bx, by, bx + w, by + h], occupied)) { x = bx; y = by; found = true; break; }
+        }
+        if (!found && m.alt) for (const [px, py] of m.alt) {
+          const [bx, by] = keep(m.kind === "line" ? px + 1.2 * e : px - w / 2, py - h / 2);
           if (!boxHit([bx, by, bx + w, by + h], occupied)) { x = bx; y = by; break; }
         }
         occupied.push([x, y, x + w, y + h]);
@@ -1930,47 +1953,60 @@
     // 선형 사업(면 없이 선만): 틀 안에서 가장 긴 노선의 길이 가운데에 노선 방향으로(위쪽, 다른 글자와 겹치면 아래쪽)
     // 그 밖: 글자 폭 안에서 경계·선이 가장 높은 곳 바로 위
     if (fig.el.sitelabel && Number.isFinite(sb0[0])) {
-      const t = siteName, fs = 9.5 * e, w = textW(t, fs, 700), th = fs * PT;
-      const lenOf = (r) => r.reduce((s, p, i) => s + (i ? Math.hypot(p[0] - r[i - 1][0], p[1] - r[i - 1][1]) : 0), 0);
-      const runs = [];
-      siteLines.forEach((l) => {
-        let run = [];
-        l.forEach((p) => { if (inF(p[0], p[1])) run.push(p); else { if (run.length > 1) runs.push(run); run = []; } });
-        if (run.length > 1) runs.push(run);
-      });
-      const best = sitePolys.length ? null : runs.sort((a, b) => lenOf(b) - lenOf(a))[0];
-      if (best && lenOf(best) > w * 0.8) {
-        const L = lenOf(best);
-        const at = (s) => {
-          for (let i = 1, acc = 0; i < best.length; i++) {
-            const p = best[i - 1], q = best[i], d = Math.hypot(q[0] - p[0], q[1] - p[1]);
-            if (acc + d >= s) { const k = d ? (s - acc) / d : 0; return [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]; }
-            acc += d;
-          }
-          return best[best.length - 1];
-        };
-        const m = at(L / 2), a = at(Math.max(0, L / 2 - w / 2)), b = at(Math.min(L, L / 2 + w / 2));
-        let deg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
-        if (deg > 90) deg -= 180; else if (deg <= -90) deg += 180;
-        const nx = Math.sin(deg * RAD), ny = -Math.cos(deg * RAD), off = th * 0.55 + 1.3 * e;
-        const co = Math.abs(Math.cos(deg * RAD)), si = Math.abs(Math.sin(deg * RAD)), hw = (w * co + th * si) / 2 + 0.5, hh = (w * si + th * co) / 2 + 0.5;
-        const side = (s) => { const cx = m[0] + nx * off * s, cy = m[1] + ny * off * s; return { cx, cy, box: [cx - hw, cy - hh, cx + hw, cy + hh] }; };
-        const pick = [side(1), side(-1)].find((c) => !hitNoSite(c.box)) || side(1);
-        pen.text(t, pick.cx, pick.cy, { size: fs, weight: 700, align: "center", base: "middle", angle: deg, color: COLOR.site, halo, haloWidth: 0.55 * e });
-        occupied.push(pick.box);
+      // 글자 위치를 고르면(위·아래·왼쪽·오른쪽) 사업지구 둘레 사각형(틀 안 부분) 바깥에 가로로 — 경계·노선과 겹치지 않게
+      const pos = (fig.el && fig.el.sitePos) || "auto";
+      if (pos !== "auto") {
+        const t = siteName, fs = 9.5 * e, w = textW(t, fs, 700), th = fs * PT, gap = 2 * e;
+        const bx0 = Math.max(F.x, sb0[0]), by0 = Math.max(F.y, sb0[1]), bx1 = Math.min(F.x + F.w, sb0[2]), by1 = Math.min(F.y + F.h, sb0[3]);
+        let x = pos === "left" ? bx0 - gap - w / 2 : pos === "right" ? bx1 + gap + w / 2 : (bx0 + bx1) / 2;
+        let y = pos === "top" ? by0 - gap - th / 2 : pos === "bottom" ? by1 + gap + th / 2 : (by0 + by1) / 2;
+        x = Math.max(F.x + w / 2 + 1, Math.min(F.x + F.w - w / 2 - 1, x));
+        y = Math.max(F.y + th / 2 + 1, Math.min(F.y + F.h - th / 2 - 1, y));
+        pen.text(t, x, y, { size: fs, weight: 700, align: "center", base: "middle", color: COLOR.site, halo, haloWidth: 0.55 * e });
+        occupied.push([x - w / 2 - 1, y - th / 2 - 1, x + w / 2 + 1, y + th / 2 + 1]);
       } else {
-        const x = (sb0[0] + sb0[2]) / 2;
-        const segs = [...sitePolys.flatMap((r) => r.map((p, i) => [r[(i || r.length) - 1], p])), ...siteLines.flatMap((l) => l.slice(1).map((p, i) => [l[i], p]))];
-        let top = Infinity;
-        for (let k = 0; k <= 8; k++) {
-          const sx = x - w / 2 + (w * k) / 8;
-          segs.forEach(([p, q]) => { if ((p[0] > sx) !== (q[0] > sx)) top = Math.min(top, p[1] + ((sx - p[0]) * (q[1] - p[1])) / (q[0] - p[0])); });
+        const t = siteName, fs = 9.5 * e, w = textW(t, fs, 700), th = fs * PT;
+        const lenOf = (r) => r.reduce((s, p, i) => s + (i ? Math.hypot(p[0] - r[i - 1][0], p[1] - r[i - 1][1]) : 0), 0);
+        const runs = [];
+        siteLines.forEach((l) => {
+          let run = [];
+          l.forEach((p) => { if (inF(p[0], p[1])) run.push(p); else { if (run.length > 1) runs.push(run); run = []; } });
+          if (run.length > 1) runs.push(run);
+        });
+        const best = sitePolys.length ? null : runs.sort((a, b) => lenOf(b) - lenOf(a))[0];
+        if (best && lenOf(best) > w * 0.8) {
+          const L = lenOf(best);
+          const at = (s) => {
+            for (let i = 1, acc = 0; i < best.length; i++) {
+              const p = best[i - 1], q = best[i], d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+              if (acc + d >= s) { const k = d ? (s - acc) / d : 0; return [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]; }
+              acc += d;
+            }
+            return best[best.length - 1];
+          };
+          const m = at(L / 2), a = at(Math.max(0, L / 2 - w / 2)), b = at(Math.min(L, L / 2 + w / 2));
+          let deg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+          if (deg > 90) deg -= 180; else if (deg <= -90) deg += 180;
+          const nx = Math.sin(deg * RAD), ny = -Math.cos(deg * RAD), off = th * 0.55 + 1.3 * e;
+          const co = Math.abs(Math.cos(deg * RAD)), si = Math.abs(Math.sin(deg * RAD)), hw = (w * co + th * si) / 2 + 0.5, hh = (w * si + th * co) / 2 + 0.5;
+          const side = (s) => { const cx = m[0] + nx * off * s, cy = m[1] + ny * off * s; return { cx, cy, box: [cx - hw, cy - hh, cx + hw, cy + hh] }; };
+          const pick = [side(1), side(-1)].find((c) => !hitNoSite(c.box)) || side(1);
+          pen.text(t, pick.cx, pick.cy, { size: fs, weight: 700, align: "center", base: "middle", angle: deg, color: COLOR.site, halo, haloWidth: 0.55 * e });
+          occupied.push(pick.box);
+        } else {
+          const x = (sb0[0] + sb0[2]) / 2;
+          const segs = [...sitePolys.flatMap((r) => r.map((p, i) => [r[(i || r.length) - 1], p])), ...siteLines.flatMap((l) => l.slice(1).map((p, i) => [l[i], p]))];
+          let top = Infinity;
+          for (let k = 0; k <= 8; k++) {
+            const sx = x - w / 2 + (w * k) / 8;
+            segs.forEach(([p, q]) => { if ((p[0] > sx) !== (q[0] > sx)) top = Math.min(top, p[1] + ((sx - p[0]) * (q[1] - p[1])) / (q[0] - p[0])); });
+          }
+          [...sitePolys.flat(), ...siteLines.flat(), ...sitePts].forEach(([px, py]) => { if (Math.abs(px - x) <= w / 2) top = Math.min(top, py - (sitePts.length ? 1.6 * e : 0)); });
+          if (!Number.isFinite(top)) top = sb0[1];
+          const y = Math.max(top - 2.2 * e, F.y + th + 1.5);
+          pen.text(t, x, y, { size: fs, weight: 700, align: "center", color: COLOR.site, halo, haloWidth: 0.55 * e });
+          occupied.push([x - w / 2 - 1, y - th - 1, x + w / 2 + 1, y + 1]);
         }
-        [...sitePolys.flat(), ...siteLines.flat(), ...sitePts].forEach(([px, py]) => { if (Math.abs(px - x) <= w / 2) top = Math.min(top, py - (sitePts.length ? 1.6 * e : 0)); });
-        if (!Number.isFinite(top)) top = sb0[1];
-        const y = Math.max(top - 2.2 * e, F.y + th + 1.5);
-        pen.text(t, x, y, { size: fs, weight: 700, align: "center", color: COLOR.site, halo, haloWidth: 0.55 * e });
-        occupied.push([x - w / 2 - 1, y - th - 1, x + w / 2 + 1, y + 1]);
       }
     }
 
