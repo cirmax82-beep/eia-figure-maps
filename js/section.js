@@ -28,7 +28,7 @@
   const WIDTHS = [["xnarrow", "아주 좁게"], ["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
   // 하폭(양쪽 둑마루 안쪽 끝 사이) : 제방 높이(하상~둑마루). 자동은 고른 수폭·사면·둔치대로 틀 폭을 채움
   const RATIOS = [["auto", "자동(고른 값대로)"], ["0.5", "1 : 2"], ["0.75", "1 : 1.5"], ["1", "1 : 1"], ["1.5", "1.5 : 1"], ["2", "2 : 1"], ["3", "3 : 1"], ["5", "5 : 1"], ["8", "8 : 1"], ["12", "12 : 1"], ["20", "20 : 1"]];
-  const DEPTHS = [["xxshallow", "가장 얕게(물이 조금)"], ["xshallow", "아주 얕게"], ["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["dry", "건천(물 없음)"]];
+  const DEPTHS = [["xxshallow", "가장 얕게(물이 조금)"], ["xshallow", "아주 얕게"], ["shallow", "얕게"], ["mid", "보통"], ["deep", "깊게"], ["high", "더 깊게(제방 높이 2/3쯤)"], ["full", "제방 끝 가까이"], ["dry", "건천(물 없음)"]];
   // 하천 유형 빠른 설정: 하폭:제방 높이·하도·물가·사면·둔치만 바꿈(호안 종류·제내지 이용·폭·식생은 그대로)
   const PRESETS = [["small", "소하천(좁은 하도·높은 둑)"], ["local", "지방하천"], ["large", "넓은 하천(둔치 있음)"]];
   const PRESET = {
@@ -327,7 +327,8 @@
   };
   const geom = (st, F, needBar) => {
     // 건천은 물을 그리지 않고 지형만 얕은 물 높이로 잡음
-    const W = st.water, dry = W.d === "dry", wl = dry ? 0.3 : DEPTH[W.d] || DEPTH.mid, bedU = W.bed !== "flat";
+    // 더 깊게·제방 끝 가까이는 지형(물가·둔치)은 보통 수심으로 잡고 물만 높이 채움(둔치·물가·사면 아래가 잠김)
+    const W = st.water, dry = W.d === "dry", over = W.d === "high" || W.d === "full", wl = dry ? 0.3 : over ? DEPTH.mid : DEPTH[W.d] || DEPTH.mid, bedU = W.bed !== "flat";
     // 사주·하중도: 물이 깊을수록 넓고 완만하게
     const barOn = W.bar !== "none" || needBar, bw = 7 + wl * 8, bs = 1.5 + wl * 4, WW = (WIDTH[W.w] || WIDTH.mid) + (barOn ? bw + 3 : 0);
     const L = half(st.L, wl, bedU), Rt = half(st.R, wl, bedU);
@@ -370,7 +371,8 @@
     const X = (u) => F.x + rx(u) * hs, Y = (v) => y0 - v * vs;
     const pts = up.map(([u, v]) => [X(u), Y(v)]);
     const zmm = Object.fromEntries(Object.entries(zones).map(([k, [a, b]]) => [k, [X(a), X(b)]]));
-    const wlY = Y(wl);
+    const minCrest = Math.min(L.crest, Rt.crest), wlDraw = W.d === "full" ? minCrest - 0.14 : W.d === "high" ? Math.max(wl + 0.3, minCrest * 0.68) : wl;
+    const wlY = Y(wlDraw);
     // 물에 잠긴 구간(수면 아래 땅)
     const runs = [];
     let run = null;
@@ -505,7 +507,9 @@
           if (narrow) x = (i % 2 === 0) === (sd === "L") ? a1 - 1.6 * s : b1 + 1.6 * s;
           if (v.form === "floating") { if (!g.dry) plants.push({ v, form: "floating", x, y: g.wlY, R }); continue; }
           const y = groundY(g.pts, x), sub = g.dry ? 0 : Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * (0.88 + R() * 0.24);
-          plants.push({ v, form: v.form, x, y, h: sub > 0 ? Math.max(h0, sub + h0 * 0.55) : h0, R, wet: sub > 0 });
+          // 물속 자리(하도에 뿌리)는 수면 위로 나오게 키우되(보통 키의 2.2배까지), 잠긴 둔치·물가·사면의 식생은 그대로(물에 잠김)
+          const grow = sub > 0 && z.endsWith("-water");
+          plants.push({ v, form: v.form, x, y, h: grow ? Math.max(h0, Math.min(sub + h0 * 0.55, h0 * 2.2)) : h0, R, wet: sub > 0 });
         }
       });
     });
