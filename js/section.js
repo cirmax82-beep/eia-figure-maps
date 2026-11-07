@@ -23,6 +23,8 @@
   const BANKS = [["low", "낮게"], ["mid", "보통"], ["high", "높게"]];
   const SLOPES = [["gentle", "완만하게"], ["mid", "보통"], ["steep", "급하게"], ["vsteep", "아주 급하게"]];
   const BERMS = [["none", "없음"], ["narrow", "좁게"], ["wide", "넓게"]];
+  // 둔치 높이: 수위(수심)에 맞춰 잠기게·안 잠기게. 「수위보다 조금 위」는 고른 수심의 물높이 바로 위(제방 끝 가까이 물이면 그래도 잠김)
+  const BERMHS = [["low", "낮게(물에 잘 잠김)"], ["mid", "보통(수면 조금 위)"], ["wl", "수위보다 조금 위(안 잠기게)"], ["high", "높게(제방 높이 절반쯤)"], ["xhigh", "더 높게(제방 높이 2/3쯤)"]];
   // 물가: 소하천은 물가가 거의 없거나 좁고 낮아 수폭이 하폭과 거의 같음
   const EDGES = [["natural", "자연(흙·모래)"], ["low", "좁고 낮게"], ["none", "없음(물이 호안까지)"], ["riprap", "사석·자갈"]];
   const WIDTHS = [["xnarrow", "아주 좁게"], ["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
@@ -82,7 +84,7 @@
   const DOCK = /소리쟁이/;      // 갈색 열매 이삭
 
   // ---------- 새 지점 ----------
-  const side = (o) => ({ land: "none", landW: "narrow", landText: "", bank: "mid", rev: "natural", slope: "mid", berm: "none", edge: "natural", ...o });
+  const side = (o) => ({ land: "none", landW: "narrow", landText: "", bank: "mid", rev: "natural", slope: "mid", berm: "none", bermH: "mid", edge: "natural", ...o });
   const veg = (name, zone, amt = "mid") => ({ name, form: formOf(name) || "forb", zone, amt, auto: true });
   let seq = 0;
   const newStation = (n, example) => ({
@@ -303,10 +305,13 @@
   const WIDTH = { xnarrow: 4, narrow: 9, mid: 15, wide: 24 }, DEPTH = { xxshallow: 0.07, xshallow: 0.16, shallow: 0.3, mid: 0.48, deep: 0.75 }, VERT = new Set(["stonewall", "wall"]);
   const LANDW = { narrow: 3.5, mid: 8, wide: 13 }, CRESTW = 2.6;
   // 한쪽 기슭(바깥 끝 0에서 물 쪽으로 [거리, 높이]): 제내지 → 둑마루 → 제방 사면(호안) → 둔치 → 물가 → 물속 기슭
-  const half = (P, wl, bedU) => {
+  const half = (P, wl, bedU, wlTop = wl) => {
     // 물가 높이(수면 위)·폭: 자연 0.38·3.2, 좁고 낮게 0.15·1.3, 없음 0.04·0.15(물속 기슭도 가파르게), 사석 0.38·2
     const edgeUp = { low: 0.15, none: 0.04 }[P.edge] ?? 0.38;
-    const crest = BANK[P.bank] || BANK.mid, low = wl + edgeUp, berm = BERM[P.berm] || 0, bermY = low + 0.2, foot = berm ? bermY : low;
+    const crest = BANK[P.bank] || BANK.mid, low = wl + edgeUp, berm = BERM[P.berm] || 0;
+    // 둔치 높이(수면 위 물가보다): 보통 0.2, 낮게 0.05, 수위보다 조금 위 = 그린 물높이 + 0.18, 높게·더 높게 = 제방 높이의 0.5·0.68. 둑마루보다는 낮게
+    const hb = P.bermH, bermY = Math.min(crest - 0.3, hb === "low" ? low + 0.05 : hb === "wl" ? Math.max(low + 0.2, wlTop + 0.18)
+      : hb === "high" ? Math.max(low + 0.2, crest * 0.5) : hb === "xhigh" ? Math.max(low + 0.2, crest * 0.68) : low + 0.2), foot = berm ? bermY : low;
     const run = VERT.has(P.rev) ? 0.12 : Math.max(0.4, (crest - foot) * (SLOPE[P.slope] || SLOPE.mid));
     const edgeRun = { riprap: 2, low: 1.3, none: 0.15 }[P.edge] ?? 3.2, uw = P.edge === "none" ? (bedU ? 0.9 : 0.35) : bedU ? 2.6 : 1.4, pts = [], z = {};
     let d = LANDW[P.landW] || LANDW.mid;
@@ -317,7 +322,7 @@
     z.land = [0, d];
     z.crest = [d, d + CRESTW]; d += CRESTW; pts.push([d, crest]);
     z.slope = [d, d + run]; d += run; pts.push([d, foot]);
-    if (berm) { z.berm = [d, d + berm]; d += berm; pts.push([d, bermY]); d += 0.7; pts.push([d, low]); }
+    if (berm) { z.berm = [d, d + berm]; d += berm; pts.push([d, bermY]); d += Math.max(0.7, (bermY - low) * 2); pts.push([d, low]); }
     z.edge = [d, d + edgeRun]; d += edgeRun; pts.push([d, wl]);
     const we = d;
     if (bedU) pts.push([d + uw * 0.35, wl * 0.45], [d + uw * 0.7, wl * 0.1]);
@@ -331,7 +336,9 @@
     const W = st.water, dry = W.d === "dry", over = W.d === "high" || W.d === "full", wl = dry ? 0.3 : over ? DEPTH.mid : DEPTH[W.d] || DEPTH.mid, bedU = W.bed !== "flat";
     // 사주·하중도: 물이 깊을수록 넓고 완만하게
     const barOn = W.bar !== "none" || needBar, bw = 7 + wl * 8, bs = 1.5 + wl * 4, WW = (WIDTH[W.w] || WIDTH.mid) + (barOn ? bw + 3 : 0);
-    const L = half(st.L, wl, bedU), Rt = half(st.R, wl, bedU);
+    // 그리는 물높이(더 깊게·제방 끝 가까이는 지형 물높이보다 높음) — 둔치 높이 「수위보다 조금 위」에 씀
+    const minCrest = Math.min(BANK[st.L.bank] || BANK.mid, BANK[st.R.bank] || BANK.mid), wlDraw = W.d === "full" ? minCrest - 0.14 : W.d === "high" ? Math.max(wl + 0.3, minCrest * 0.68) : wl;
+    const L = half(st.L, wl, bedU, wlDraw), Rt = half(st.R, wl, bedU, wlDraw);
     const bed = Math.max(1.5, WW - (L.end - L.we) - (Rt.end - Rt.we)), total = L.end + bed + Rt.end;
     const up = [...L.pts];
     const zones = {};
@@ -371,7 +378,6 @@
     const X = (u) => F.x + rx(u) * hs, Y = (v) => y0 - v * vs;
     const pts = up.map(([u, v]) => [X(u), Y(v)]);
     const zmm = Object.fromEntries(Object.entries(zones).map(([k, [a, b]]) => [k, [X(a), X(b)]]));
-    const minCrest = Math.min(L.crest, Rt.crest), wlDraw = W.d === "full" ? minCrest - 0.14 : W.d === "high" ? Math.max(wl + 0.3, minCrest * 0.68) : wl;
     const wlY = Y(wlDraw);
     // 물에 잠긴 구간(수면 아래 땅)
     const runs = [];
@@ -810,6 +816,6 @@
   // x(mm)의 땅 높이(그림 틀 밖이면 null)
   const groundAt = (fig, px) => { const { F, g } = pinGeom(fig); return px < F.x || px > F.x + F.w ? null : groundY(g.pts, px); };
 
-  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, BERMHS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();

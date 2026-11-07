@@ -2330,7 +2330,7 @@
       <div class="grid2">
         ${both("land", "제내지", X.LAND)}${both("landW", "제내지 폭", X.LANDWS)}
         ${txt("L.landText", st.L.landText, "좌안 제내지 글자", "비우면 종류 이름")}${txt("R.landText", st.R.landText, "우안 제내지 글자", "비우면 종류 이름")}
-        ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${both("edge", "물가", X.EDGES)}
+        ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${(st.L.berm || "none") !== "none" || (st.R.berm || "none") !== "none" ? both("bermH", "둔치 높이", X.BERMHS) : ""}${both("edge", "물가", X.EDGES)}
       </div>
       <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림 · 📍를 누르고 단면도를 누르면 그 자리에 직접 넣음</span></b>
       <div class="sec-veg">${st.veg.map((v, i) => { const np = X.pinsOf(v).length; return `
@@ -2383,7 +2383,7 @@
       if (t.dataset.sa === "pick") { if (A.mode === "sec-pin") stopArrow(); SF().cur = +t.value; renderSecPane(); renderPreview(); return; }
       if (t.dataset.sa === "preset") { if (t.value) { Section.applyPreset(Section.cur(SF()), t.value); renderSecPane(); renderPreview(); } return; }
       if (t.dataset.sk && t.type === "checkbox") { setKey(t.dataset.sk, t.checked); renderPreview(); return; }
-      if (t.dataset.sk && t.tagName === "SELECT") { setKey(t.dataset.sk, t.value); renderPreview(); return; }
+      if (t.dataset.sk && t.tagName === "SELECT") { setKey(t.dataset.sk, t.value); if (/\.berm$/.test(t.dataset.sk)) renderSecPane(); renderPreview(); return; }
       if (t.dataset.vk && t.tagName === "SELECT") {
         const v = Section.cur(SF()).veg[+t.closest("[data-vi]").dataset.vi];
         v[t.dataset.vk] = t.value;
