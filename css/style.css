@@ -28,12 +28,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sec-h .hint { font-weight: 400; }
 .sec-veg { display: flex; flex-direction: column; gap: 6px; }
 /* 식생 한 줄: 이름·자리·양·빼기 / 생활형(옆 칸이 좁아 두 줄로) */
-.sec-vrow { display: grid; grid-template-columns: 1fr 1.15fr 62px 30px; grid-template-areas: "name zone amt del" "form form form form"; gap: 4px; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
+.sec-vrow { display: grid; grid-template-columns: 1fr 1.15fr 62px 30px; grid-template-areas: "name zone amt del" "form form form pin"; gap: 4px; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
 .sec-vrow [data-vk="name"] { grid-area: name; }
 .sec-vrow [data-vk="zone"] { grid-area: zone; }
 .sec-vrow [data-vk="amt"] { grid-area: amt; }
 .sec-vrow [data-vk="form"] { grid-area: form; }
 .sec-vrow [data-sa="vdel"] { grid-area: del; padding: 4px 0; }
+.sec-vrow [data-sa="vpin"] { grid-area: pin; padding: 4px 0; }
+.sec-vrow .sec-pinned { grid-area: zone; padding: 4px 5px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d9480f; border-color: #ffc078; }
 .sec-vrow .input { padding: 6px 5px; font-size: 12.5px; }
 .sec-pane textarea.sec-note, .sec-pane textarea.sec-note::placeholder { font-family: inherit; font-size: 13px; }
 

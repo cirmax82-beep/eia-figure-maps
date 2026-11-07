@@ -275,6 +275,7 @@
       over.height = off.height;
       over.style.transform = "";
       S.last = { view: null, layout: Lo, cssW, cssH, k, fig: f };
+      drawArrowTemp();
       const st = Section.cur(f.sec);
       status(`${st.name || "지점"} · ${Lo.W}×${Lo.H} mm · 지점 ${f.sec.list.length}곳`);
     } catch (err) {
@@ -446,12 +447,20 @@
   const stopArrow = () => {
     A.mode = null;
     A.pts = [];
+    A.hover = null;
+    A.hoverZone = "";
+    $$('#sec-pane [data-sa="vpin"]').forEach((b) => b.classList.remove("on"));
     $("#pv-over").classList.remove("drawing");
     $("#arrow-bar").hidden = true;
     $$("[data-arrow], [data-lit], [data-fld], [data-occ]").forEach((b) => b.classList.remove("on"));
     drawArrowTemp();
   };
   const arrowMsg = () => {
+    if (A.mode === "sec-pin") {
+      const v = Section.cur(SF()).veg[A.target] || { name: "" }, n = Section.pinsOf(v).length;
+      $("#arrow-msg").textContent = `「${v.name.trim() || "식물"}」 자리: 단면도에서 누를 때마다 하나씩 넣습니다(지금 ${n}곳) · 오른쪽 버튼: 가까운 자리 지우기${A.hoverZone ? ` · ${A.hoverZone}` : ""}`;
+      return;
+    }
     if (A.mode === "fld-erase") { $("#arrow-msg").textContent = "지울 경로를 누르거나 문지르세요(빨간 원 크기만큼 지움) · 잘못 지우면 되돌리기(Ctrl+Z)"; return; }
     if (FLD_PT[A.mode]) { $("#arrow-msg").textContent = `${LIT_NAME[A.mode]}: 누를 때마다 하나씩 찍습니다(다음 ${nextLabel(FLD_PT[A.mode])})`; return; }
     if (A.mode && A.mode.startsWith("occ-")) {
@@ -467,6 +476,7 @@
       : `${arrowName(A.mode)} 점 ${A.pts.length}개${A.pts.length < n ? ` — ${n}개 이상 찍으세요${isLit(A.mode) || A.mode === "fld-line" ? "" : "(마지막 점이 화살 머리)"}` : ""}`;
   };
   const finishArrow = () => {
+    if (A.mode === "sec-pin") { stopArrow(); return; }
     // 현지조사 지점은 그만둘 때까지 누를 때마다 하나씩
     if (A.mode === "fld-erase") { stopArrow(); return; }
     // 출현 기록: 그만둘 때까지 점은 누를 때마다, 선·구역은 두 번 누를 때마다 하나씩
@@ -534,6 +544,23 @@
     const c = over.getContext("2d");
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, over.width, over.height);
+    // 하천식생단면도 자리 찍기: 찍은 자리(주황 핀)와 누를 자리(점선·빈 원)
+    if (A.mode === "sec-pin") {
+      if (!S.last || !S.last.fig || S.last.fig.kind !== "sec") return;
+      const { k, fig: f } = S.last;
+      c.setTransform(k, 0, 0, k, 0, 0);
+      Section.pinPoints(f, A.target).forEach(([x, y]) => {
+        c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - 2.4); c.lineWidth = 0.35; c.strokeStyle = "#d9480f"; c.stroke();
+        c.beginPath(); c.arc(x, y - 3.3, 1.05, 0, 2 * Math.PI); c.fillStyle = "#fd7e14"; c.fill(); c.lineWidth = 0.35; c.strokeStyle = "#ffffff"; c.stroke();
+      });
+      const gy = A.hover && Section.groundAt(f, A.hover[0]);
+      if (gy) {
+        const x = A.hover[0];
+        c.setLineDash([0.8, 0.6]); c.beginPath(); c.moveTo(x, S.last.layout.frame.y); c.lineTo(x, gy); c.lineWidth = 0.25; c.strokeStyle = "#d9480f"; c.stroke(); c.setLineDash([]);
+        c.beginPath(); c.arc(x, gy, 0.9, 0, 2 * Math.PI); c.fillStyle = "rgba(255,255,255,0.85)"; c.fill(); c.lineWidth = 0.35; c.strokeStyle = "#d9480f"; c.stroke();
+      }
+      return;
+    }
     if (!A.mode || !S.last || !S.last.view || !A.pts.length) return;
     const { view, k } = S.last;
     const pp = A.pts.map(([lon, lat]) => view.fromLL(lon, lat));
@@ -566,6 +593,7 @@
   const initArrow = () => {
     const over = $("#pv-over");
     over.addEventListener("click", (e) => {
+      if (A.mode === "sec-pin") { secPinClick(e); return; }
       if (!A.mode || !S.last || !S.last.view || A.mode === "fld-erase") return;
       const [px, py] = toPage(e);
       const ll = S.last.view.toLL(px, py);
@@ -579,11 +607,43 @@
       arrowMsg();
       drawArrowTemp();
     });
-    over.addEventListener("dblclick", (e) => { if (A.mode && !ONE_PT.includes(A.mode)) { e.preventDefault(); finishArrow(); } });
+    over.addEventListener("dblclick", (e) => { if (A.mode && A.mode !== "sec-pin" && !ONE_PT.includes(A.mode)) { e.preventDefault(); finishArrow(); } });
+    // 단면도 자리 찍기: 오른쪽 버튼은 가까운 자리 지우기, 커서 아래 자리(점선)·구간 이름 보이기
+    over.addEventListener("contextmenu", (e) => {
+      if (A.mode !== "sec-pin") return;
+      e.preventDefault();
+      const f = S.last && S.last.fig, v = f && f.kind === "sec" && Section.cur(f.sec).veg[A.target];
+      if (!v) return;
+      const [px, py] = toPage(e);
+      const best = Section.pinPoints(f, A.target).reduce((b, [x, y, i]) => { const d = Math.hypot(x - px, (y - py) * 0.35); return d < b[1] ? [i, d] : b; }, [-1, 6]);
+      if (best[0] < 0) { toast("지울 자리 가까이에서 오른쪽 버튼을 누르세요."); return; }
+      v.pos = Section.pinsOf(v).filter((_, i) => i !== best[0]);
+      afterPin();
+    });
+    let hoverRaf = 0;
+    over.addEventListener("mousemove", (e) => {
+      if (A.mode !== "sec-pin" || !S.last || !S.last.fig || S.last.fig.kind !== "sec") return;
+      A.hover = toPage(e);
+      if (hoverRaf) return;
+      hoverRaf = requestAnimationFrame(() => {
+        hoverRaf = 0;
+        if (A.mode !== "sec-pin" || !A.hover) return;
+        const p = Section.pinAt(S.last.fig, A.hover[0], A.hover[1]);
+        A.hoverZone = p ? (Section.ZONES.find(([z]) => z === p.z) || [, ""])[1] : "";
+        arrowMsg();
+        drawArrowTemp();
+      });
+    });
+    over.addEventListener("mouseleave", () => { if (A.mode === "sec-pin") { A.hover = null; A.hoverZone = ""; arrowMsg(); drawArrowTemp(); } });
     $$("[data-arrow]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.arrow ? stopArrow() : startArrow(b.dataset.arrow))));
     $$("[data-lit]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.lit ? stopArrow() : startArrow(b.dataset.lit))));
     $("#arrow-done").addEventListener("click", finishArrow);
     $("#arrow-undo").addEventListener("click", () => {
+      if (A.mode === "sec-pin") {
+        const v = Section.cur(SF()).veg[A.target], ps = Section.pinsOf(v);
+        if (ps.length) { v.pos = ps.slice(0, -1); afterPin(); }
+        return;
+      }
       const F = FF();
       if (A.mode === "fld-erase") { fieldUndo("erase"); return; }
       if (FLD_PT[A.mode]) { const i = F.points.map((x) => x.kind).lastIndexOf(FLD_PT[A.mode]); if (i >= 0) { F.points.splice(i, 1); arrowMsg(); renderFieldPane(); renderPreview(); } return; }
@@ -2272,15 +2332,16 @@
         ${txt("L.landText", st.L.landText, "좌안 제내지 글자", "비우면 종류 이름")}${txt("R.landText", st.R.landText, "우안 제내지 글자", "비우면 종류 이름")}
         ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${both("edge", "물가", X.EDGES)}
       </div>
-      <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림</span></b>
-      <div class="sec-veg">${st.veg.map((v, i) => `
+      <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림 · 📍를 누르고 단면도를 누르면 그 자리에 직접 넣음</span></b>
+      <div class="sec-veg">${st.veg.map((v, i) => { const np = X.pinsOf(v).length; return `
         <div class="sec-vrow" data-vi="${i}">
           <input class="input" data-vk="name" value="${esc(v.name)}" placeholder="식물 이름" list="sec-species">
-          <select class="input" data-vk="zone" title="자리">${secOpts(X.ZONES, v.zone)}</select>
+          ${np ? `<button class="btn ghost sec-pinned" data-sa="vunpin" title="찍은 자리를 모두 지우고 고른 위치·양대로 그림">찍은 자리 ${np}곳 ×</button>` : `<select class="input" data-vk="zone" title="자리">${secOpts(X.ZONES, v.zone)}</select>`}
           <select class="input" data-vk="form" title="생활형(그림 모양)">${secOpts(X.FORMS, v.form)}</select>
-          <select class="input" data-vk="amt" title="양">${secOpts(X.AMT, v.amt)}</select>
+          <select class="input" data-vk="amt" title="${np ? "찍은 자리마다 하나씩 그림" : "양"}"${np ? " disabled" : ""}>${secOpts(X.AMT, v.amt)}</select>
           <button class="btn ghost" data-sa="vdel" title="빼기">×</button>
-        </div>`).join("")}</div>
+          <button class="btn ghost${A.mode === "sec-pin" && A.target === i ? " on" : ""}" data-sa="vpin" title="단면도에서 눌러 자리를 직접 찍기(누를 때마다 하나씩, 오른쪽 버튼은 지우기)">📍</button>
+        </div>`; }).join("")}</div>
       <button class="btn ghost" data-sa="vadd">식생 더하기</button>
       <label class="row">아래 설명(줄마다 ◦를 붙임) <textarea class="input sec-note" data-sk="note" rows="3" placeholder="하천폭은 20 m 내외, 수폭은 7~12 m 내외이며 …">${esc(st.note)}</textarea></label>
       <b class="small sec-h">모양(모든 지점 같이)</b>
@@ -2319,7 +2380,7 @@
     });
     pane.addEventListener("change", (e) => {
       const t = e.target;
-      if (t.dataset.sa === "pick") { SF().cur = +t.value; renderSecPane(); renderPreview(); return; }
+      if (t.dataset.sa === "pick") { if (A.mode === "sec-pin") stopArrow(); SF().cur = +t.value; renderSecPane(); renderPreview(); return; }
       if (t.dataset.sa === "preset") { if (t.value) { Section.applyPreset(Section.cur(SF()), t.value); renderSecPane(); renderPreview(); } return; }
       if (t.dataset.sk && t.type === "checkbox") { setKey(t.dataset.sk, t.checked); renderPreview(); return; }
       if (t.dataset.sk && t.tagName === "SELECT") { setKey(t.dataset.sk, t.value); renderPreview(); return; }
@@ -2334,6 +2395,18 @@
       const b = e.target.closest("button[data-sa]");
       if (!b) return;
       const Q = SF(), a = b.dataset.sa;
+      if (a === "vpin") {
+        const vi = +b.closest("[data-vi]").dataset.vi;
+        if (A.mode === "sec-pin" && A.target === vi) stopArrow(); else startSecPin(vi);
+        return;
+      }
+      if (a === "vunpin") {
+        const vi = +b.closest("[data-vi]").dataset.vi, v = Section.cur(Q).veg[vi];
+        if (!confirm(`「${v.name.trim() || "식물"}」의 찍은 자리 ${Section.pinsOf(v).length}곳을 지우고 고른 위치·양대로 그릴까요?`)) return;
+        v.pos = [];
+        if (A.mode === "sec-pin" && A.target === vi) arrowMsg();
+      }
+      if (A.mode === "sec-pin" && a !== "vunpin" && a !== "vadd") stopArrow();
       if (a === "add") { Q.list.push(Section.newStation(Q.list.length + 1)); Q.cur = Q.list.length - 1; }
       if (a === "dup") { const c = JSON.parse(JSON.stringify(Section.cur(Q))); c.id = Section.newStation(0).id; c.name = `St.${Q.list.length + 1}`; Q.list.splice(Q.cur + 1, 0, c); Q.cur += 1; }
       if (a === "del") {
@@ -2347,6 +2420,33 @@
       renderSecPane();
       renderPreview();
     });
+  };
+  // 식생 하나의 자리를 단면도에서 직접 찍기(누를 때마다 하나씩)
+  const startSecPin = (vi) => {
+    const v = Section.cur(SF()).veg[vi];
+    if (!v) return;
+    if (!v.name.trim()) { toast("먼저 식물 이름을 적으세요."); return; }
+    if (A.mode) stopArrow();
+    if (S.view !== "preview") setView("preview");
+    A.mode = "sec-pin";
+    A.target = vi;
+    A.pts = [];
+    $("#pv-over").classList.add("drawing");
+    $("#arrow-bar").hidden = false;
+    $("#arrow-undo").textContent = "마지막 자리 지우기";
+    $$('#sec-pane [data-sa="vpin"]').forEach((b) => b.classList.toggle("on", +b.closest("[data-vi]").dataset.vi === vi));
+    arrowMsg();
+    drawArrowTemp();
+  };
+  const afterPin = () => { arrowMsg(); renderSecPane(); renderPreview(); };
+  const secPinClick = (e) => {
+    const f = S.last && S.last.fig, v = f && f.kind === "sec" && Section.cur(f.sec).veg[A.target];
+    if (!v) { stopArrow(); return; }
+    const [px, py] = toPage(e), p = Section.pinAt(f, px, py);
+    if (!p) { toast("단면 그림 틀 안을 누르세요."); return; }
+    if (Section.pinPoints(f, A.target).some(([x]) => Math.abs(x - px) < 0.8)) return;   // 두 번 누를 때 겹친 자리
+    v.pos = [...Section.pinsOf(v), p];
+    afterPin();
   };
   // ---------- 작업 파일(.json): 모든 도면의 설정·찍은 것(경로·조사지점·출현 기록·문헌 위치·축 화살표·고친 이름표 등)과 경계를
   // 사용자 컴퓨터에 파일로 저장하고, 용역 중에 고칠 때 그대로 다시 불러옴(서버에는 올리지 않음).
@@ -2475,6 +2575,7 @@
       if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); fieldRedo(); return; }
     }
     if (!A.mode) return;
+    if (A.mode === "sec-pin" && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
     if (e.key === "Enter") finishArrow();
     if (e.key === "Escape") stopArrow();
   });

@@ -413,9 +413,31 @@
 
   // ---------- 쪽 배치 ----------
   const zoneIdx = Object.fromEntries(ZONES.map(([k], i) => [k, i]));
+  // 직접 찍은 자리: 식생 줄의 pos = [{ z: 위치 구간, t: 구간 안 비율(0 왼쪽 끝 ~ 1 오른쪽 끝) }]. 수폭·경사·비율을 바꿔도 같은 지형(사면·물가 등)에 남음.
+  // 찍은 자리가 있으면 고른 위치·양 대신 찍은 자리마다 하나씩 그림
+  const PIN_ZONES = ["L-land", "L-crest", "L-slope", "L-berm", "L-edge", "L-water", "bar", "R-water", "R-edge", "R-berm", "R-slope", "R-crest", "R-land"];
+  const pinsOf = (v) => (v && Array.isArray(v.pos) ? v.pos.filter((p) => p && PIN_ZONES.includes(p.z) && Number.isFinite(p.t)) : []);
+  const order = (v) => { const ps = pinsOf(v); return ps.length ? Math.min(...ps.map((p) => zoneIdx[p.z] + Math.max(0, Math.min(0.98, p.t)))) : zoneIdx[v.zone] + 0.5; };
+  // 하중도·사주가 없어도 식생을 그곳에 두면(고른 위치·찍은 자리) 그림
+  const needBar = (items) => items.some((v) => (pinsOf(v).length ? pinsOf(v).some((p) => p.z === "bar") : v.zone === "bar"));
+  // 찍은 자리 → x(mm). 그 구간이 없어졌으면 둔치는 물가로, 하중도는 물 가운데로
+  const pinX = (g, p) => {
+    let r = g.zones[p.z];
+    if (!r && p.z.endsWith("-berm")) r = g.zones[p.z.replace("-berm", "-edge")];
+    if (!r && p.z === "bar") { const a = g.zones["L-water"][1], b = g.zones["R-water"][0]; r = a < b ? [a, b] : [(a + b) / 2, (a + b) / 2]; }
+    return r ? r[0] + (r[1] - r[0]) * p.t : null;
+  };
+  // x(mm) → 찍은 자리. 하중도 위가 먼저, 구간 사이 틈(둔치 끝 비탈·물 가운데)은 가장 가까운 구간
+  const pinOf = (g, x) => {
+    const list = PIN_ZONES.filter((k) => g.zones[k]), inside = (k) => x >= g.zones[k][0] - 1e-6 && x <= g.zones[k][1] + 1e-6;
+    let z = g.zones.bar && inside("bar") ? "bar" : list.find(inside);
+    if (!z) z = list.reduce((b, k) => { const [a, c] = g.zones[k], d = x < a ? a - x : x - c; return !b || d < b[1] ? [k, d] : b; }, null)[0];
+    const [a, b] = g.zones[z], t = b - a > 1e-6 ? (x - a) / (b - a) : 0.5;
+    return { z, t: Math.round(Math.max(-1, Math.min(2, t)) * 1000) / 1000 };
+  };
   // 쓰는 식생(이름이나 생활형이 있는 것) — 번호 차례: 왼쪽 위치부터, 같은 위치는 적은 차례
   const usedVeg = (st) => st.veg.map((v, i) => ({ ...v, i })).filter((v) => v.name.trim() && FORMS.some(([f]) => f === v.form) && zoneIdx[v.zone] !== undefined)
-    .sort((a, b) => zoneIdx[a.zone] - zoneIdx[b.zone] || a.i - b.i);
+    .sort((a, b) => order(a) - order(b) || a.i - b.i);
   const numbering = (st) => { const m = new Map(); usedVeg(st).forEach((v) => { const n = v.name.trim(); if (!m.has(n)) m.set(n, m.size + 1); }); return m; };
   // 아래 글(설명): 줄마다 앞에 ◦(이미 기호가 있으면 그대로), 폭에 맞춰 줄 나눔
   const wrap = (text, fs, maxW) => {
@@ -452,7 +474,7 @@
     // 하폭 : 제방 높이를 고른 좁은 하천(소하천 등)은 제내지를 늘려 채우지 않고 그림 폭을 줄임(높이는 그대로).
     // 제목·조사지점 줄이 들어갈 만큼은 남김
     if (!Wfit && +st.water.ratio > 0) {
-      const need = geom(st, Lo.frame, usedVeg(st).some((v) => v.zone === "bar")).need;
+      const need = geom(st, Lo.frame, needBar(usedVeg(st))).need;
       const minW = Math.max(70 * e0, textW(fig.title || "", 10.5 * e, 700) + 12 * e, info ? 105 * e : 0);
       const W2 = need ? Math.ceil(Math.max(minW, need + 2 * m)) : W0;
       if (W2 < W0 - 1) return layout(fig, W2);
@@ -480,7 +502,7 @@
     if (Lo.title) pen.text(fig.title, W / 2, m + Lo.info + Lo.title / 2 + 0.3 * e, { size: 10.5 * e, weight: 700, align: "center", base: "middle", color: "#111" });
 
     const items = usedVeg(st);
-    const g = geom(st, F, items.some((v) => v.zone === "bar"));
+    const g = geom(st, F, needBar(items));
     const GROUND = { soil: { fill: "#d9bb8f", line: "#6b4f2a" }, line: { fill: "#ffffff", line: ink }, hatch: { fill: "#ffffff", line: ink, hatch: true } }[S.ground] || { fill: "#d9bb8f", line: "#6b4f2a" };
     const occupied = [];
     const hit = (b) => occupied.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
@@ -488,7 +510,7 @@
     // 식생 자리: 같은 위치의 것끼리 위치 구간을 나눠 가짐. 제내지에 건물·도로 등이 있으면 둑 쪽 절반만
     const zoneOf = (z) => (z.endsWith("-berm") && !g.zones[z] ? z.replace("-berm", "-edge") : z);
     const byZone = new Map();
-    items.forEach((v) => { const z = zoneOf(v.zone); if (g.zones[z]) (byZone.get(z) || byZone.set(z, []).get(z)).push(v); });
+    items.forEach((v) => { const z = zoneOf(v.zone); if (g.zones[z] && !pinsOf(v).length) (byZone.get(z) || byZone.set(z, []).get(z)).push(v); });
     const plants = [];   // { v, form, x, y, h, kind: "one" | "vine" | "float", pts }
     byZone.forEach((list, z) => {
       let [a, b] = g.zones[z];
@@ -513,14 +535,28 @@
         }
       });
     });
-    const groups = new Map();   // 적은 식생 하나 → 기호들의 범위(이름표 자리)
+    // 직접 찍은 자리: 자리마다 하나씩. 가까이 모인 것끼리 이름표 하나(양쪽 기슭에 찍으면 이름표도 따로)
+    items.forEach((v) => {
+      const xs = pinsOf(v).map((p) => [pinX(g, p), p]).filter(([x]) => x !== null).sort((a, b) => a[0] - b[0]);
+      let gi = 0;
+      xs.forEach(([x0, p], k) => {
+        if (k && x0 - xs[k - 1][0] > 16 * s) gi += 1;
+        const x = Math.max(F.x + 0.3, Math.min(F.x + F.w - 0.3, x0)), R = rng(hash(`${st.id}|${v.i}|${v.name}|pin${k}`)), gk = `${v.i}:${gi}`;
+        if (v.form === "vine") { plants.push({ v, gk, form: "vine", pts: slice(g.pts, Math.max(F.x, x - 3.5 * s), Math.min(F.x + F.w, x + 3.5 * s)), R }); return; }
+        if (v.form === "floating") { if (!g.dry) plants.push({ v, gk, form: "floating", x, y: Math.min(g.wlY, groundY(g.pts, x)), R }); return; }
+        const y = groundY(g.pts, x), sub = g.dry ? 0 : Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * (0.88 + R() * 0.24);
+        const grow = sub > 0 && p.z.endsWith("-water");
+        plants.push({ v, gk, form: v.form, x, y, h: grow ? Math.max(h0, Math.min(sub + h0 * 0.55, h0 * 2.2)) : h0, R, wet: sub > 0 });
+      });
+    });
+    const groups = new Map();   // 적은 식생 하나(찍은 자리는 모인 자리마다) → 기호들의 범위(이름표 자리)
     const drawPlant = (p) => {
       const C = colors(p.form, p.v.name, mono);
       const r = p.form === "vine" ? vine(pen, p.pts, s, p.R, C, p.v.name) : p.form === "floating" ? floating(pen, p.x, p.y, s, p.R, C) : G[p.form](pen, p.x, p.y, p.h, p.R, C, p.v.name);
       const x0 = p.form === "vine" ? p.pts[0][0] : p.x - r.half, x1 = p.form === "vine" ? p.pts[p.pts.length - 1][0] : p.x + r.half;
-      const gr = groups.get(p.v.i) || { v: p.v, x0: Infinity, x1: -Infinity, top: Infinity, xs: [] };
+      const key = p.gk ?? p.v.i, gr = groups.get(key) || { v: p.v, x0: Infinity, x1: -Infinity, top: Infinity, xs: [] };
       gr.x0 = Math.min(gr.x0, x0); gr.x1 = Math.max(gr.x1, x1); gr.top = Math.min(gr.top, r.top); gr.xs.push(p.form === "vine" ? (x0 + x1) / 2 : p.x);
-      groups.set(p.v.i, gr);
+      groups.set(key, gr);
     };
     const byOrder = (a, b) => ORDER.indexOf(a.form) - ORDER.indexOf(b.form);
 
@@ -760,6 +796,20 @@
     return paint(pen, fig);
   };
 
-  window.Section = { RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  // 미리보기에서 누른 자리(용지 mm) → 찍은 자리(그림 틀 밖이면 null)
+  const pinGeom = (fig) => { const F = layout(fig).frame, st = cur(fig.sec); return { F, st, g: geom(st, F, needBar(usedVeg(st))) }; };
+  const pinAt = (fig, px, py) => {
+    const { F, g } = pinGeom(fig);
+    return px < F.x || px > F.x + F.w || py < F.y || py > F.y + F.h ? null : pinOf(g, px);
+  };
+  // 찍은 자리들의 땅 위치 [x, y, 차례](용지 mm) — 찍는 동안 표시·지우기
+  const pinPoints = (fig, vi) => {
+    const { st, g } = pinGeom(fig);
+    return pinsOf(st.veg[vi]).map((p, i) => { const x = pinX(g, p); return x === null ? null : [x, groundY(g.pts, x), i]; }).filter(Boolean);
+  };
+  // x(mm)의 땅 높이(그림 틀 밖이면 null)
+  const groundAt = (fig, px) => { const { F, g } = pinGeom(fig); return px < F.x || px > F.x + F.w ? null : groundY(g.pts, px); };
+
+  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();
