@@ -1469,7 +1469,7 @@
         } else if (kind === "line") {
           pen.path(parts, { stroke: "#ffffff", width: 1.7 * e, strokeOpacity: 0.8 });
           pen.path(parts, { stroke: col, width: 1 * e });
-        } else parts.forEach((p) => p.forEach(([x, y]) => dot(x, y, 1.5 * e, col)));
+        } else parts.forEach((p) => p.forEach(([x, y]) => { dot(x, y, 1.5 * e, col); if (inG(x, y)) occupied.push([x - 1.7 * e, y - 1.7 * e, x + 1.7 * e, y + 1.7 * e]); }));
         pen.unclip();
         // 유역처럼 넓은 구역(outline)은 가운데 번호표로는 어느 테두리인지 알기 어려워, 테두리 위 자리(격자 안, 사업지구 쪽부터)를 후보로 둠
         let edge = null;
@@ -1629,8 +1629,12 @@
           return true;
         });
         let found = !!onEdge;
-        if (!onEdge) for (const [dx, dy] of [[0, 0], [0, -h - 1], [0, h + 1], [w * 0.6, 0], [-w * 0.6, 0]]) {
-          const [bx, by] = keep(x + dx, y + dy);
+        const pt = m.kind === "point", g2 = 2.2 * e;
+        const tries = pt ? [[g2, -h / 2], [-g2 - w, -h / 2], [-w / 2, -g2 - h], [-w / 2, g2], [g2, -g2 - h], [g2, g2], [-g2 - w, -g2 - h], [-g2 - w, g2]].map(([dx, dy]) => [m.x + dx, m.y + dy])
+          : [[0, 0], [0, -h - 1], [0, h + 1], [w * 0.6, 0], [-w * 0.6, 0]].map(([dx, dy]) => [x + dx, y + dy]);
+        if (pt) for (let rr = 5 * e; rr <= 30 * e; rr += 2.5 * e) for (let k = 0; k < 16; k++) { const a = (k / 16) * 2 * Math.PI; tries.push([m.x + rr * Math.cos(a) - w / 2, m.y + rr * Math.sin(a) - h / 2]); }
+        if (!onEdge) for (const [cx, cy] of tries) {
+          const [bx, by] = keep(cx, cy);
           if (!boxHit([bx, by, bx + w, by + h], occupied)) { x = bx; y = by; found = true; break; }
         }
         if (!found && m.alt) for (const [px, py] of m.alt) {
@@ -1639,6 +1643,11 @@
         }
         occupied.push([x, y, x + w, y + h]);
         m.box = [x, y, x + w, y + h];
+        // 점에서 떨어진 번호표는 가는 이음선(점 가장자리 → 번호표)
+        if (pt) {
+          const qx = Math.max(x, Math.min(x + w, m.x)), qy = Math.max(y, Math.min(y + h, m.y)), d = Math.hypot(qx - m.x, qy - m.y);
+          if (d > 3.2 * e) pen.path([[[m.x + ((qx - m.x) / d) * 1.6 * e, m.y + ((qy - m.y) / d) * 1.6 * e], [qx, qy]]], { stroke: m.col, width: 0.3 * e });
+        }
         pen.path([[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]], { closed: true, fill: "#ffffff", fillOpacity: 0.95, stroke: m.col, width: 0.4 * e, join: "miter" });
         pen.text(t, x + w / 2, y + h / 2, { size: fs, weight: 700, align: "center", base: "middle", color: m.col });
       }));
@@ -1676,6 +1685,7 @@
           pen.path([[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]], { closed: true, fill: "#ffffff", fillOpacity: 0.9, stroke: col, width: 0.3 * e, join: "miter" });
           lines.forEach((ln, i) => pen.text(ln, x + padX, y + padY + lh * (i + 0.5), { size: fs, weight: 600, align: "left", base: "middle", color: col }));
         };
+        fig.spRows.forEach((r) => { if (r.kind !== "point") return; const [px, py] = P(...r.point); if (inG(px, py)) occupied.push([px - 1.5 * e, py - 1.5 * e, px + 1.5 * e, py + 1.5 * e]); });
         fig.spRows.forEach((r) => litLater.push(() => {
           if (r.kind === "cell") {
             // 칸 왼쪽 위, 칸 이름 아래(막히면 칸 안에서 3 mm씩 내려가며, 오른쪽으로도)
