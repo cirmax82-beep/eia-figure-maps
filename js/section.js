@@ -48,6 +48,15 @@
   const LANDWS = [["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
   const BEDS = [["u", "둥글게"], ["flat", "평평하게"]];
   const BARS = [["none", "없음"], ["left", "좌안 쪽"], ["center", "가운데"], ["right", "우안 쪽"]];
+  // 하중도·사주 높이·폭(물길 2개는 하중도를 둔치 높이쯤·넓게 해 물길을 둘로 나눔)
+  const BARHS = [["low", "낮게(수면 바로 위)"], ["mid", "보통"], ["high", "높게(둔치 높이쯤)"], ["wl", "수위보다 조금 위(안 잠기게)"], ["xhigh", "아주 높게(제방 절반쯤)"]];
+  const BARWS = [["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"], ["xwide", "아주 넓게"]];
+  const NCHS = [["1", "1개"], ["2", "2개(가운데 하중도·둔치)"]];
+  // 물길 위치: 한쪽으로 치우치면 반대쪽 둔치가 넓어지고, 한쪽 끝에 붙으면 붙은 쪽은 둔치·물가 없이 물이 호안까지(반대쪽 둔치가 아주 넓게)
+  const POSS = [["center", "가운데"], ["left", "좌안 쪽으로 치우침"], ["right", "우안 쪽으로 치우침"], ["attL", "좌안 끝에 붙음"], ["attR", "우안 끝에 붙음"]];
+  // 식물 크기(전체·식생 줄마다 — 둘을 곱함)
+  const PSIZES = [["s", "작게"], ["m", "보통"], ["l", "크게"], ["xl", "아주 크게"]];
+  const PSZ = { s: 0.75, m: 1, l: 1.3, xl: 1.6 };
   const SIZES = [["180x80", "가로 180×80 mm"], ["180x100", "가로 180×100 mm"], ["160x120", "가로 160×120 mm"], ["a4", "A4 가로(297×210 mm)"]];
   const SIZE_MM = { "180x80": [180, 80], "180x100": [180, 100], "160x120": [160, 120], a4: [297, 210] };
   const LABELS = [["name", "식물 이름"], ["num", "번호 + 아래 목록"]];
@@ -308,7 +317,7 @@
   const half = (P, wl, bedU, wlTop = wl) => {
     // 물가 높이(수면 위)·폭: 자연 0.38·3.2, 좁고 낮게 0.15·1.3, 없음 0.04·0.15(물속 기슭도 가파르게), 사석 0.38·2
     const edgeUp = { low: 0.15, none: 0.04 }[P.edge] ?? 0.38;
-    const crest = BANK[P.bank] || BANK.mid, low = wl + edgeUp, berm = BERM[P.berm] || 0;
+    const crest = BANK[P.bank] || BANK.mid, low = wl + edgeUp, berm = (BERM[P.berm] || 0) + (P.bermExtra || 0);
     // 둔치 높이(수면 위 물가보다): 보통 0.2, 낮게 0.05, 수위보다 조금 위 = 그린 물높이 + 0.18, 높게·더 높게 = 제방 높이의 0.5·0.68. 둑마루보다는 낮게
     const hb = P.bermH, bermY = Math.min(crest - 0.3, hb === "low" ? low + 0.05 : hb === "wl" ? Math.max(low + 0.2, wlTop + 0.18)
       : hb === "high" ? Math.max(low + 0.2, crest * 0.5) : hb === "xhigh" ? Math.max(low + 0.2, crest * 0.68) : low + 0.2), foot = berm ? bermY : low;
@@ -334,11 +343,21 @@
     // 건천은 물을 그리지 않고 지형만 얕은 물 높이로 잡음
     // 더 깊게·제방 끝 가까이는 지형(물가·둔치)은 보통 수심으로 잡고 물만 높이 채움(둔치·물가·사면 아래가 잠김)
     const W = st.water, dry = W.d === "dry", over = W.d === "high" || W.d === "full", wl = dry ? 0.3 : over ? DEPTH.mid : DEPTH[W.d] || DEPTH.mid, bedU = W.bed !== "flat";
-    // 사주·하중도: 물이 깊을수록 넓고 완만하게
-    const barOn = W.bar !== "none" || needBar, bw = 7 + wl * 8, bs = 1.5 + wl * 4, WW = (WIDTH[W.w] || WIDTH.mid) + (barOn ? bw + 3 : 0);
-    // 그리는 물높이(더 깊게·제방 끝 가까이는 지형 물높이보다 높음) — 둔치 높이 「수위보다 조금 위」에 씀
+    // 그리는 물높이(더 깊게·제방 끝 가까이는 지형 물높이보다 높음) — 둔치·하중도 높이 「수위보다 조금 위」에 씀
     const minCrest = Math.min(BANK[st.L.bank] || BANK.mid, BANK[st.R.bank] || BANK.mid), wlDraw = W.d === "full" ? minCrest - 0.14 : W.d === "high" ? Math.max(wl + 0.3, minCrest * 0.68) : wl;
-    const L = half(st.L, wl, bedU, wlDraw), Rt = half(st.R, wl, bedU, wlDraw);
+    // 사주·하중도: 높이(하상에서)·폭은 고른 대로(물이 깊을수록 넓게), 옆 비탈은 높을수록 길게
+    const barOn = W.bar !== "none" || needBar, bh = W.barH || "mid";
+    const barTop = Math.min(minCrest - 0.3, bh === "low" ? wl + 0.12 : bh === "high" ? wl + 0.58 : bh === "wl" ? Math.max(wl + 0.3, wlDraw + 0.18) : bh === "xhigh" ? Math.max(wl + 0.3, minCrest * 0.5) : wl + 0.3);
+    const bw = ({ narrow: 4 + wl * 5, wide: 13 + wl * 8, xwide: 22 + wl * 8 }[W.barW] || 7 + wl * 8), bs = Math.min(1.2 + barTop * 3.5, bw / 2 - 0.8);
+    const wW = WIDTH[W.w] || WIDTH.mid, WW = wW + (barOn ? bw + 3 : 0);
+    // 물길 위치: 반대쪽 둔치를 넓힘(붙음이면 붙은 쪽 둔치·물가 없앰)
+    const pos = W.pos || "center", far = { left: "R", attL: "R", right: "L", attR: "L" }[pos];
+    const side = { L: { ...st.L }, R: { ...st.R } };
+    if (far) {
+      side[far].bermExtra = /^att/.test(pos) ? 1.6 * wW + 8 : 0.8 * wW + 4;
+      if (/^att/.test(pos)) Object.assign(side[far === "R" ? "L" : "R"], { berm: "none", edge: "none" });
+    }
+    const L = half(side.L, wl, bedU, wlDraw), Rt = half(side.R, wl, bedU, wlDraw);
     const bed = Math.max(1.5, WW - (L.end - L.we) - (Rt.end - Rt.we)), total = L.end + bed + Rt.end;
     const up = [...L.pts];
     const zones = {};
@@ -350,7 +369,7 @@
     if (barOn) {
       const f = { left: 0.3, center: 0.5, right: 0.7 }[W.bar] || 0.5;
       const bc = Math.max(L.end + bw / 2 + 0.5, Math.min(L.end + bed - bw / 2 - 0.5, L.end + bed * f));
-      up.push([bc - bw / 2, 0], [bc - bw / 2 + bs, wl + 0.3], [bc + bw / 2 - bs, wl + 0.3], [bc + bw / 2, 0]);
+      up.push([bc - bw / 2, 0], [bc - bw / 2 + bs, barTop], [bc + bw / 2 - bs, barTop], [bc + bw / 2, 0]);
       zones.bar = [bc - bw / 2 + bs, bc + bw / 2 - bs];
       zones.barBase = [bc - bw / 2, bc + bw / 2];
     }
@@ -396,7 +415,7 @@
     if (dry) runs.length = 0;
     const wide = runs.reduce((b, r) => (!b || r[r.length - 1][0] - r[0][0] > b[b.length - 1][0] - b[0][0] ? r : b), null);
     if (wide) { const a = wide[0][0], b = wide[wide.length - 1][0]; zmm.surface = [a + (b - a) * 0.28, b - (b - a) * 0.28]; }
-    return { pts, zones: zmm, wlY, runs, wide, dry, need, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
+    return { pts, zones: zmm, wlY, runs, wide, dry, need, side, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
   };
   // x(mm)에서 땅 높이(y mm). 직립 호안처럼 같은 x가 둘이면 위쪽
   const groundY = (pts, x) => {
@@ -518,6 +537,8 @@
     const byZone = new Map();
     items.forEach((v) => { const z = zoneOf(v.zone); if (g.zones[z] && !pinsOf(v).length) (byZone.get(z) || byZone.set(z, []).get(z)).push(v); });
     const plants = [];   // { v, form, x, y, h, kind: "one" | "vine" | "float", pts }
+    // 식물 크기: 전체(모양) × 식생 줄마다
+    const fz = (v) => (PSZ[S.psize] || 1) * (PSZ[v.size] || 1);
     byZone.forEach((list, z) => {
       let [a, b] = g.zones[z];
       const sd = z[0], land = z.endsWith("-land") ? st[sd].land : "none";
@@ -527,14 +548,14 @@
       list.forEach((v, k) => {
         const a1 = a + ((b - a) * k) / list.length, b1 = a + ((b - a) * (k + 1)) / list.length, R = rng(hash(`${st.id}|${v.i}|${v.name}`));
         if (v.form === "vine") { plants.push({ v, form: "vine", pts: slice(g.pts, a1, b1), R }); return; }
-        const w = WIDE[v.form] * s, n0 = ["tree", "conifer", "shrub"].includes(v.form) ? { few: 1, mid: 2, many: 3 }[v.amt] || 2 : COUNT[v.amt] || 3;
+        const w = WIDE[v.form] * s * fz(v), n0 = ["tree", "conifer", "shrub"].includes(v.form) ? { few: 1, mid: 2, many: 3 }[v.amt] || 2 : COUNT[v.amt] || 3;
         const n = Math.max(1, Math.min(n0, Math.floor((b1 - a1) / (w * 0.5))));
         const narrow = z.endsWith("-slope") && b1 - a1 < 3;   // 직립 호안: 위(둑 가장자리)와 발치에 번갈아
         for (let i = 0; i < n; i++) {
           let x = n === 1 ? (a1 + b1) / 2 : a1 + ((i + 0.5) * (b1 - a1)) / n + (R() - 0.5) * ((b1 - a1) / n) * 0.3;
           if (narrow) x = (i % 2 === 0) === (sd === "L") ? a1 - 1.6 * s : b1 + 1.6 * s;
           if (v.form === "floating") { if (!g.dry) plants.push({ v, form: "floating", x, y: g.wlY, R }); continue; }
-          const y = groundY(g.pts, x), sub = g.dry ? 0 : Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * (0.88 + R() * 0.24);
+          const y = groundY(g.pts, x), sub = g.dry ? 0 : Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * fz(v) * (0.88 + R() * 0.24);
           // 물속 자리(하도에 뿌리)는 수면 위로 나오게 키우되(보통 키의 2.2배까지), 잠긴 둔치·물가·사면의 식생은 그대로(물에 잠김)
           const grow = sub > 0 && z.endsWith("-water");
           plants.push({ v, form: v.form, x, y, h: grow ? Math.max(h0, Math.min(sub + h0 * 0.55, h0 * 2.2)) : h0, R, wet: sub > 0 });
@@ -548,9 +569,9 @@
       xs.forEach(([x0, p], k) => {
         if (k && x0 - xs[k - 1][0] > 16 * s) gi += 1;
         const x = Math.max(F.x + 0.3, Math.min(F.x + F.w - 0.3, x0)), R = rng(hash(`${st.id}|${v.i}|${v.name}|pin${k}`)), gk = `${v.i}:${gi}`;
-        if (v.form === "vine") { plants.push({ v, gk, form: "vine", pts: slice(g.pts, Math.max(F.x, x - 3.5 * s), Math.min(F.x + F.w, x + 3.5 * s)), R }); return; }
+        if (v.form === "vine") { plants.push({ v, gk, form: "vine", pts: slice(g.pts, Math.max(F.x, x - 3.5 * s * fz(v)), Math.min(F.x + F.w, x + 3.5 * s * fz(v))), R }); return; }
         if (v.form === "floating") { if (!g.dry) plants.push({ v, gk, form: "floating", x, y: Math.min(g.wlY, groundY(g.pts, x)), R }); return; }
-        const y = groundY(g.pts, x), sub = g.dry ? 0 : Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * (0.88 + R() * 0.24);
+        const y = groundY(g.pts, x), sub = g.dry ? 0 : Math.max(0, y - g.wlY), h0 = SIZE[v.form] * s * fz(v) * (0.88 + R() * 0.24);
         const grow = sub > 0 && p.z.endsWith("-water");
         plants.push({ v, gk, form: v.form, x, y, h: grow ? Math.max(h0, Math.min(sub + h0 * 0.55, h0 * 2.2)) : h0, R, wet: sub > 0 });
       });
@@ -558,7 +579,7 @@
     const groups = new Map();   // 적은 식생 하나(찍은 자리는 모인 자리마다) → 기호들의 범위(이름표 자리)
     const drawPlant = (p) => {
       const C = colors(p.form, p.v.name, mono);
-      const r = p.form === "vine" ? vine(pen, p.pts, s, p.R, C, p.v.name) : p.form === "floating" ? floating(pen, p.x, p.y, s, p.R, C) : G[p.form](pen, p.x, p.y, p.h, p.R, C, p.v.name);
+      const r = p.form === "vine" ? vine(pen, p.pts, s * fz(p.v), p.R, C, p.v.name) : p.form === "floating" ? floating(pen, p.x, p.y, s * fz(p.v), p.R, C) : G[p.form](pen, p.x, p.y, p.h, p.R, C, p.v.name);
       const x0 = p.form === "vine" ? p.pts[0][0] : p.x - r.half, x1 = p.form === "vine" ? p.pts[p.pts.length - 1][0] : p.x + r.half;
       const key = p.gk ?? p.v.i, gr = groups.get(key) || { v: p.v, x0: Infinity, x1: -Infinity, top: Infinity, xs: [] };
       gr.x0 = Math.min(gr.x0, x0); gr.x1 = Math.max(gr.x1, x1); gr.top = Math.min(gr.top, r.top); gr.xs.push(p.form === "vine" ? (x0 + x1) / 2 : p.x);
@@ -601,7 +622,7 @@
     // 호안(제방 사면)·물가 사석
     const stoneSt = mono ? shape("#ffffff", ink, 0.18) : shape("#b9b6ae", "#555555", 0.18);
     const rev = (sd) => {
-      const P = st[sd], [a, b] = g.zones[`${sd}-slope`], top = [sd === "L" ? a : b, groundY(g.pts, sd === "L" ? a : b)], foot = sd === "L" ? [b, groundY(g.pts, b + 0.01)] : [a, groundY(g.pts, a - 0.01)];
+      const P = g.side[sd], [a, b] = g.zones[`${sd}-slope`], top = [sd === "L" ? a : b, groundY(g.pts, sd === "L" ? a : b)], foot = sd === "L" ? [b, groundY(g.pts, b + 0.01)] : [a, groundY(g.pts, a - 0.01)];
       const len = Math.hypot(foot[0] - top[0], foot[1] - top[1]) || 1, tx = (foot[0] - top[0]) / len, ty = (foot[1] - top[1]) / len;
       // 공기 쪽 법선(물 쪽 위), 땅 쪽은 반대
       const nx = sd === "L" ? ty : -ty, ny = sd === "L" ? -tx : tx, inx = -nx, iny = -ny;
@@ -816,6 +837,6 @@
   // x(mm)의 땅 높이(그림 틀 밖이면 null)
   const groundAt = (fig, px) => { const { F, g } = pinGeom(fig); return px < F.x || px > F.x + F.w ? null : groundY(g.pts, px); };
 
-  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, BERMHS, EDGES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, BERMHS, EDGES, BARHS, BARWS, NCHS, POSS, PSIZES, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();

@@ -2501,15 +2501,16 @@
       <div class="grid2">
         <label class="row" title="하폭(양쪽 둑마루 안쪽 끝 사이) : 제방 높이(하상~둑마루). 고르면 그 비율로 그림. 좁은 하천은 제내지를 ‘제내지 폭’대로 두고 그림 폭을 줄이고, 넓은 하천은 틀에 맞춰 세로를 줄임">하폭 : 제방 높이 <select class="input" data-sk="water.ratio">${secOpts(X.RATIOS, st.water.ratio || "auto")}</select></label><span></span>
         ${sel("water.w", X.WIDTHS, st.water.w, "수폭")}${sel("water.d", X.DEPTHS, st.water.d, "수심")}
+        ${sel("water.pos", X.POSS, st.water.pos || "center", "물길 위치")}${sel("water.n", X.NCHS, st.water.n || "1", "물길 수")}
         ${sel("water.bed", X.BEDS, st.water.bed, "하상 모양")}${sel("water.mat", X.MATS, st.water.mat || "none", "하상 재료")}
-        ${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}<span></span>
+        ${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}${st.water.bar !== "none" ? sel("water.barH", X.BARHS, st.water.barH || "mid", "하중도 높이") + sel("water.barW", X.BARWS, st.water.barW || "mid", "하중도 폭") + "<span></span>" : "<span></span>"}
         ${txt("water.hText", st.water.hText, "하폭 글자", "예: 약 20 m")}${txt("water.wText", st.water.wText, "수폭 글자", "예: 약 7 m")}
       </div>
       <b class="small sec-h">좌안 · 우안</b>
       <div class="grid2">
         ${both("land", "제내지", X.LAND)}${both("landW", "제내지 폭", X.LANDWS)}
         ${txt("L.landText", st.L.landText, "좌안 제내지 글자", "비우면 종류 이름")}${txt("R.landText", st.R.landText, "우안 제내지 글자", "비우면 종류 이름")}
-        ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${(st.L.berm || "none") !== "none" || (st.R.berm || "none") !== "none" ? both("bermH", "둔치 높이", X.BERMHS) : ""}${both("edge", "물가", X.EDGES)}
+        ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${(st.L.berm || "none") !== "none" || (st.R.berm || "none") !== "none" || (st.water.pos || "center") !== "center" ? both("bermH", "둔치 높이", X.BERMHS) : ""}${both("edge", "물가", X.EDGES)}
       </div>
       <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림 · 📍를 누르고 단면도를 누르면 그 자리에 직접 넣음</span></b>
       <div class="sec-veg">${st.veg.map((v, i) => { const np = X.pinsOf(v).length; return `
@@ -2517,6 +2518,7 @@
           <input class="input" data-vk="name" value="${esc(v.name)}" placeholder="식물 이름" list="sec-species">
           ${np ? `<button class="btn ghost sec-pinned" data-sa="vunpin" title="찍은 자리를 모두 지우고 고른 위치·양대로 그림">찍은 자리 ${np}곳 ×</button>` : `<select class="input" data-vk="zone" title="자리">${secOpts(X.ZONES, v.zone)}</select>`}
           <select class="input" data-vk="form" title="생활형(그림 모양)">${secOpts(X.FORMS, v.form)}</select>
+          <select class="input" data-vk="size" title="이 식물 크기(모양의 「식물 크기」와 곱함)">${secOpts(X.PSIZES, v.size || "m")}</select>
           <select class="input" data-vk="amt" title="${np ? "찍은 자리마다 하나씩 그림" : "양"}"${np ? " disabled" : ""}>${secOpts(X.AMT, v.amt)}</select>
           <button class="btn ghost" data-sa="vdel" title="빼기">×</button>
           <button class="btn ghost${A.mode === "sec-pin" && A.target === i ? " on" : ""}" data-sa="vpin" title="단면도에서 눌러 자리를 직접 찍기(누를 때마다 하나씩, 오른쪽 버튼은 지우기)">📍</button>
@@ -2527,7 +2529,7 @@
       <div class="grid2">
         ${sel("o.size", X.SIZES, Q.size, "크기")}${sel("o.label", X.LABELS, Q.label, "식물 표기")}
         ${sel("o.style", X.STYLES, Q.style, "그림")}${sel("o.ground", X.GROUNDS, Q.ground, "땅")}
-        ${sel("o.water", X.WATERS, Q.water, "물")}
+        ${sel("o.water", X.WATERS, Q.water, "물")}${sel("o.psize", X.PSIZES, Q.psize || "m", "식물 크기")}
       </div>
       <div class="checks">
         <label><input type="checkbox" data-sk="o.sides" ${Q.sides ? "checked" : ""}> 좌안·우안 글자</label>
@@ -2562,7 +2564,16 @@
       if (t.dataset.sa === "pick") { if (A.mode === "sec-pin") stopArrow(); SF().cur = +t.value; renderSecPane(); renderPreview(); return; }
       if (t.dataset.sa === "preset") { if (t.value) { Section.applyPreset(Section.cur(SF()), t.value); renderSecPane(); renderPreview(); } return; }
       if (t.dataset.sk && t.type === "checkbox") { setKey(t.dataset.sk, t.checked); renderPreview(); return; }
-      if (t.dataset.sk && t.tagName === "SELECT") { setKey(t.dataset.sk, t.value); if (/\.berm$/.test(t.dataset.sk)) renderSecPane(); renderPreview(); return; }
+      if (t.dataset.sk && t.tagName === "SELECT") {
+        setKey(t.dataset.sk, t.value);
+        // 물길 2개 = 가운데 하중도를 둔치 높이쯤·넓게(물길이 둘로 나뉨), 1개로 되돌리면 하중도 없앰
+        const W = Section.cur(SF()).water;
+        if (t.dataset.sk === "water.n") { if (t.value === "2") Object.assign(W, { bar: W.bar === "none" ? "center" : W.bar, barH: "high", barW: "wide" }); else W.bar = "none"; }
+        if (t.dataset.sk === "water.bar" && t.value === "none") W.n = "1";
+        if (/\.berm$|^water\.(n|bar|pos)$/.test(t.dataset.sk)) renderSecPane();
+        renderPreview();
+        return;
+      }
       if (t.dataset.vk && t.tagName === "SELECT") {
         const v = Section.cur(SF()).veg[+t.closest("[data-vi]").dataset.vi];
         v[t.dataset.vk] = t.value;
