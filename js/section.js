@@ -980,16 +980,15 @@
       occupied.push([(x0 + x1) / 2 - tw / 2 - 0.5, y - 0.6, (x0 + x1) / 2 + tw / 2 + 0.5, y + 0.7 * e + fs * PT + 0.5]);
     }
 
-    // 실측 방식: 축척 막대(가로 m)와 세로 과장(왼쪽 아래, 흰 상자) — 이름표가 피함
+    // 실측 방식: 축척 막대(가로 m, 왼쪽 아래 흰 상자 — 모양의 「축척 막대」로 켜고 끔) — 이름표가 피함
     if (real && S.sbar !== false && g.hs) {
       const L0 = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000].filter((n) => n * g.hs <= F.w * 0.2).pop() || 1, bw = L0 * g.hs, fs2 = 5.8 * e;
-      const note = g.real.vx > 1 ? `세로 ${fmt1(g.real.vx)}배 과장` : "가로·세로 같은 비율", tw = Math.max(bw + textW(" m", fs2) + 2 * e, textW(note, fs2));
-      const bx = F.x + 1.5 * e, bh = 9.5 * e, by = F.y + F.h - 1.5 * e - bh;
+      const tw = bw + textW(`${fmt1(L0)} m`, fs2) + 0.8 * e;
+      const bx = F.x + 1.5 * e, bh = 6.4 * e, by = F.y + F.h - 1.5 * e - bh;
       pen.path([[[bx, by], [bx + tw + 2.4 * e, by], [bx + tw + 2.4 * e, by + bh], [bx, by + bh]]], { closed: true, fill: "#ffffff", fillOpacity: 0.9, stroke: "#868e96", width: 0.15 * e });
-      const x0 = bx + 1.2 * e, yb = by + 3.6 * e, hb = 0.9 * e;
+      const x0 = bx + 1.2 * e, yb = by + 3.8 * e, hb = 0.9 * e;
       [0, 1].forEach((k) => pen.path([[[x0 + (k * bw) / 2, yb], [x0 + ((k + 1) * bw) / 2, yb], [x0 + ((k + 1) * bw) / 2, yb + hb], [x0 + (k * bw) / 2, yb + hb]]], { closed: true, fill: k ? "#ffffff" : ink, stroke: ink, width: 0.15 * e }));
       [[0, "0"], [0.5, fmt1(L0 / 2)], [1, `${fmt1(L0)} m`]].forEach(([t, lab]) => pen.text(lab, x0 + bw * t, yb - 0.5 * e, { size: fs2, align: t === 1 ? "left" : "center", base: "bottom", color: "#111" }));
-      pen.text(note, x0, by + bh - 1.2 * e, { size: fs2, align: "left", base: "bottom", color: "#333" });
       occupied.push([bx - 0.5, by - 0.5, bx + tw + 2.4 * e + 0.5, by + bh + 0.5]);
     }
     // 식생 이름표(이름) 또는 번호: 기호 위 가운데, 겹치면 위로 올리거나 옆으로
