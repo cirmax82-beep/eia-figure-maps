@@ -1842,28 +1842,65 @@
     return "";
   };
   const normName = (v) => String(v || "").replace(/[\s_()·ㆍ\-\[\]]+/g, "").toLowerCase();
+  // 육수 분류군 시트(이런 시트에만 쓰인 전국자연환경조사 문헌은 하천조사로 봄)
+  const AQUA_SHEET = /어류|저서|무척추|육수|수서|플랑크톤|부착|담수/;
   const readLitXlsx = async (file) => {
     await loadScript(LIB.xlsx, "XLSX");
     const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
     const pick = wb.SheetNames.find((n) => /문헌/.test(n)) || wb.SheetNames[0];
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[pick], { header: 1, defval: "" });
     const head = (rows[0] || []).map((v) => String(v).trim());
-    const iText = head.indexOf("문헌"), iCat = head.indexOf("구분");
+    const iText = head.indexOf("문헌"), iCat = head.indexOf("구분"), iNo = head.indexOf("문헌번호");
     if (iText < 0) throw new Error("‘문헌’ 열이 있는 문헌 목록 시트를 찾지 못했습니다(BioGrid EIA 문헌 엑셀인지 확인하세요).");
-    return rows.slice(1).map((r) => ({ text: stripNo(r[iText]), cat: iCat >= 0 ? String(r[iCat]).trim() : "" })).filter((r) => r.text);
+    // 분류군 시트 첫 줄의 「문헌조사_N」 → 문헌 N이 쓰인 시트
+    const used = new Map();
+    wb.SheetNames.filter((n) => n !== pick).forEach((n) => {
+      (XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: "" })[0] || []).forEach((v) => {
+        const m = String(v).match(/문헌조사\D*(\d+)/);
+        if (m) (used.get(+m[1]) || used.set(+m[1], new Set()).get(+m[1])).add(n);
+      });
+    });
+    return rows.slice(1).map((r, i) => {
+      const no = +((String(iNo >= 0 ? r[iNo] : "").match(/\d+/) || [i + 1])[0]), sh = used.get(no);
+      return { text: stripNo(r[iText]), cat: iCat >= 0 ? String(r[iCat]).trim() : "", aqua: !!sh && [...sh].every((n) => AQUA_SHEET.test(n)) };
+    }).filter((r) => r.text);
   };
+  // 「제4차 전국자연환경조사 임천, 2019, …」에서 조사 이름(임천). 괄호(도엽·유역 코드)는 뺌
+  const nesPlace = (t) => { const m = String(t).match(/전국자연환경조사\s*(?:육수(?:생물)?\s*)?([^,()]+?)\s*(?:\([^)]*\))?\s*,\s*(?:19|20)\d{2}/); return m ? m[1].trim() : ""; };
   // 문헌 이름으로 구분과 위치 찾기: 조류센서스 조사지역(이름)·내륙습지(습지명)·생물측정망(지점명, 같은 이름이면 9격자에 가까운 곳)·
   // 전국자연환경조사 하천조사(괄호 안 6자리가 도엽번호가 아니라 유역코드면 그 유역)
   const resolveLit = async (rows, grid) => {
     const sheetCodes = new Set((S.lit ? S.lit.sheets : []).map((x) => x[0]));
     const [cx, cy] = grid ? [(grid.bounds[0] + grid.bounds[2]) / 2, (grid.bounds[1] + grid.bounds[3]) / 2] : [127.5, 36];
     const has = (re) => rows.some((r) => re.test(r.text));
-    const [census, wetlands, stations, basins] = await Promise.all([
+    const nes = has(/전국자연환경조사/);
+    const [census, wetlands, stations, basins, bidx] = await Promise.all([
       has(/조류 동시 센서스/) ? Carto.litPlace("census") : [], has(/습지생물상|내륙습지/) ? Carto.litPlace("wetlands") : [],
-      has(/생물측정망/) ? Carto.litPlace("stations") : [], has(/전국자연환경조사/) ? Carto.litPlace("basins") : {}]);
+      has(/생물측정망/) ? Carto.litPlace("stations") : [], nes ? Carto.litPlace("basins") : {}, nes ? Carto.litPlace("basin_index").catch(() => ({})) : {}]);
     const wetBy = new Map(wetlands.map((w) => [normName(w[0]), w]));
     const area = (rings) => ({ kind: "area", parts: rings });
     const missing = [];
+    // 유역코드 없이 이름만 있는 전국자연환경조사(하천조사): 같은 이름이 다른 곳(도엽 등)에도 있을 수 있어 9격자에 걸치는 유역에서만 찾음.
+    // 이름·다른 이름이 같은 것 → 그 이름으로 시작하는 것(○○천상류 등) → 본류 하천이 같은 것, 여럿이면 9격자와 겹치는 범위가 넓은 것
+    const gb = grid && grid.bounds, gridNames = new Set(((grid && grid.cells) || []).map((c) => normName(c.name)));
+    const ovl = (bb) => Math.max(0, Math.min(bb[2], gb[2]) - Math.max(bb[0], gb[0])) * Math.max(0, Math.min(bb[3], gb[3]) - Math.max(bb[1], gb[1]));
+    const inRingLL = ([x, y], r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
+    const touchesGrid = (rings) => rings.some((r) => r.some(([x, y]) => x >= gb[0] && x <= gb[2] && y >= gb[1] && y <= gb[3]))
+      || [[gb[0], gb[1]], [gb[2], gb[1]], [gb[2], gb[3]], [gb[0], gb[3]], [(gb[0] + gb[2]) / 2, (gb[1] + gb[3]) / 2]].some((p) => rings.some((r) => inRingLL(p, r)));
+    const findBasin = async (q) => {
+      const nq = normName(q);
+      if (!gb || nq.length < 2) return null;
+      const near = Object.keys(bidx).filter((c) => basins[c] && ovl(bidx[c][2]) > 0);
+      const nm = (c) => normName(basins[c]), alt = (c) => normName(bidx[c][0]), str = (c) => normName(bidx[c][1]);
+      let cands = near.filter((c) => nm(c) === nq || alt(c) === nq);
+      if (!cands.length) cands = near.filter((c) => nm(c).startsWith(nq) || (alt(c) && alt(c).startsWith(nq)));
+      if (!cands.length) cands = near.filter((c) => str(c) === nq);
+      for (const c of cands.sort((a, b) => ovl(bidx[b][2]) - ovl(bidx[a][2]))) {
+        const b = await Carto.litBasin(c).catch(() => null);
+        if (b && touchesGrid(b[2])) return b;
+      }
+      return null;
+    };
     const items = await Promise.all(rows.map(async (r, i) => {
       const t = r.text, name = lastParen(t), it = { id: `xls:${i}:${t}`, src: "xls", cat: r.cat, text: t };
       if (/조류 동시 센서스/.test(t)) {
@@ -1882,7 +1919,13 @@
       } else if (/전국자연환경조사/.test(t) && /^\d{6}$/.test(name) && !sheetCodes.has(name) && basins[name]) {
         it.cat = it.cat || "전국자연환경조사 하천조사";
         try { const b = await Carto.litBasin(name); Object.assign(it, { geo: area(b[2]), geoKey: `basin|${name}`, color: XLS_COLORS.basin, outline: true }); } catch (_) { /* 모양 없음 */ }
-      } else if (/전국자연환경조사/.test(t)) it.cat = it.cat || "전국자연환경조사";
+      } else if (/전국자연환경조사/.test(t)) {
+        // 도엽 조사(괄호 안 도엽번호, 또는 육수 분류군에만 쓰인 게 아니면서 이름이 9격자 도엽 이름)는 칸으로, 나머지는 9격자 안 유역을 이름으로
+        const q = nesPlace(t), sheetLike = /^\d{6}$/.test(name) || (!r.aqua && gridNames.has(normName(q)));
+        const b = !sheetLike && q ? await findBasin(q) : null;
+        if (b) Object.assign(it, { cat: it.cat || "전국자연환경조사 하천조사", geo: area(b[2]), geoKey: `basin|${b[0]}`, color: XLS_COLORS.basin, outline: true });
+        else it.cat = it.cat || (r.aqua && !sheetLike ? "전국자연환경조사 하천조사" : "전국자연환경조사");
+      }
       if (!it.cat) it.cat = "기타";
       if (!it.geo && !["전국자연환경조사", "기타"].includes(it.cat)) missing.push(t);
       return it;

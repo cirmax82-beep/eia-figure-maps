@@ -42,7 +42,7 @@
 | 식생기후대 | 국립수목원(2020) 한국의 숲 Ⅵ 「한국 식생기후 분포도(KNA 2020)」 GIS 래스터(250 m, EPSG:5174) | `tools/build_vegclim.py`로 경위도 0.0025° 격자에 값 그대로(가까운 칸) 옮김, 색은 원본 그림 범례 색, `data/vegclim` |
 | 보호구역 위치도 | 보호구역 종합포털(protect.biogrideia.com) — 국토교통부 브이월드 2D 데이터 API·한국보호지역 통합DB(KDPA) | 이 사이트에 복사하지 않고 그릴 때 포털의 `data/index.json`과 9격자에 걸치는 구역의 `data/area/<구역 id>.json`만 받음 |
 | 문헌조사 위치도 도엽·격자 | BioGrid EIA 기준 1:25,000 도엽(국토지리정보원 INDEX_25000을 사용자가 고친 것, 경위도 2.5′ 칸) | `tools/build_lit.py`로 도엽 896장의 번호·이름·범위를 `data/lit/sheets.json`에(칸은 화면에서 3×3으로 나눔) |
-| 문헌조사 위치도 문헌 위치 | BioGrid EIA 원자료 폴더의 2025-2026 겨울철 조류 동시 센서스 조사지역 200곳, 국립생태원 내륙습지 2,704곳, 물환경정보 생물측정망 지점 3,722곳, 전국자연환경조사 육수 표준유역 850곳 | 같은 도구로 `data/lit/census.json`·`wetlands.json`·`stations.json`·`basins/<유역코드>.json`(조사지역·습지 2 m, 유역 15 m로 줄임) |
+| 문헌조사 위치도 문헌 위치 | BioGrid EIA 원자료 폴더의 2025-2026 겨울철 조류 동시 센서스 조사지역 200곳, 국립생태원 내륙습지 2,704곳, 물환경정보 생물측정망 지점 3,722곳, 전국자연환경조사 육수 표준유역 850곳 | 같은 도구로 `data/lit/census.json`·`wetlands.json`·`stations.json`·`basins/<유역코드>.json`(조사지역·습지 2 m, 유역 15 m로 줄임). 유역 찾기 목록 `basin_index.json`(다른 이름·본류 하천·범위, 수질오염총량 단위유역 TMDL GeoJSON으로 `tools/build_basin_index.py`) — 「제4차 전국자연환경조사 임천」처럼 유역코드 없이 이름만 있으면 9격자에 걸치는 유역에서만 이름 → 다른 이름 → 앞부분 → 본류 하천 순으로 찾음(도엽 이름과 같은 이름은 육수 분류군 시트에만 쓰인 문헌일 때만) |
 | 문헌조사 위치도 전국자연환경조사 문헌 | BioGrid EIA 원자료 폴더의 제5·6차 전국자연환경조사 파일 이름(「제6차 전국자연환경조사 가례(358094), 2025, 기후에너지환경부」) | 같은 도구로 도엽번호별 문헌 표기만 `data/lit/nes.json`에(파일 내용은 읽지 않음) |
 | 법정보호종 목록 | 멸종위기 야생생물 종목록(2023 고시)·천연기념물 — BioGrid EIA 정리 목록(`legal_protected_species.xlsx`) | `tools/build_legal.py`로 293종의 등급(Ⅰ·Ⅱ급)·천연기념물·분류군을 `data/legal_species.json`에(분류군은 목록 차례로 나눔, 두 등급에 다 적힌 그물공말·삼나무말은 Ⅱ급, 천연기념물 까막딱따구리 → 까막딱다구리, 점박이물범 → 물범으로 합침) |
 | 생태계교란 생물 목록 | 교란생물 종합관리(invasive.biogrideia.com)의 정리 목록(`js/data-species.js`) — 지정 고시로 확인 필요 | `tools/build_invasive.py`로 39종의 국명·분류군·학명을 `data/invasive_species.json`에(블루길 → 파랑볼우럭, 붉은귀거북 → 붉은귀거북속 전종) |
@@ -64,6 +64,7 @@
 ## 문헌조사 위치도 자료 갱신
 
 BioGrid EIA 작업 폴더(`웹서비스 개발`)의 기준 도엽이나 전국자연환경조사 원자료가 바뀌면 `python tools/build_lit.py "<웹서비스 개발 폴더>" data/lit`로 다시 만듭니다.
+그다음 `python tools/build_basin_index.py "<웹서비스 개발 폴더>/자료/공간정보/전국자연환경조사 육수/TMDL_41_layer_41.geojson" data/lit`로 유역 찾기 목록도 다시 만듭니다.
 
 ## 하천구역·소하천구역 갱신
 
