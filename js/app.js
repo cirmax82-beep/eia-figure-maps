@@ -834,6 +834,56 @@
     const F = FF();
     F.points.push({ id: `p${++F.pseq}`, kind, label: label || nextLabel(kind), pt: [+pt[0].toFixed(7), +pt[1].toFixed(7)] });
   };
+  // ---------- 조사지점 표(CSV·엑셀) ----------
+  // 구분(식생·육수·기타)·지점·위도·경도 열(도분초 34°46'56.48"N 또는 십진), 또는 동향·북향(EPSG:5186 m — 「조사지점 좌표(엑셀)」로 받은 파일).
+  // 한글 CSV는 UTF-8·EUC-KR(엑셀 기본) 모두. 같은 구분·이름의 지점은 새 좌표로 바꿈
+  const parseCoord = (v) => {
+    if (typeof v === "number") return v;
+    const s = String(v || "").trim(), nums = s.match(/\d+(?:\.\d+)?/g);
+    if (!nums) return NaN;
+    const [d, m = 0, sec = 0] = nums.map(Number), x = nums.length === 1 ? d : d + m / 60 + sec / 3600;
+    return /[SW]/i.test(s.replace(/[^A-Za-z]/g, "")) || /^[-−]/.test(s) ? -x : x;
+  };
+  const PT_COL = { kind: /^(구분|분류|종류|조사\s*구분|type)/i, label: /^(지점|지점\s*명|조사\s*지점|번호|이름|명칭|name|label|id)/i, lat: /위도|^lat|북위/i, lon: /경도|^lon|^lng|동경/i, x: /동향|easting|^x(\s|$|\()/i, y: /북향|northing|^y(\s|$|\()/i };
+  const importPointsTable = async (file) => {
+    await loadScript(LIB.xlsx, "XLSX");
+    const buf = await file.arrayBuffer();
+    let wb;
+    if (/^(csv|txt|tsv)$/.test(fext(file.name))) {
+      let text;
+      try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^﻿/, ""); } catch (_) { text = new TextDecoder("euc-kr").decode(buf); }
+      wb = XLSX.read(text, { type: "string", raw: true });
+    } else wb = XLSX.read(buf, { type: "array" });
+    // 시트마다 첫 15줄에서 위도·경도(또는 동향·북향) 열이 있는 줄을 머리글로
+    let rows = null, col = null, hi = -1;
+    for (const n of wb.SheetNames) {
+      const all = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: "", raw: false });
+      for (let i = 0; i < Math.min(15, all.length); i++) {
+        const h = all[i].map((v) => String(v).trim()), find = (re) => h.findIndex((t) => t && re.test(t));
+        const c = Object.fromEntries(Object.entries(PT_COL).map(([k, re]) => [k, find(re)]));
+        if ((c.lat >= 0 && c.lon >= 0) || (c.x >= 0 && c.y >= 0)) { rows = all; col = c; hi = i; break; }
+      }
+      if (rows) break;
+    }
+    if (!rows) throw new Error("위도·경도(또는 동향·북향) 열이 있는 머리글 줄을 찾지 못했습니다. 첫 줄에 구분·지점·위도·경도를 적어 주세요.");
+    const F = FF(), tm = col.x >= 0 && col.y >= 0 ? proj4(U.crsDef("5186"), "WGS84") : null, bad = [], count = { veg: 0, water: 0, etc: 0 };
+    let added = 0, moved = 0;
+    rows.slice(hi + 1).forEach((r, i) => {
+      if (!r.some((v) => String(v).trim())) return;
+      const kindT = col.kind >= 0 ? String(r[col.kind]).trim() : "", label = col.label >= 0 ? String(r[col.label]).trim() : "";
+      let lat = col.lat >= 0 ? parseCoord(r[col.lat]) : NaN, lon = col.lon >= 0 ? parseCoord(r[col.lon]) : NaN;
+      if (!(Number.isFinite(lat) && Number.isFinite(lon)) && tm) {
+        const x = parseFloat(String(r[col.x]).replace(/,/g, "")), y = parseFloat(String(r[col.y]).replace(/,/g, ""));
+        if (Number.isFinite(x) && Number.isFinite(y)) [lon, lat] = tm.forward([x, y]);
+      }
+      if (lat > 90 && lon < 90) [lat, lon] = [lon, lat];   // 위도·경도 칸이 바뀐 것
+      if (!(lat >= 30 && lat <= 45 && lon >= 120 && lon <= 135)) { bad.push(`${hi + i + 2}줄${label ? `(${label})` : ""}`); return; }
+      const kind = guessPtKind(`${kindT} ${label}`), same = label && F.points.find((p) => p.kind === kind && p.label === label);
+      if (same) { same.pt = [+lon.toFixed(7), +lat.toFixed(7)]; moved++; } else { addPoint(kind, [lon, lat], label); added++; }
+      count[kind]++;
+    });
+    return { added, moved, bad, count };
+  };
   // 조사원 경로 파일(여러 개, KMZ·zip은 풀어서). 경로 없이 지점만 든 파일(조사지점 KML 등)은 조사지점으로
   const importTracks = async (files) => {
     const F = FF(), items = [], bad = [];
@@ -1115,6 +1165,22 @@
       F.points = F.points.filter((x) => x.id !== row.dataset.id);
       renderFieldPane();
       renderPreview();
+    });
+    $("#f-pts-file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const r = await importPointsTable(file), n = r.added + r.moved;
+        renderFieldPane();
+        if (site()) renderPreview();
+        const by = Object.entries(r.count).filter(([, c]) => c).map(([k, c]) => `${FIELD_PTS[k][0]} ${c}`).join("·");
+        toast(n ? `조사지점 ${n}곳(${by})을 넣었습니다${r.moved ? ` — 같은 이름 ${r.moved}곳은 좌표만 바꿈` : ""}.${r.bad.length ? ` 좌표를 읽지 못한 줄: ${r.bad.slice(0, 5).join(", ")}${r.bad.length > 5 ? " 등" : ""}` : ""}${site() ? "" : " 도면은 사업지구 경계를 넣으면 보입니다."}`
+          : `넣을 조사지점이 없습니다.${r.bad.length ? ` 좌표를 읽지 못한 줄: ${r.bad.slice(0, 5).join(", ")}` : ""}`, 5000);
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "조사지점 파일을 읽지 못했습니다.");
+      }
     });
     $("#f-save").addEventListener("click", saveField);
     $("#f-load").addEventListener("change", async (e) => {

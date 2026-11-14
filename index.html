@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261114i">
+<link rel="stylesheet" href="css/style.css?v=20261114j">
 </head>
 <body>
 <header class="top">
@@ -231,9 +231,10 @@
             <button class="btn ghost" data-fld="fld-veg"><i class="f-sym f-sym-veg"></i>식생 St.</button>
             <button class="btn ghost" data-fld="fld-water"><i class="f-sym f-sym-water"></i>육수 W.</button>
             <button class="btn ghost" data-fld="fld-etc"><i class="f-sym f-sym-etc"></i>기타</button>
+            <label class="btn ghost" title="구분(식생·육수·기타)·지점·위도·경도 열이 있는 CSV·엑셀 — 위도·경도는 도분초(34°46'56.48&quot;N)나 십진, 또는 동향·북향(EPSG:5186)">CSV·엑셀로 넣기<input type="file" id="f-pts-file" accept=".csv,.txt,.xlsx,.xls" hidden></label>
           </div>
           <div id="f-points" class="lit-list"></div>
-          <p class="hint">미리보기 도면을 누를 때마다 St.1, St.2 … 차례로 찍힙니다. 이름은 목록에서 고칩니다.</p>
+          <p class="hint">미리보기 도면을 누를 때마다 St.1, St.2 … 차례로 찍힙니다. 이름은 목록에서 고칩니다. 좌표 표는 「CSV·엑셀로 넣기」로 — 첫 줄 구분·지점·위도·경도(군락명·비고 등 다른 열은 그대로 둬도 됨), 같은 이름이 있으면 좌표만 바꿉니다.</p>
         </div>
         <div class="btns">
           <button class="btn ghost" id="f-save">저장(파일)</button>
@@ -400,11 +401,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261114i"></script>
-<script src="js/input.js?v=20261114i"></script>
-<script src="js/render.js?v=20261114i"></script>
-<script src="js/section.js?v=20261114i"></script>
-<script src="js/field.js?v=20261114i"></script>
-<script src="js/app.js?v=20261114i"></script>
+<script src="js/util.js?v=20261114j"></script>
+<script src="js/input.js?v=20261114j"></script>
+<script src="js/render.js?v=20261114j"></script>
+<script src="js/section.js?v=20261114j"></script>
+<script src="js/field.js?v=20261114j"></script>
+<script src="js/app.js?v=20261114j"></script>
 </body>
 </html>
