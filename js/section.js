@@ -482,7 +482,10 @@
         hE: Math.min({ low: 0.1, none: 0.02, wall: 0.3 }[edge] ?? 0.3, H - D - 0.05), n: Math.max(0.05, num(R[`n${sd}`], 2)) };
     });
     const foot = (p) => D + (p.Lb > 0 ? p.hb : p.hE);
-    const run = (p) => (p.vert ? Math.max(0.05, (p.H - foot(p)) * 0.04) : (p.H - foot(p)) * p.n);
+    // 사면 가로 길이: 직립 호안(돌쌓기·옹벽)은 수직(0), 나머지는 높이 × n
+    const run = (p) => (p.vert ? 0 : (p.H - foot(p)) * p.n);
+    // 수직 기슭(직립 호안·물가 옹벽·맞춤으로 사면이 수직이 된 쪽)은 물속도 수직으로 내려감(네모난 단면)
+    const sheer = (p) => p.vert || p.edge === "wall" || p.n < 0.02;
     // 하폭·수폭이 먼저: 하폭 − 수폭(− 하중도) 안에 사면·둔치가 들지 않으면 ① 둔치를 줄이고(0까지) ② 사면을 가파르게(1:n의 n을 줄여 직립 가까이)
     // ③ 그래도 안 되면(수폭이 하폭과 같거나 넓음 등) 하폭을 늘려 그림. 실제로 그린 값은 applied로 알림
     const B = Math.max(1, num(R.B, 30)), n0 = { L: P.L.n, R: P.R.n };
@@ -491,10 +494,10 @@
       const lb = P.L.Lb + P.R.Lb, cut = Math.min(lb, -rem);
       if (cut > 0) { const k = (lb - cut) / lb; P.L.Lb *= k; P.R.Lb *= k; rem += cut; }
       if (rem < -1e-6) {
-        // 둔치가 없어지면 사면 발치가 물가 높이로 내려가 사면이 길어지므로 다시 셈
+        // 둔치가 없어지면 사면 발치가 물가 높이로 내려가 사면이 길어지므로 다시 셈. 사면은 수직(1:0)까지
         rem = B - run(P.L) - run(P.R) - P.L.Lb - P.R.Lb - Wd - barW;
         const S = run(P.L) + run(P.R), k = S > 0 ? Math.max(0, (S + rem) / S) : 0;
-        ["L", "R"].forEach((sd) => { if (!P[sd].vert) P[sd].n = Math.max(0.05, P[sd].n * k); });
+        ["L", "R"].forEach((sd) => { if (!P[sd].vert) P[sd].n = Math.max(0, P[sd].n * k); });
         rem = B - run(P.L) - run(P.R) - P.L.Lb - P.R.Lb - Wd - barW;
       }
       if (rem < -1e-6) { warn.push(`수폭이 하폭에 비해 넓어 사면을 거의 직립으로 해도 ${fmt1(-rem)} m 모자라, 하폭을 늘려 그렸습니다.`); rem = 0; }
@@ -503,7 +506,7 @@
     const wt = (p) => (p.edge === "none" || p.edge === "wall" ? 0 : 1), ws = wt(P.L) + wt(P.R);
     if (ws) { P.L.e = (rem * wt(P.L)) / ws; P.R.e = (rem * wt(P.R)) / ws; } else { P.L.e = P.R.e = 0; P.L.Lb += rem / 2; P.R.Lb += rem / 2; }
     // 물속 기슭: 둥근 바닥은 수심의 3배·평평하면 1.5배(수폭의 30%까지), 옹벽은 수직
-    const uw = (p) => (p.edge === "wall" ? 0.02 : Math.min(Wd * 0.3, D * (bedU ? 3 : 1.5)));
+    const uw = (p) => (sheer(p) ? 0.02 : Math.min(Wd * 0.3, D * (bedU ? 3 : 1.5)));
     const hill = (sd) => (side[sd].land === "mountain" ? Math.max(0.5, P[sd].H * 0.35) : 0);
     // 한쪽 꺾은선(바깥 0 → 하상): 제내지(가상 폭 1 — 그릴 때 고른 mm로) → 둑마루 → 사면 → 둔치 → 물가 → 물속 기슭
     const build = (sd) => {
@@ -517,7 +520,7 @@
       const w0 = d, e = Math.max(wt(p) ? 0 : 0.02, p.e);
       z.edge = [d, d + e]; d += e; pts.push([d, D]);
       const we = d, u = uw(p);
-      if (bedU && p.edge !== "wall") pts.push([d + u * 0.35, D * 0.45], [d + u * 0.7, D * 0.1]);
+      if (bedU && !sheer(p)) pts.push([d + u * 0.35, D * 0.45], [d + u * 0.7, D * 0.1]);
       d += u;
       pts.push([d, 0]);
       return { pts, z, we, end: d, top: p.H + h, wall: p.edge === "wall" ? { x0: w0, y0: f, x1: d } : null };
@@ -576,7 +579,7 @@
     if (wide) { const a = wide[0][0], b = wide[wide.length - 1][0]; zmm.surface = [a + (b - a) * 0.28, b - (b - a) * 0.28]; }
     const Beff = zones["R-slope"][1] - zones["L-slope"][0];
     // 그린 값(입력과 다르게 맞춘 것 표시): 사면 경사·둔치 길이·물가 폭
-    const nTxt = (sd) => `1:${fmt1(P[sd].n)}${Math.abs(P[sd].n - n0[sd]) > 0.01 ? "(맞춤)" : ""}`;
+    const nTxt = (sd) => `${P[sd].n < 0.02 ? "직립" : `1:${fmt1(P[sd].n)}`}${Math.abs(P[sd].n - n0[sd]) > 0.01 ? "(맞춤)" : ""}`;
     const applied = `그린 값 — 사면 좌 ${P.L.vert ? "직립" : nTxt("L")}·우 ${P.R.vert ? "직립" : nTxt("R")}, 둔치 좌 ${fmt1(P.L.Lb)} m·우 ${fmt1(P.R.Lb)} m, 물가 좌 ${fmt1(P.L.e)} m·우 ${fmt1(P.R.e)} m${Math.abs(Beff - B) > 0.05 ? `, 하폭 ${fmt1(Beff)} m` : ""}`;
     return { pts, zones: zmm, wlY, runs, wide, dry, needH, vs, hs, bankMM: Math.max(P.L.H, P.R.H) * vs, side, walls, warn, applied,
       real: { B: Beff, W: Wd, D, HL: P.L.H, HR: P.R.H, vx },
