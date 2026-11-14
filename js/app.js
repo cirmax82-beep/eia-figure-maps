@@ -285,6 +285,9 @@
       drawArrowTemp();
       const st = Section.cur(f.sec);
       status(`${out && out.warn && out.warn.length ? `${out.warn.join(" ")} · ` : ""}${st.name || "지점"} · ${Math.round(Lo.W)}×${Math.round(Lo.H)} mm · 지점 ${f.sec.list.length}곳`);
+      // 실측 방식: 하폭·수폭에 맞춰 실제로 그린 사면·둔치·물가 값
+      const ap = $("#sec-applied");
+      if (ap) ap.textContent = (out && out.applied) || "";
     } catch (err) {
       console.error(err);
       if (my === gen) status(err.message || "단면도를 그리지 못했습니다.");
@@ -2498,8 +2501,8 @@
         <select class="input" data-sa="pick" title="조사지점">${Q.list.map((x, i) => `<option value="${i}"${i === Q.cur ? " selected" : ""}>${esc(x.name || `지점 ${i + 1}`)}</option>`).join("")}</select>
         <button class="btn ghost" data-sa="add">추가</button><button class="btn ghost" data-sa="dup" title="고른 지점을 그대로 하나 더">복제</button><button class="btn ghost" data-sa="del">빼기</button>
       </div>
-      <label class="row" title="실측 값으로: 하폭·수폭·수심·제방 높이·둔치 길이(m)를 넣으면 그 비율대로 그림(세로는 고른 배수만큼 과장). 개념도: 단계를 골라 지형 특징만">그리는 방식 <select class="input" data-sk="mode">${secOpts(X.MODES, real ? "real" : "concept")}</select></label>
-      <p class="hint">${real ? "넣은 m 값의 비율대로 그립니다(물가 폭은 하폭에서 사면·둔치·수폭을 뺀 나머지). 세로는 「세로 과장」배만큼 키워 그리고 그림에 적습니다." : "측량 단면이 아니라 지형 특징을 나타내는 개념도입니다."} 조사지점마다 만들고 고른 지점을 PNG·PDF·SVG로 받습니다. 좌안·우안은 하류 방향을 보고 왼쪽·오른쪽입니다.</p>
+      <label class="row" title="실측 값으로: 하폭·수폭·수심·제방 높이·둔치 길이(m)를 넣으면 가로·세로 같은 비율로 그림. 개념도: 단계를 골라 지형 특징만">그리는 방식 <select class="input" data-sk="mode">${secOpts(X.MODES, real ? "real" : "concept")}</select></label>
+      <p class="hint">${real ? "넣은 m 값을 가로·세로 같은 비율(실제 비율)로 그립니다. 하폭·수폭이 먼저이고, 하폭 − 수폭 안에 사면·둔치가 들지 않으면 둔치를 줄이고 그래도 안 되면 사면을 가파르게 맞춥니다(남는 폭은 물가)." : "측량 단면이 아니라 지형 특징을 나타내는 개념도입니다."} 조사지점마다 만들고 고른 지점을 PNG·PDF·SVG로 받습니다. 좌안·우안은 하류 방향을 보고 왼쪽·오른쪽입니다.</p>
       <div class="grid2">${txt("name", st.name, "조사지점", "St.1")}${txt("river", st.river, "하천명", "○○천")}</div>
       <label class="row">위치 <input class="input" data-sk="loc" value="${esc(st.loc)}" placeholder="N 35°43′31.8″ E 126°39′57.5″"></label>
       <b class="small sec-h">하도</b>
@@ -2507,8 +2510,8 @@
       ${real ? `<div class="grid2">
         ${nin("B", RV.B, "하폭(둑마루 안쪽 끝 사이)")}${nin("W", RV.W, "수폭")}
         ${nin("D", RV.D, "수심(가장 깊은 곳)")}${nin("cw", RV.cw, "둑마루 폭")}
-        ${sel("real.vx", X.VXS, String(RV.vx), "세로 과장")}${sel("water.bed", X.BEDS, st.water.bed, "하상 모양")}
-        ${sel("water.mat", X.MATS, st.water.mat || "none", "하상 재료")}${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}
+        ${sel("water.bed", X.BEDS, st.water.bed, "하상 모양")}${sel("water.mat", X.MATS, st.water.mat || "none", "하상 재료")}
+        ${sel("water.bar", X.BARS, st.water.bar, "하중도·사주")}<span></span>
         ${st.water.bar !== "none" ? nin("barW", RV.barW, "하중도 폭") + nin("barH", RV.barH, "하중도 높이(수면 위)") : ""}
         ${txt("water.hText", st.water.hText, "하폭 글자", "비우면 넣은 값")}${txt("water.wText", st.water.wText, "수폭 글자", "비우면 넣은 값")}
       </div>
@@ -2528,17 +2531,19 @@
         ${both("rev", "호안", X.REV)}${sel("real.nL", X.NS, String(RV.nL), "좌안 사면 경사")}${sel("real.nR", X.NS, String(RV.nR), "우안 사면 경사")}
         ${nin("bL", RV.bL, "좌안 둔치 길이(호안 끝에서)")}${nin("bR", RV.bR, "우안 둔치 길이(호안 끝에서)")}
         ${nin("hbL", RV.hbL, "좌안 둔치 높이(수면 위)")}${nin("hbR", RV.hbR, "우안 둔치 높이(수면 위)")}
-        ${both("edge", "물가", X.EDGES)}`
+        ${both("edge", "물가", X.EDGES)}
+        <p class="hint sec-applied" id="sec-applied" title="하폭·수폭이 먼저: 하폭 − 수폭 안에 사면·둔치가 들지 않으면 둔치를 줄이고, 그래도 안 되면 사면을 가파르게 맞춤. 남는 폭은 물가"></p>`
     : `${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${(st.L.berm || "none") !== "none" || (st.R.berm || "none") !== "none" || (st.water.pos || "center") !== "center" ? both("bermH", "둔치 높이", X.BERMHS) : ""}${both("edge", "물가", X.EDGES)}`}
       </div>
       <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림 · 📍를 누르고 단면도를 누르면 그 자리에 직접 넣음</span></b>
-      ${real ? `<p class="hint">식물은 종·생활형별 실제 키(버드나무 9 m, 갈대 2.5 m, 쑥 1 m 등)로 그립니다. 줄마다 키(m)를 적으면 그 값으로.</p>` : `<label class="row" title="자동은 지형 세로 배율에 맞춘 크기. 배수를 고르면 교목 높이가 제방 높이 × 배수(다른 식물은 같은 비율) — 소하천은 나무가 제방보다 높은 일이 많음">나무 높이(제방 대비) <select class="input" data-sk="treeRef">${secOpts(X.TREEREFS, st.treeRef || "auto")}</select></label>`}
+      ${real ? `<p class="hint">식물은 종·생활형별 실제 키(버드나무 9 m, 갈대 2.5 m, 쑥 1 m 등)로 그립니다. 줄마다 키(m)를 적으면 그 값으로, 「교목 키」를 적으면 키를 따로 적지 않은 교목·침엽수 모두 그 키로. 전체를 줄이려면 모양의 「식물 크기」.</p>
+      <label class="row" title="키를 따로 적지 않은 교목·침엽수의 키(m). 비우면 종 기본(버드나무 9 m, 왕버들 10 m, 소나무 12 m 등)">교목 키 <span class="nin"><input class="input" type="number" step="0.5" min="0" data-sk="real.treeH" value="${esc(String(RV.treeH ?? ""))}" placeholder="비우면 종 기본(버드나무 9 m 등)"><i>m</i></span></label>` : `<label class="row" title="자동은 지형 세로 배율에 맞춘 크기. 배수를 고르면 교목 높이가 제방 높이 × 배수(다른 식물은 같은 비율) — 소하천은 나무가 제방보다 높은 일이 많음">나무 높이(제방 대비) <select class="input" data-sk="treeRef">${secOpts(X.TREEREFS, st.treeRef || "auto")}</select></label>`}
       <div class="sec-veg">${st.veg.map((v, i) => { const np = X.pinsOf(v).length; return `
         <div class="sec-vrow" data-vi="${i}">
           <input class="input" data-vk="name" value="${esc(v.name)}" placeholder="식물 이름" list="sec-species">
           ${np ? `<button class="btn ghost sec-pinned" data-sa="vunpin" title="찍은 자리를 모두 지우고 고른 위치·양대로 그림">찍은 자리 ${np}곳 ×</button>` : `<select class="input" data-vk="zone" title="자리">${secOpts(X.ZONES, v.zone)}</select>`}
           <select class="input" data-vk="form" title="생활형(그림 모양)">${secOpts(X.FORMS, v.form)}</select>
-          ${real ? `<input class="input" type="number" step="0.1" min="0" data-vk="hm" value="${esc(String(v.hm ?? ""))}" placeholder="${X.realH({ ...v, hm: "" })} m" title="키(m) — 비우면 종·생활형 기본(모양의 「식물 크기」와 곱함)">`
+          ${real ? `<input class="input" type="number" step="0.1" min="0" data-vk="hm" value="${esc(String(v.hm ?? ""))}" placeholder="${X.realH({ ...v, hm: "" }, parseFloat(RV.treeH) || 0)} m" title="키(m) — 비우면 종·생활형 기본(모양의 「식물 크기」와 곱함)">`
     : `<select class="input" data-vk="size" title="이 식물 크기(모양의 「식물 크기」와 곱함)">${secOpts(X.PSIZES, v.size || "m")}</select>`}
           <select class="input" data-vk="amt" title="${np ? "찍은 자리마다 하나씩 그림" : "양"}"${np ? " disabled" : ""}>${secOpts(X.AMT, v.amt)}</select>
           <button class="btn ghost" data-sa="vdel" title="빼기">×</button>
@@ -2558,7 +2563,7 @@
         <label><input type="checkbox" data-sk="o.info" ${Q.info ? "checked" : ""}> 조사지점·하천명 줄</label>
         <label><input type="checkbox" data-sk="o.frame" ${Q.frame ? "checked" : ""}> 테두리</label>
         <label title="실측 방식: 하폭·수폭 치수(글자 칸을 비우면 넣은 값)"><input type="checkbox" data-sk="o.dims" ${Q.dims !== false ? "checked" : ""}> 치수(하폭·수폭)</label>
-        <label title="실측 방식: 왼쪽 아래 축척 막대(m)와 세로 과장 배수"><input type="checkbox" data-sk="o.sbar" ${Q.sbar !== false ? "checked" : ""}> 축척 막대</label>
+        <label title="실측 방식: 왼쪽 아래 축척 막대(m)"><input type="checkbox" data-sk="o.sbar" ${Q.sbar !== false ? "checked" : ""}> 축척 막대</label>
         <label title="실측 방식: 아래 설명 맨 앞에 하폭·수폭·수심·제방 높이"><input type="checkbox" data-sk="o.spec" ${Q.spec !== false ? "checked" : ""}> 제원 줄</label>
       </div>
       <datalist id="sec-species">${Object.keys(X.SPECIES).map((n) => `<option value="${esc(n)}">`).join("")}</datalist>`;

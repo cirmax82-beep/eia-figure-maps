@@ -207,3 +207,5 @@ details .checks { margin-bottom: 8px; }
 .q-sym { width: 14px; height: 14px; }
 /* 인증키 칸: 비밀번호 칸(type=password)이면 브라우저가 로그인 칸으로 보고 저장된 계정을 띄우므로, 글자 칸으로 두고 글자만 가림 */
 .key-input { -webkit-text-security: disc; text-security: disc; }
+
+.sec-applied { grid-column: 1 / -1; margin: 2px 0 0; color: #1864ab; }

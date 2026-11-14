@@ -61,8 +61,8 @@
   // 물길 위치: 한쪽으로 치우치면 반대쪽 둔치가 넓어지고, 한쪽 끝에 붙으면 붙은 쪽은 둔치·물가 없이 물이 호안까지(반대쪽 둔치가 아주 넓게)
   const POSS = [["center", "가운데"], ["left", "좌안 쪽으로 치우침"], ["right", "우안 쪽으로 치우침"], ["attL", "좌안 끝에 붙음"], ["attR", "우안 끝에 붙음"]];
   // 식물 크기(전체·식생 줄마다 — 둘을 곱함)
-  const PSIZES = [["s", "작게"], ["m", "보통"], ["l", "크게"], ["xl", "아주 크게"]];
-  const PSZ = { s: 0.75, m: 1, l: 1.3, xl: 1.6 };
+  const PSIZES = [["xs", "아주 작게"], ["s", "작게"], ["m", "보통"], ["l", "크게"], ["xl", "아주 크게"]];
+  const PSZ = { xs: 0.5, s: 0.75, m: 1, l: 1.3, xl: 1.6 };
   // 제내지 그림(집·건물·도로·농경지·산림 등) 크기
   const ICONSZS = [["s", "작게"], ["m", "보통"], ["l", "크게"], ["xl", "아주 크게"]];
   const ICONSZ = { s: 0.7, m: 1, l: 1.4, xl: 1.8 };
@@ -461,7 +461,13 @@
     갯버들: 2, 키버들: 2.5, 찔레꽃: 1.5, 찔레: 1.5, 국수나무: 1.5, 족제비싸리: 3, 갈대: 2.5, 달뿌리풀: 2, 억새: 1.8, 물억새: 1.8, 갈풀: 1.5, 줄: 1.5, 창포: 0.8, 부들: 1.8, 애기부들: 1.5, 큰부들: 2,
     고마리: 0.5, 여뀌: 0.6, 쑥: 1.0, 개망초: 0.8, 소리쟁이: 1.0, 돼지풀: 1.2, 단풍잎돼지풀: 2.5, 코스모스: 1.2, 금계국: 0.7, 큰금계국: 0.8, 달맞이꽃: 1.0, 강아지풀: 0.5, 바랭이: 0.5,
     소나무: 12, 곰솔: 12, 리기다소나무: 12, 잣나무: 15, 낙엽송: 18, 메타세쿼이아: 20 };
-  const realH = (v) => { const h = parseFloat(v.hm); return h > 0 ? h : SPH[String(v.name || "").replace(/\s/g, "")] ?? REALH[v.form] ?? 1; };
+  // tH: 「교목 키(m)」(실측 방식) — 키를 따로 적지 않은 교목·침엽수에
+  const realH = (v, tH = 0) => {
+    const h = parseFloat(v.hm);
+    if (h > 0) return h;
+    if ((v.form === "tree" || v.form === "conifer") && tH > 0) return tH;
+    return SPH[String(v.name || "").replace(/\s/g, "")] ?? REALH[v.form] ?? 1;
+  };
   const geomReal = (st, F, needBar) => {
     const R = realOf(st), Wt = st.water, warn = [], bedU = Wt.bed !== "flat", dry = !!R.dry;
     const D = Math.max(0.02, num(R.D, 0.6)), Wd = Math.max(0.2, num(R.W, 10)), cw = Math.max(0.3, num(R.cw, 3));
@@ -474,12 +480,21 @@
     });
     const foot = (p) => D + (p.Lb > 0 ? p.hb : p.hE);
     const run = (p) => (p.vert ? Math.max(0.05, (p.H - foot(p)) * 0.04) : (p.H - foot(p)) * p.n);
-    const B = Math.max(1, num(R.B, 30));
+    // 하폭·수폭이 먼저: 하폭 − 수폭(− 하중도) 안에 사면·둔치가 들지 않으면 ① 둔치를 줄이고(0까지) ② 사면을 가파르게(1:n의 n을 줄여 직립 가까이)
+    // ③ 그래도 안 되면(수폭이 하폭과 같거나 넓음 등) 하폭을 늘려 그림. 실제로 그린 값은 applied로 알림
+    const B = Math.max(1, num(R.B, 30)), n0 = { L: P.L.n, R: P.R.n };
     let rem = B - run(P.L) - run(P.R) - P.L.Lb - P.R.Lb - Wd - barW;
     if (rem < -1e-6) {
       const lb = P.L.Lb + P.R.Lb, cut = Math.min(lb, -rem);
-      if (cut > 0) { const k = (lb - cut) / lb; P.L.Lb *= k; P.R.Lb *= k; rem += cut; warn.push(`사면·둔치·수폭의 합이 하폭보다 커서 둔치를 ${fmt1(cut)} m 줄여 그렸습니다.`); }
-      if (rem < -1e-6) { warn.push(`사면·수폭의 합이 하폭보다 ${fmt1(-rem)} m 넓어 하폭을 늘려 그렸습니다.`); rem = 0; }
+      if (cut > 0) { const k = (lb - cut) / lb; P.L.Lb *= k; P.R.Lb *= k; rem += cut; }
+      if (rem < -1e-6) {
+        // 둔치가 없어지면 사면 발치가 물가 높이로 내려가 사면이 길어지므로 다시 셈
+        rem = B - run(P.L) - run(P.R) - P.L.Lb - P.R.Lb - Wd - barW;
+        const S = run(P.L) + run(P.R), k = S > 0 ? Math.max(0, (S + rem) / S) : 0;
+        ["L", "R"].forEach((sd) => { if (!P[sd].vert) P[sd].n = Math.max(0.05, P[sd].n * k); });
+        rem = B - run(P.L) - run(P.R) - P.L.Lb - P.R.Lb - Wd - barW;
+      }
+      if (rem < -1e-6) { warn.push(`수폭이 하폭에 비해 넓어 사면을 거의 직립으로 해도 ${fmt1(-rem)} m 모자라, 하폭을 늘려 그렸습니다.`); rem = 0; }
     }
     // 물가 폭: 남는 폭을 물가가 있는 쪽(없음·옹벽 빼고)에 나눔. 양쪽 다 없으면 둔치에
     const wt = (p) => (p.edge === "none" || p.edge === "wall" ? 0 : 1), ws = wt(P.L) + wt(P.R);
@@ -521,7 +536,7 @@
       zones.barBase = [bc - bw / 2, bc + bw / 2];
     }
     up.push(...Rt.pts.map(([d, y]) => [total - d, y]).reverse());
-    // 가로: 단면(제내지 빼고)이 그림 폭을 채움(제내지는 고른 mm). 세로: 가로 배율 × 과장 배수(자동은 제방 높이가 그림 폭의 22%쯤 되는 보기 좋은 배수, 1배 아래로는 안 함)
+    // 가로: 단면(제내지 빼고)이 그림 폭을 채움(제내지는 고른 mm). 세로: 가로와 같은 배율(실제 비율) — 식물까지 틀에 안 들면 그림 높이를 늘리고, 그래도 넘치면 줄이고 남는 폭은 제내지로
     const refH = F.refH || F.h, maxY = Math.max(L.top, Rt.top), inner = total - 2, kk = refH / 80, LMM = { narrow: 10, mid: 22, wide: 36 };
     const mL = (LMM[st.L.landW] || LMM.mid) * kk, mR = (LMM[st.R.landW] || LMM.mid) * kk;
     // 그릴 것 가운데 가장 높은 곳(m): 지형과 식물 꼭대기(자리의 땅 높이 + 실제 키 × 식물 크기)
@@ -529,19 +544,15 @@
     const zAt = (z) => zones[z] || (z.endsWith("-berm") ? zones[z.replace("-berm", "-edge")] : null);
     let topM = maxY;
     usedVeg(st).forEach((v) => {
-      const h = realH(v) * (F.psize || 1) * (PSZ[v.size] || 1), ps = pinsOf(v);
+      const h = realH(v, num(R.treeH, 0)) * (F.psize || 1) * (PSZ[v.size] || 1), ps = pinsOf(v);
       (ps.length ? ps.map((p) => { const r = zAt(p.z); return r ? r[0] + (r[1] - r[0]) * p.t : null; }) : [zAt(v.zone) ? (zAt(v.zone)[0] + zAt(v.zone)[1]) / 2 : null])
         .forEach((u) => { if (u !== null) topM = Math.max(topM, hAt(u) + h); });
     });
-    let hs = Math.max(0.01, (F.w - mL - mR) / inner), vx;
+    // 가로·세로는 늘 같은 비율(실제 비율, 세로 과장 없음)
+    let hs = Math.max(0.01, (F.w - mL - mR) / inner);
+    const vx = 1;
     // 틀 안에서 그림이 쓸 세로(아래 14%는 하상 밑, 위 10%는 이름표)
     const avail = (fh) => fh - 0.24 * refH;
-    if (num(R.vx, 0) > 0) vx = num(R.vx, 1);
-    else {
-      // 자동: 보기 좋은 배수에서, 식물까지 틀에 안 들어가면 배수를 줄임(1배까지) — 가로형을 지키려고 높이보다 과장을 먼저 줄임
-      const want = Math.max(1, (0.22 * F.w) / (maxY * hs)), fit = avail(F.h) / (topM * hs);
-      vx = NICE.filter((n) => n <= Math.min(want, Math.max(1, fit))).pop() || 1;
-    }
     let vs = hs * vx, needH = null;
     // 그래도 넘치면 쪽 배치에 필요한 틀 높이를 알리고(늘림), 그래도 넘치면 줄이고 남는 폭은 제내지로
     if (vs * topM > avail(F.h)) { needH = vs * topM + 0.24 * refH; vs = avail(F.h) / topM; hs = vs / vx; }
@@ -571,7 +582,10 @@
     const wide = runs.reduce((b, r) => (!b || r[r.length - 1][0] - r[0][0] > b[b.length - 1][0] - b[0][0] ? r : b), null);
     if (wide) { const a = wide[0][0], b = wide[wide.length - 1][0]; zmm.surface = [a + (b - a) * 0.28, b - (b - a) * 0.28]; }
     const Beff = zones["R-slope"][1] - zones["L-slope"][0];
-    return { pts, zones: zmm, wlY, runs, wide, dry, needH, vs, hs, bankMM: Math.max(P.L.H, P.R.H) * vs, side, walls, warn,
+    // 그린 값(입력과 다르게 맞춘 것 표시): 사면 경사·둔치 길이·물가 폭
+    const nTxt = (sd) => `1:${fmt1(P[sd].n)}${Math.abs(P[sd].n - n0[sd]) > 0.01 ? "(맞춤)" : ""}`;
+    const applied = `그린 값 — 사면 좌 ${P.L.vert ? "직립" : nTxt("L")}·우 ${P.R.vert ? "직립" : nTxt("R")}, 둔치 좌 ${fmt1(P.L.Lb)} m·우 ${fmt1(P.R.Lb)} m, 물가 좌 ${fmt1(P.L.e)} m·우 ${fmt1(P.R.e)} m${Math.abs(Beff - B) > 0.05 ? `, 하폭 ${fmt1(Beff)} m` : ""}`;
+    return { pts, zones: zmm, wlY, runs, wide, dry, needH, vs, hs, bankMM: Math.max(P.L.H, P.R.H) * vs, side, walls, warn, applied,
       real: { B: Beff, W: Wd, D, HL: P.L.H, HR: P.R.H, vx },
       slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
   };
@@ -712,7 +726,7 @@
     const real = st.mode === "real", tr = +st.treeRef;
     const s = real ? (REALH.forb * g.vs) / SIZE.forb : (g.vs / VS_STD) * ((fig.el && fig.el.size) || 1), sTree = !real && tr > 0 ? (tr * g.bankMM) / SIZE.tree : s;
     const sf = (form) => (form === "tree" || form === "conifer" ? sTree : s);
-    const sfv = (v) => (real ? (realH(v) * g.vs) / SIZE[v.form] : sf(v.form));
+    const tH = num(realOf(st).treeH, 0), sfv = (v) => (real ? (realH(v, tH) * g.vs) / SIZE[v.form] : sf(v.form));
     const GROUND = { soil: { fill: "#d9bb8f", line: "#6b4f2a" }, line: { fill: "#ffffff", line: ink }, hatch: { fill: "#ffffff", line: ink, hatch: true } }[S.ground] || { fill: "#d9bb8f", line: "#6b4f2a" };
     const occupied = [];
     const hit = (b) => occupied.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
@@ -1022,7 +1036,7 @@
       const y0 = H - m - Lo.notesH + 2 * e;
       Lo.notes.forEach((t, i) => pen.text(t, F.x + 1 * e, y0 + i * 3.9 * e, { size: 7.4 * e, align: "left", base: "top", color: "#222" }));
     }
-    return { warn: g.warn || [], layout: Lo, top: topY };
+    return { warn: g.warn || [], applied: g.applied || "", layout: Lo, top: topY };
   };
   // 글자를 먼저 모아 글꼴을 받은 뒤 그림(캔버스는 글꼴이 늦으면 다른 글꼴로 그려짐)
   const render = async (pen, fig) => {
