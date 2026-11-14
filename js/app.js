@@ -2488,7 +2488,7 @@
     const sel = (key, list, v, label) => `<label>${label} <select class="input" data-sk="${key}">${secOpts(list, v)}</select></label>`;
     const txt = (key, v, label, ph = "") => `<label>${label} <input class="input" data-sk="${key}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
     // 예전 지점에 값이 없을 때 보일 기본값(둔치 높이는 「보통」 — 목록 맨 앞이 「수면과 거의 같게」라)
-    const DEF = { bermH: "mid" }, dv = (k, list) => DEF[k] || list[Math.min(1, list.length - 1)][0];
+    const DEF = { bermH: "mid", bank: "mid" }, dv = (k, list) => DEF[k] || list[Math.min(1, list.length - 1)][0];
     const both = (k, label, list) => sel(`L.${k}`, list, st.L[k] || dv(k, list), `좌안 ${label}`) + sel(`R.${k}`, list, st.R[k] || dv(k, list), `우안 ${label}`);
     $("#sec-pane").innerHTML = `
       <div class="sec-stations">

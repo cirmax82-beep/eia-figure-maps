@@ -20,7 +20,7 @@
   const LAND = [["none", "없음(평지)"], ["farm", "농경지"], ["house", "주거지"], ["building", "건물"], ["road", "도로"], ["bike", "자전거도로"], ["forest", "산림(평지)"], ["mountain", "산림(산지 경사)"], ["park", "공원·산책로"]];
   const LAND_NAME = { farm: "농경지", house: "주거지", building: "건물", road: "도로", bike: "자전거도로", forest: "산림", mountain: "산림", park: "공원" };
   const REV = [["natural", "자연 사면(흙)"], ["riprap", "사석·돌붙임(경사)"], ["block", "블록·콘크리트(경사)"], ["stonewall", "돌쌓기(직립)"], ["wall", "콘크리트 옹벽(직립)"]];
-  const BANKS = [["low", "낮게"], ["mid", "보통"], ["high", "높게"]];
+  const BANKS = [["xlow", "아주 낮게"], ["low", "낮게"], ["mid", "보통"], ["high", "높게"], ["xhigh", "아주 높게"]];
   const SLOPES = [["gentle", "완만하게"], ["mid", "보통"], ["steep", "급하게"], ["vsteep", "아주 급하게"]];
   const BERMS = [["none", "없음"], ["narrow", "좁게"], ["wide", "넓게"]];
   // 둔치 높이: 수위(수심)에 맞춰 잠기게·안 잠기게. 「수위보다 조금 위」는 고른 수심의 물높이 바로 위(제방 끝 가까이 물이면 그래도 잠김)
@@ -310,7 +310,8 @@
 
   // ---------- 지형 ----------
   // 세로를 6배쯤 과장해 그리므로 사면 가로 길이(높이 1에 대한)도 그만큼 늘려 잡음
-  const BANK = { low: 1.5, mid: 2.1, high: 2.7 }, SLOPE = { gentle: 9, mid: 5.5, steep: 3, vsteep: 1.5 }, BERM = { none: 0, narrow: 5, wide: 11 };
+  // 제방 높이(하상 0에서). 세로 배율은 VREF 기준으로 고정해 낮은 제방은 낮게, 높은 제방은 높게 보이게(VREF보다 높으면 틀에 맞춰 줄임)
+  const BANK = { xlow: 1.0, low: 1.5, mid: 2.1, high: 2.7, xhigh: 3.3 }, VREF = 2.4, SLOPE = { gentle: 9, mid: 5.5, steep: 3, vsteep: 1.5 }, BERM = { none: 0, narrow: 5, wide: 11 };
   const WIDTH = { xnarrow: 4, narrow: 9, mid: 15, wide: 24 }, DEPTH = { xxshallow: 0.07, xshallow: 0.16, shallow: 0.3, mid: 0.48, deep: 0.75 }, VERT = new Set(["stonewall", "wall"]);
   const LANDW = { narrow: 3.5, mid: 8, wide: 13 }, CRESTW = 2.6;
   // 한쪽 기슭(바깥 끝 0에서 물 쪽으로 [거리, 높이]): 제내지 → 둑마루 → 제방 사면(호안) → 둔치 → 물가 → 물속 기슭
@@ -381,9 +382,9 @@
       zones.barBase = [bc - bw / 2, bc + bw / 2];
     }
     up.push(...Rt.pts.map(([d, y]) => [total - d, y]).reverse());
-    // 단위 → 용지 mm: 둑마루가 틀 위에서 36%, 하상이 86%(세로는 과장)
-    const maxY = Math.max(L.top, Rt.top);
-    let hs = F.w / total, vs = (F.h * 0.5) / maxY, rx = (u) => u;
+    // 단위 → 용지 mm: 하상이 틀 위에서 86%, 높이 VREF(2.4)가 틀 높이의 절반(세로는 과장). 더 높은 지형만 틀에 맞춰 줄임
+    const maxY = Math.max(L.top, Rt.top), vs0 = (F.h * 0.5) / Math.max(maxY, VREF);
+    let hs = F.w / total, vs = vs0, rx = (u) => u;
     // 하폭 : 제방 높이를 고르면 가로 배율을 그 비율에 맞추고 제내지(평지)가 남는 폭을 채움.
     // 틀 폭이 모자라면(아주 넓은 하천) 세로를 줄여 비율을 지킴
     const ratio = +W.ratio;
@@ -399,8 +400,8 @@
       const spare = F.w - hs * inner, landL = (spare * mL) / (mL + mR) / hs, landR = (spare * mR) / (mL + mR) / hs;
       rx = (u) => (u <= lwL ? (u * landL) / lwL : u >= total - lwR ? landL + inner + ((u - (total - lwR)) * landR) / lwR : u - lwL + landL);
     }
-    // 세로를 줄였으면(넓은 하천) 둑마루가 틀 위에서 42%쯤 오게 올림(위가 비지 않게), 하상은 86%보다 내려가지 않음
-    const y0 = Math.min(F.y + F.h * 0.86, F.y + F.h * 0.42 + maxY * vs);
+    // 세로를 줄였으면(넓은 하천) 줄이기 전 둑마루 자리까지 올림(위가 비지 않게). 낮은 제방은 올리지 않아 낮게 보임
+    const y0 = Math.min(F.y + F.h * 0.86, F.y + F.h * 0.86 - maxY * (vs0 - vs));
     const X = (u) => F.x + rx(u) * hs, Y = (v) => y0 - v * vs;
     const pts = up.map(([u, v]) => [X(u), Y(v)]);
     const zmm = Object.fromEntries(Object.entries(zones).map(([k, [a, b]]) => [k, [X(a), X(b)]]));
