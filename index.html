@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261114h">
+<link rel="stylesheet" href="css/style.css?v=20261114i">
 </head>
 <body>
 <header class="top">
@@ -123,6 +123,16 @@
         </select></label>
         <label class="row" id="o-rings-row" hidden>주변 범위(km, 쉼표로) <input id="o-rings" class="input" value="1, 2"></label>
         <div class="checks"><label title="가장 바깥 주변 범위 밖을 흰색으로 옅게 덮어 범위 안이 돋보이게"><input type="checkbox" id="o-ring-fade" checked> 범위 밖 흐리게</label></div>
+      </div>
+
+      <div class="axis-tool" data-figpane="sat" hidden>
+        <b>드론 촬영지점</b>
+        <div class="btns"><button class="btn ghost" data-drone="drone"><i class="drone-dot"></i>촬영지점 찍기</button></div>
+        <label class="row" title="바라보는 쪽을 나타내는 부채꼴의 길이">방향 표시 크기 <select id="o-drone-size" class="input">
+          <option value="small">작게</option><option value="mid" selected>보통</option><option value="large">크게</option>
+        </select></label>
+        <div id="drone-list" class="arrow-list"></div>
+        <p class="hint">미리보기 도면에서 촬영 지점을 누르고, 바라보는 쪽을 한 번 더 누릅니다(끝내기 전까지 계속). 번호·방향(북 0°, 시계 방향)은 목록에서 고칩니다. 범례에 「드론촬영지점」이 들어갑니다.</p>
       </div>
 
       <div data-figpane="nat" hidden>
@@ -390,11 +400,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261114h"></script>
-<script src="js/input.js?v=20261114h"></script>
-<script src="js/render.js?v=20261114h"></script>
-<script src="js/section.js?v=20261114h"></script>
-<script src="js/field.js?v=20261114h"></script>
-<script src="js/app.js?v=20261114h"></script>
+<script src="js/util.js?v=20261114i"></script>
+<script src="js/input.js?v=20261114i"></script>
+<script src="js/render.js?v=20261114i"></script>
+<script src="js/section.js?v=20261114i"></script>
+<script src="js/field.js?v=20261114i"></script>
+<script src="js/app.js?v=20261114i"></script>
 </body>
 </html>

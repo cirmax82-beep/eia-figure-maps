@@ -1318,6 +1318,9 @@
     if (eco && fig.eco.flow && ((os && os.ways.length) || dem)) legend.push({ type: "flow", color: COLOR.flow, label: "하천 흐름 방향" });
     if (eco && os && fig.eco.peaks && os.peaks.length) legend.push({ type: "peak", color: COLOR.peak, label: "산봉우리" });
     if (rings && !fld) rings.forEach((r, i) => legend.push({ type: "dash", color: COLOR.rings[i % COLOR.rings.length], label: autoRingOf(fig) ? autoRingOf(fig).label : `${fmtNum(r.km)} km 범위` }));
+    // 드론 촬영지점(위성사진 현황도): 틀 안에 하나라도 있을 때
+    const drones = fig.kind === "sat" ? (fig.drone || []).filter((d) => Array.isArray(d.pt)).map((d) => ({ d, p: P(d.pt[0], d.pt[1]) })).filter(({ p }) => inF(p[0], p[1])) : [];
+    if (drones.length) legend.push({ type: "drone", label: "드론촬영지점" });
     // 현지조사 위치도: 조사범위 → 조사경로 → 조사지점. 현지조사시 법정보호종 출현위치도: 조사범위 → (조사경로) → 종마다 기호
     if (fld) {
       if (rings) (fig.fieldRings || []).forEach((r, i) => legend.push({ type: "ring", color: FIELD.rings[i % FIELD.rings.length], label: r.label }));
@@ -1906,6 +1909,22 @@
       pen.path([shape], { closed: true, fill: a.kind === "forest" ? COLOR.arrowForest : COLOR.arrowWater, fillOpacity: 0.78, stroke: "#ffffff", width: 0.35 * e });
     });
 
+    // 드론 촬영지점: 바라보는 쪽 부채꼴(반투명 흰색, 시야 60°) → 검은 원에 흰 번호. 원 자리는 이름표가 피하게
+    if (drones.length) {
+      const len = ({ small: 7, mid: 10, large: 14 }[fig.droneSize] || 10) * e, half = 30;
+      drones.forEach(({ d, p }) => {
+        const fan = [p];
+        for (let k = 0; k <= 16; k++) { const a = ((d.dir - half + (2 * half * k) / 16) * Math.PI) / 180; fan.push([p[0] + Math.sin(a) * len, p[1] - Math.cos(a) * len]); }
+        pen.path([fan], { closed: true, fill: "#ffffff", fillOpacity: 0.55, stroke: "#3a3a3a", width: 0.2 * e, strokeOpacity: 0.55, join: "round" });
+      });
+      drones.forEach(({ d, p }) => {
+        const t = String(d.label ?? "").trim(), fs = 6.4 * e, r = Math.max(2.1 * e, textW(t, fs, 800) / 2 + 0.9 * e);
+        pen.path([Array.from({ length: 33 }, (_, k) => [p[0] + r * Math.cos((k / 32) * 2 * Math.PI), p[1] + r * Math.sin((k / 32) * 2 * Math.PI)])], { closed: true, fill: "#111111", stroke: "#ffffff", width: 0.4 * e });
+        if (t) pen.text(t, p[0], p[1] + 0.1 * e, { size: fs, weight: 800, align: "center", base: "middle", color: "#ffffff" });
+        occupied.push([p[0] - r - 0.3, p[1] - r - 0.3, p[0] + r + 0.3, p[1] + r + 0.3]);
+      });
+    }
+
     // 1등급 권역까지 이격거리(선택 — 생태·자연도 도면의 1등급 이격거리, 보호구역 위치도는 1등급 권역을 켜고 이격거리를 고를 때):
     // 도면 틀 안에 보이는 1등급만 보고, 사업지구 경계와 가장 가까운 두 점을 치수선으로 이음
     let dist1 = null;
@@ -2389,6 +2408,7 @@
           pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.75 * e, dash: [1.8 * e, 1 * e], cap: "butt" });
         }
         if (it.type === "fpt") fieldSym(pen, it.kind, sx + sym / 2, cy, e);
+        if (it.type === "drone") pen.path([Array.from({ length: 25 }, (_, k) => [sx + sym / 2 + 1.5 * e * Math.cos((k / 24) * 2 * Math.PI), cy + 1.5 * e * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: "#111111" });
         if (it.type === "occ") {
           const k = new Set(it.kinds);
           if (k.has("area")) pen.path([r], { closed: true, fill: it.sym.color, fillOpacity: 0.4, stroke: it.sym.color, width: 0.55 * e, join: "miter" });

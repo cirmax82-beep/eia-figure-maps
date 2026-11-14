@@ -46,6 +46,8 @@
     natBase: false, natSep: false,
     // 문헌조사·법정보호종(문헌조사)·보호구역 위치도: 내륙습지 바탕·이름(기본 켬)
     wet: true, wetName: true,
+    // 위성사진 현황도: 드론 촬영지점([{ pt: [경도, 위도], dir: 바라보는 방위각(도, 북 0·시계 방향), label: 번호 }])·방향 표시 크기
+    drone: [], droneSize: "mid",
     // 하천식생단면도: 지점(조사지점)마다 지형·호안·식생과 공통 모양(크기·표기·색) — section.js
     ...(kind === "sec" ? { sec: Section.newSec() } : {}),
   });
@@ -102,6 +104,7 @@
     $("#e-sbsize").value = String(f.el.sbsize || 1);
     $("#e-nsize").value = String(f.el.nsize || 1);
     $("#l-table").value = f.lit.table;
+    $("#o-drone-size").value = f.droneSize || "mid";
     syncPageTabs();
     scaleOptions();
     $$("[data-figpane]").forEach((p) => { p.hidden = !p.dataset.figpane.split(" ").includes(f.kind); });
@@ -109,6 +112,7 @@
     if (f.kind === "sec") renderSecPane();
     $$("#fig-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.fig === S.cur));
     renderArrowList();
+    renderDroneList();
     renderFieldPane();
     Object.keys(OCC).forEach(renderOccPane);
     syncMapBase();
@@ -142,6 +146,7 @@
     f.el.sbsize = +$("#e-sbsize").value || 1;
     f.el.nsize = +$("#e-nsize").value || 1;
     f.lit.table = $("#l-table").value;
+    f.droneSize = $("#o-drone-size").value;
     syncPageTabs();
     const sv = $("#o-scale").value;
     if (sv === "auto") f.scaleMode = "auto"; else { f.scaleMode = "fixed"; f.scale = +sv; }
@@ -424,7 +429,7 @@
   const isLit = (m) => !!m && m.startsWith("lit-");
   const LIT_NAME = { "lit-point": "지점", "lit-line": "선", "lit-area": "구역", "lit-sp": "법정보호종 지점", "lit-pick": "문헌 위치", "lit-pickline": "문헌 위치(선)", "lit-pickarea": "문헌 위치(구역)",
     "fld-line": "조사경로", "fld-erase": "지우개", "fld-veg": "식생 조사지점", "fld-water": "육수 조사지점", "fld-etc": "기타 조사지점",
-    "occ-point": "출현 지점", "occ-line": "출현 선", "occ-area": "출현 구역" };
+    "occ-point": "출현 지점", "occ-line": "출현 선", "occ-area": "출현 구역", drone: "드론 촬영지점" };
   const arrowName = (k) => LIT_NAME[k] || (k === "forest" ? "산림축" : "수계축");
   const ONE_PT = ["lit-point", "lit-sp", "lit-pick", "fld-veg", "fld-water", "fld-etc", "occ-point"];
   const needPts = (m) => (ONE_PT.includes(m) ? 1 : m === "lit-area" || m === "lit-pickarea" || m === "occ-area" ? 3 : 2);
@@ -441,8 +446,9 @@
     $$("[data-arrow]").forEach((b) => b.classList.toggle("on", b.dataset.arrow === kind));
     $$("[data-lit]").forEach((b) => b.classList.toggle("on", b.dataset.lit === kind));
     $$("[data-fld]").forEach((b) => b.classList.toggle("on", b.dataset.fld === kind));
-    $("#arrow-undo").textContent = kind === "fld-erase" ? "지운 것 되돌리기" : FLD_PT[kind] || kind === "occ-point" ? "마지막 지점 지우기" : "점 하나 지우기";
+    $("#arrow-undo").textContent = kind === "fld-erase" ? "지운 것 되돌리기" : FLD_PT[kind] || kind === "occ-point" || kind === "drone" ? "마지막 지점 지우기" : "점 하나 지우기";
     $$("[data-occ]").forEach((b) => b.classList.toggle("on", b.dataset.occ === kind));
+    $$("[data-drone]").forEach((b) => b.classList.toggle("on", kind === "drone"));
     arrowMsg();
     drawArrowTemp();
   };
@@ -454,13 +460,18 @@
     $$('#sec-pane [data-sa="vpin"]').forEach((b) => b.classList.remove("on"));
     $("#pv-over").classList.remove("drawing");
     $("#arrow-bar").hidden = true;
-    $$("[data-arrow], [data-lit], [data-fld], [data-occ]").forEach((b) => b.classList.remove("on"));
+    $$("[data-arrow], [data-lit], [data-fld], [data-occ], [data-drone]").forEach((b) => b.classList.remove("on"));
     drawArrowTemp();
   };
   const arrowMsg = () => {
     if (A.mode === "sec-pin") {
       const v = Section.cur(SF()).veg[A.target] || { name: "" }, n = Section.pinsOf(v).length;
       $("#arrow-msg").textContent = `「${v.name.trim() || "식물"}」 자리: 단면도에서 누를 때마다 하나씩 넣습니다(지금 ${n}곳) · 오른쪽 버튼: 가까운 자리 지우기${A.hoverZone ? ` · ${A.hoverZone}` : ""}`;
+      return;
+    }
+    if (A.mode === "drone") {
+      const n = (fig().drone || []).length;
+      $("#arrow-msg").textContent = `드론 촬영지점 ${n + 1}: ${A.pts.length ? "바라보는 쪽을 누르세요" : "촬영 지점을 누르세요"}(지점 → 방향 차례로 두 번, 지금 ${n}곳)`;
       return;
     }
     if (A.mode === "fld-erase") { $("#arrow-msg").textContent = "지울 경로를 누르거나 문지르세요(빨간 원 크기만큼 지움) · 잘못 지우면 되돌리기(Ctrl+Z)"; return; }
@@ -479,6 +490,22 @@
   };
   const finishArrow = () => {
     if (A.mode === "sec-pin") { stopArrow(); return; }
+    // 드론 촬영지점: 지점·방향 두 번 누를 때마다 하나씩, 그만둘 때까지
+    if (A.mode === "drone") {
+      if (!A.pts.length) { stopArrow(); return; }
+      if (A.pts.length < 2) { toast("바라보는 쪽을 한 번 더 누르세요."); return; }
+      const f = fig(), [a, b] = A.pts, v = S.last && S.last.view;
+      const p = v ? v.fromLL(a[0], a[1]) : [0, 0], q = v ? v.fromLL(b[0], b[1]) : [0, 1];
+      const dir = Math.round(((Math.atan2(q[0] - p[0], -(q[1] - p[1])) * 180) / Math.PI + 360) % 360);
+      const nums = (f.drone || []).map((d) => parseInt(d.label, 10)).filter(Number.isFinite);
+      f.drone = [...(f.drone || []), { pt: [+a[0].toFixed(7), +a[1].toFixed(7)], dir, label: String(nums.length ? Math.max(...nums) + 1 : (f.drone || []).length + 1) }];
+      A.pts = [];
+      arrowMsg();
+      drawArrowTemp();
+      renderDroneList();
+      renderPreview();
+      return;
+    }
     // 현지조사 지점은 그만둘 때까지 누를 때마다 하나씩
     if (A.mode === "fld-erase") { stopArrow(); return; }
     // 출현 기록: 그만둘 때까지 점은 누를 때마다, 선·구역은 두 번 누를 때마다 하나씩
@@ -567,6 +594,12 @@
     const { view, k } = S.last;
     const pp = A.pts.map(([lon, lat]) => view.fromLL(lon, lat));
     c.setTransform(k, 0, 0, k, 0, 0);
+    // 드론 촬영지점: 찍은 지점(검은 점)
+    if (A.mode === "drone") {
+      const [x, y] = pp[0];
+      c.beginPath(); c.arc(x, y, 1.8, 0, 2 * Math.PI); c.fillStyle = "#111111"; c.fill(); c.lineWidth = 0.4; c.strokeStyle = "#ffffff"; c.stroke();
+      return;
+    }
     const occDraw = A.mode === "occ-line" || A.mode === "occ-area";
     if (isLit(A.mode) || A.mode === "fld-line" || occDraw) {
       const col = A.mode === "fld-line" ? "#ff3fd2" : occDraw ? (OF(S.cur).syms[A.target] || {}).color || "#e8590c" : MAN_COLORS[S.figs.lit.lit.seq % MAN_COLORS.length];
@@ -605,11 +638,11 @@
         if (Math.hypot(q[0] - px, q[1] - py) < 0.8) return;   // 두 번 누를 때 겹친 점
       }
       A.pts.push(ll);
-      if (ONE_PT.includes(A.mode)) { finishArrow(); return; }
+      if (ONE_PT.includes(A.mode) || (A.mode === "drone" && A.pts.length === 2)) { finishArrow(); return; }
       arrowMsg();
       drawArrowTemp();
     });
-    over.addEventListener("dblclick", (e) => { if (A.mode && A.mode !== "sec-pin" && !ONE_PT.includes(A.mode)) { e.preventDefault(); finishArrow(); } });
+    over.addEventListener("dblclick", (e) => { if (A.mode && A.mode !== "sec-pin" && A.mode !== "drone" && !ONE_PT.includes(A.mode)) { e.preventDefault(); finishArrow(); } });
     // 단면도 자리 찍기: 오른쪽 버튼은 가까운 자리 지우기, 커서 아래 자리(점선)·구간 이름 보이기
     over.addEventListener("contextmenu", (e) => {
       if (A.mode !== "sec-pin") return;
@@ -639,11 +672,38 @@
     over.addEventListener("mouseleave", () => { if (A.mode === "sec-pin") { A.hover = null; A.hoverZone = ""; arrowMsg(); drawArrowTemp(); } });
     $$("[data-arrow]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.arrow ? stopArrow() : startArrow(b.dataset.arrow))));
     $$("[data-lit]").forEach((b) => b.addEventListener("click", () => (A.mode === b.dataset.lit ? stopArrow() : startArrow(b.dataset.lit))));
+    $$("[data-drone]").forEach((b) => b.addEventListener("click", () => (A.mode === "drone" ? stopArrow() : startArrow("drone"))));
+    // 드론 촬영지점 목록: 번호·방향 고치기, 지우기
+    const dl = $("#drone-list");
+    dl.addEventListener("input", (e) => {
+      const t = e.target, row = t.closest("[data-di]");
+      if (!row || !t.dataset.dk) return;
+      const d = (fig().drone || [])[+row.dataset.di];
+      if (!d) return;
+      if (t.dataset.dk === "dir") { const v = parseFloat(t.value); if (!Number.isFinite(v)) return; d.dir = ((Math.round(v) % 360) + 360) % 360; } else d.label = t.value.trim();
+      rerender();
+    });
+    dl.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-ddel]");
+      if (!b) return;
+      fig().drone.splice(+b.dataset.ddel, 1);
+      renderDroneList();
+      renderPreview();
+    });
     $("#arrow-done").addEventListener("click", finishArrow);
     $("#arrow-undo").addEventListener("click", () => {
       if (A.mode === "sec-pin") {
         const v = Section.cur(SF()).veg[A.target], ps = Section.pinsOf(v);
         if (ps.length) { v.pos = ps.slice(0, -1); afterPin(); }
+        return;
+      }
+      // 드론: 방향을 찍기 전이면 찍은 지점을, 아니면 마지막 촬영지점을 지움
+      if (A.mode === "drone") {
+        const f = fig();
+        if (A.pts.length) A.pts = [];
+        else if ((f.drone || []).length) { f.drone = f.drone.slice(0, -1); renderDroneList(); renderPreview(); }
+        arrowMsg();
+        drawArrowTemp();
         return;
       }
       const F = FF();
@@ -667,6 +727,14 @@
       renderArrowList();
       renderPreview();
     });
+  };
+  // 위성사진 현황도 드론 촬영지점 목록(번호·방향 고치기)
+  const renderDroneList = () => {
+    const list = fig().drone || [];
+    $("#drone-list").innerHTML = list.map((d, i) => `<div class="arrow-row drone-row" data-di="${i}"><i class="drone-dot"></i>
+      <label>번호 <input class="input" data-dk="label" value="${esc(d.label)}" maxlength="4"></label>
+      <label title="바라보는 쪽(북 0°, 동 90°, 남 180°, 서 270°)">방향 <input class="input" type="number" data-dk="dir" value="${d.dir}" step="5">°</label>
+      <button class="link" data-ddel="${i}">지우기</button></div>`).join("");
   };
   const renderArrowList = () => {
     const list = fig().arrows;
