@@ -360,7 +360,12 @@
     if (bedU && !wallE) pts.push([d + uw * 0.35, wl * 0.45], [d + uw * 0.7, wl * 0.1]);
     d += uw;
     pts.push([d, 0]);
-    return { pts, z, we, end: d, crest, top: crest + hill, wall: wallE ? { x0: w0, y0: wTop, x1: d } : null };
+    return { pts, z, we, end: d, crest, top: crest + hill, sy: [crest, foot], wall: wallE ? { x0: w0, y0: wTop, x1: d } : null };
+  };
+  // 제방 사면(호안 자리)의 [꼭대기, 발치] 용지 mm — 호안은 이 두 점을 잇는 사면 위에만 그림(발치 뒤 물가 턱·물속으로 내려가지 않게)
+  const slopeEnds = (zones, L, Rt, X, Y) => {
+    const [la, lb] = zones["L-slope"], [ra, rb] = zones["R-slope"];
+    return { L: [[X(la), Y(L.sy[0])], [X(lb), Y(L.sy[1])]], R: [[X(rb), Y(Rt.sy[0])], [X(ra), Y(Rt.sy[1])]] };
   };
   const geomConcept = (st, F, needBar) => {
     // 건천은 물을 그리지 않고 지형만 얕은 물 높이로 잡음
@@ -445,7 +450,7 @@
     const wide = runs.reduce((b, r) => (!b || r[r.length - 1][0] - r[0][0] > b[b.length - 1][0] - b[0][0] ? r : b), null);
     if (wide) { const a = wide[0][0], b = wide[wide.length - 1][0]; zmm.surface = [a + (b - a) * 0.28, b - (b - a) * 0.28]; }
     // 제방 높이(mm, 높은 쪽) — 「나무 높이(제방 대비)」에 씀
-    return { pts, zones: zmm, wlY, runs, wide, dry, needH, vs, bankMM: Math.max(L.crest, Rt.crest) * vs, side, walls, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
+    return { pts, zones: zmm, wlY, runs, wide, dry, needH, vs, bankMM: Math.max(L.crest, Rt.crest) * vs, side, walls, slopes: slopeEnds(zones, L, Rt, X, Y), slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
   };
   // ---------- 실측 방식(m 입력) ----------
   // 하폭 B(좌우 둑마루 안쪽 끝 사이)·수폭·수심(가장 깊은 곳)·둑마루 폭·좌우 제방 높이(하상 → 둑마루)·사면 경사 1:n·
@@ -506,6 +511,15 @@
     // 물가 폭: 남는 폭을 물가가 있는 쪽(없음·옹벽 빼고)에 나눔. 양쪽 다 없으면 둔치에
     const wt = (p) => (p.edge === "none" || p.edge === "wall" ? 0 : 1), ws = wt(P.L) + wt(P.R);
     if (ws) { P.L.e = (rem * wt(P.L)) / ws; P.R.e = (rem * wt(P.R)) / ws; } else { P.L.e = P.R.e = 0; P.L.Lb += rem / 2; P.R.Lb += rem / 2; }
+    // 둔치 없이 물가 폭이 거의 없으면(1:0.5보다 가파른 턱) 사면 발치~수면 사이 수직 턱을 없애고 사면을 수면까지 곧게 이음(같은 가로 폭 안에서) —
+    // 호안이 사면을 따라 물가까지 덮음. 직립 호안은 수면까지 세우고 남은 물가 폭은 수면 높이 평지로
+    ["L", "R"].forEach((sd) => {
+      const p = P[sd];
+      if (p.Lb > 1e-6 || p.edge === "wall" || p.hE < 0.05 || p.e >= p.hE * 0.5) return;
+      const span = run(p) + (p.vert ? 0 : p.e);
+      p.hE = 0;
+      if (!p.vert) { p.n = span / (p.H - D); p.e = 0; }
+    });
     // 물속 기슭: 둥근 바닥은 수심의 3배·평평하면 1.5배(수폭의 30%까지), 옹벽은 수직
     const uw = (p) => (sheer(p) ? 0.02 : Math.min(Wd * 0.3, D * (bedU ? 3 : 1.5)));
     const hill = (sd) => (side[sd].land === "mountain" ? Math.max(0.5, P[sd].H * 0.35) : 0);
@@ -524,7 +538,7 @@
       if (bedU && !sheer(p)) pts.push([d + u * 0.35, D * 0.45], [d + u * 0.7, D * 0.1]);
       d += u;
       pts.push([d, 0]);
-      return { pts, z, we, end: d, top: p.H + h, wall: p.edge === "wall" ? { x0: w0, y0: f, x1: d } : null };
+      return { pts, z, we, end: d, top: p.H + h, sy: [p.H, f], wall: p.edge === "wall" ? { x0: w0, y0: f, x1: d } : null };
     };
     const L = build("L"), Rt = build("R");
     const bed = Math.max(0.1, Wd + barW - (L.end - L.we) - (Rt.end - Rt.we)), total = L.end + bed + Rt.end;
@@ -583,7 +597,7 @@
     const nTxt = (sd) => `${P[sd].n < 0.02 ? "직립" : `1:${fmt1(P[sd].n)}`}${Math.abs(P[sd].n - n0[sd]) > 0.01 ? "(맞춤)" : ""}`;
     const applied = `그린 값 — 사면 좌 ${P.L.vert ? "직립" : nTxt("L")}·우 ${P.R.vert ? "직립" : nTxt("R")}, 둔치 좌 ${fmt1(P.L.Lb)} m·우 ${fmt1(P.R.Lb)} m, 물가 좌 ${fmt1(P.L.e)} m·우 ${fmt1(P.R.e)} m${Math.abs(Beff - B) > 0.05 ? `, 하폭 ${fmt1(Beff)} m` : ""}`;
     return { pts, zones: zmm, wlY, runs, wide, dry, needH, vs, hs, bankMM: Math.max(P.L.H, P.R.H) * vs, side, walls, warn, applied,
-      real: { B: Beff, W: Wd, D, HL: P.L.H, HR: P.R.H, vx },
+      real: { B: Beff, W: Wd, D, HL: P.L.H, HR: P.R.H, vx }, slopes: slopeEnds(zones, L, Rt, X, Y),
       slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
   };
   const geom = (st, F, needBar) => (st.mode === "real" ? geomReal : geomConcept)(st, F, needBar);
@@ -820,8 +834,10 @@
 
     // 호안(제방 사면)·물가 사석
     const stoneSt = mono ? shape("#ffffff", ink, 0.18) : shape("#b9b6ae", "#555555", 0.18);
+    // 실측 방식은 넓은 하천에서 축척이 작아져도 호안이 보이게 최소 두께(mm)를 둠
+    const sR = real ? Math.max(s, 0.45 * e) : s;
     const rev = (sd) => {
-      const P = g.side[sd], [a, b] = g.zones[`${sd}-slope`], top = [sd === "L" ? a : b, groundY(g.pts, sd === "L" ? a : b)], foot = sd === "L" ? [b, groundY(g.pts, b + 0.01)] : [a, groundY(g.pts, a - 0.01)];
+      const s = sR, P = g.side[sd], [top, foot] = g.slopes[sd];
       const len = Math.hypot(foot[0] - top[0], foot[1] - top[1]) || 1, tx = (foot[0] - top[0]) / len, ty = (foot[1] - top[1]) / len;
       // 공기 쪽 법선(물 쪽 위), 땅 쪽은 반대
       const nx = sd === "L" ? ty : -ty, ny = sd === "L" ? -tx : tx, inx = -nx, iny = -ny;
