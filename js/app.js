@@ -44,6 +44,8 @@
     arrows: [], labelHide: new Set(), labelText: new Map(),
     // 현지조사 위치도·출현위치도: 생태·자연도 1등급·별도관리지역 겹치기(따로)
     natBase: false, natSep: false,
+    // 문헌조사·법정보호종(문헌조사)·보호구역 위치도: 내륙습지 바탕(기본 켬)
+    wet: true,
     // 하천식생단면도: 지점(조사지점)마다 지형·호안·식생과 공통 모양(크기·표기·색) — section.js
     ...(kind === "sec" ? { sec: Section.newSec() } : {}),
   });
@@ -60,7 +62,7 @@
   // ---------- 설정 칸 ↔ 도면 ----------
   const CHECKS = { "o-forest": ["eco", "forest"], "o-water": ["eco", "water"], "o-tidal": ["eco", "tidal"], "o-sea": ["eco", "sea"], "o-rzone": ["eco", "rzone"], "o-szone": ["eco", "szone"], "o-topo": ["eco", "topo"], "o-peaks": ["eco", "peaks"], "o-wnames": ["eco", "wnames"], "o-flow": ["eco", "flow"],
     "o-streams": ["eco", "streams"], "o-eco-rings": ["eco", "rings"], "o-ring-fade": ["", "ringFade"], "e-title": ["el", "title"], "e-north": ["el", "north"], "e-scalebar": ["el", "scalebar"],
-    "e-legend": ["el", "legend"], "o-natbase": ["", "natBase"], "o-natsep": ["", "natSep"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
+    "e-legend": ["el", "legend"], "o-natbase": ["", "natBase"], "o-natsep": ["", "natSep"], "o-wet": ["", "wet"], "e-source": ["el", "source"], "e-sitelabel": ["el", "sitelabel"],
     "o-gray": ["", "gray"], "o-labels": ["", "baseLabels"],
     "n-g1": ["nat", "g1"], "n-g2": ["nat", "g2"], "n-sep": ["nat", "sep"], "n-rings": ["nat", "rings"], "n-dist1": ["nat", "dist1"], "v-inset": ["natl", "inset"],
     "l-nat": ["lit", "nat"], "l-sheet": ["lit", "sheetName"], "p-names": ["pa", "names"], "p-dist": ["pa", "dist"], "p-sheet": ["pa", "sheetName"], "p-buffer": ["pa", "buffer"] };

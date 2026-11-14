@@ -20,6 +20,9 @@
   // 생태·자연도 색(사용자 지정: 1등급 #17ac4d, 2등급 #9dd09c, 3등급 흰색, 별도관리지역 #f2932f).
   // 흑백 바탕(백지도)·흰 바탕이면 불투명하게 칠하고 바탕 선을 위에 다시 얹음(lines), 위성·컬러 바탕이면 바탕이 비치게 op만큼
   const NAT = { g1: "#17ac4d", g2: "#9dd09c", g3: "#ffffff", sep: "#f2932f", op: 0.7 };
+  // 내륙습지 바탕(문헌조사·법정보호종(문헌조사)·보호구역 위치도): 연한 물빛 + 파란 가로 빗금·테두리 — 생태·자연도 초록·주황, 하천 물빛과 구별
+  const WET = { fill: "#a5d8ff", line: "#1864ab", op: 0.75 };
+  const WET_KINDS = ["lit", "sp", "pa"];
   const SCALES = [1000, 2000, 2500, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000];
   // 전국 도면(식생기후대·식물상 지역): 남한 본토·제주가 틀에 드는 축척
   const NATIONAL = ["veg", "flo"];
@@ -1163,6 +1166,8 @@
     const natJob = nat || ((fig.kind === "lit" || fig.kind === "sp") && fig.lit.nat) || paG1(fig) || natBase(fig) ? natLayer(v).catch((err) => { console.warn(err); warn.push("생태·자연도 자료를 받지 못했습니다."); return null; }) : null;
     const api1Job = nat && fig.nat.dist1 && fig.ecoKey ? eco1Frame(v, fig.ecoKey).catch((err) => { console.warn(err); warn.push(`${err.message} 1등급 이격거리는 정기고시 원본 경계로 계산했습니다.`); return null; }) : null;
     const landJob = eco && fig.eco.sea ? landPolys(v).catch((err) => { console.warn(err); warn.push("해안선 자료를 받지 못해 바다를 칠하지 않았습니다."); return null; }) : null;
+    // 내륙습지(문헌조사·법정보호종(문헌조사)·보호구역 위치도 바탕, 켜고 끔): 문헌 위치 찾기에 쓰는 국립생태원 내륙습지 자료를 같이 씀
+    const wetJob = WET_KINDS.includes(fig.kind) && fig.wet ? litPlace("wetlands").catch((err) => { console.warn(err); warn.push("내륙습지 자료를 받지 못했습니다."); return null; }) : null;
     // 원본 경계(API)가 늦으면(미리보기) 단순화 경계로 먼저 그리고, 도착하면 onLate로 다시 그림
     let api1 = api1Job;
     if (api1Job && ctl.osmWait != null) {
@@ -1174,11 +1179,11 @@
         return null;
       });
     }
-    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo, paD, dem] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob, paJob, demJob]);
+    let [base, lc, os, rings, wz, land, nd, cls, labels, g1api, topo, paD, dem, wet] = await Promise.all([jobs.base, jobs.lc, osmJob, jobs.rings, wzJob, landJob, natJob, clsSafe, jobs.labels, api1, topoJob, paJob, demJob, wetJob]);
     // 안전장치: API가 1등급을 하나도 주지 않았는데 조각에는 틀 안에 1등급이 있으면 조각으로
     if (g1api && !g1api.length && nd && nd[1] && nd[1].length) { warn.push("API 응답에서 1등급 면을 찾지 못해 1등급 이격거리는 정기고시 원본 경계로 계산했습니다."); g1api = null; }
     if (lc && lc.nodata > 0.15) warn.push(`이 범위의 ${Math.round(lc.nodata * 100)}%는 토지피복 분류가 없어(접경지역·먼바다 등) 산림·수계가 빠질 수 있습니다.`);
-    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, pa: paD, dem, warn };
+    return { L: L0, v, base, baseKey, labels, g1api, lc, osm: os, rings, wz, topo, land, nd, cls, natl, pa: paD, dem, wet, warn };
   };
 
   // 실제로 그림. pen: CanvasPen·SvgPen·NullPen. 반환: 이름표 후보(고치기 목록용)
@@ -1292,6 +1297,16 @@
       if (nat) legend.push({ type: "box", label: "3등급" });
       if (natOn.sep) legend.push({ type: "fill", color: NAT.sep, opacity: natOp, label: "별도관리지역" });
     }
+    // 내륙습지: 틀 안에 하나라도 있을 때만 범례에
+    const wetParts = [];
+    if (D.wet && WET_KINDS.includes(fig.kind) && fig.wet) {
+      D.wet.forEach(([, , rings]) => {
+        const ps = rings.map((r) => r.map(([lon, lat]) => P(lon, lat))).filter((p) => p.length > 2);
+        const xs = ps.flat().map((q) => q[0]), ys = ps.flat().map((q) => q[1]);
+        if (ps.length && Math.max(...xs) >= F.x && Math.min(...xs) <= F.x + F.w && Math.max(...ys) >= F.y && Math.min(...ys) <= F.y + F.h) wetParts.push(ps);
+      });
+    }
+    if (wetParts.length) legend.push({ type: "fill", color: WET.fill, opacity: WET.op, hatch: { color: WET.line, angle: 0, gap: 1 * e, width: 0.18 * e }, stroke: WET.line, label: "내륙습지" });
     if (natl && cls) cls.classes.forEach((c) => legend.push({ type: "fill", color: c.color, opacity: 1, label: c.name }));
     if (eco && lc && fig.eco.forest) legend.push({ type: "fill", color: COLOR.forest, opacity: 0.6, label: fig.eco.forestName || "산림생태계" });   // 흰 바탕 범례에서는 조금 진하게
     if (eco && (lc && (fig.eco.water || fig.eco.tidal) || land && fig.eco.sea || os && fig.eco.streams || wz && (fig.eco.rzone || fig.eco.szone) || topo && fig.eco.topo)) legend.push({ type: "fill", color: COLOR.water, opacity: 1, label: fig.eco.waterName || "수생태계" });
@@ -1367,6 +1382,8 @@
       }
       return out;
     };
+    // 내륙습지 바탕색(연한 물빛): 생태·자연도 아래에 깜
+    wetParts.forEach((ps) => pen.path(ps, { closed: true, fill: WET.fill, fillOpacity: WET.op }));
     // 생태·자연도: 2등급 → 1등급 → 별도관리지역(등급 위에 겹쳐 있음) 순으로. 흑백 바탕이면 불투명하게 칠한 뒤 바탕 선·지명을 위에 다시 얹음
     if (natOn && nd) {
       if (natOn.g2) pen.path(polyParts(nd[2], 0.3), { closed: true, fill: NAT.g2, fillOpacity: natOp });
@@ -1375,6 +1392,8 @@
     }
     if (natSolid && base) pen.image(base.lines, F.x, F.y, F.w, F.h, { png: true, opacity: 1 - Math.min(1, fig.base || 0) });
     if (labels && natSolid) pen.image(labels.canvas, F.x, F.y, F.w, F.h, { png: true });
+    // 내륙습지 빗금(습지 표시)·테두리: 생태·자연도 위(등급 색은 보이고 습지 범위도 보이게), 보호구역·문헌 위치 아래. 습지마다 따로(겹친 습지가 지워지지 않게)
+    wetParts.forEach((ps) => pen.path(ps, { closed: true, hatch: { color: WET.line, angle: 0, gap: 1 * e, width: 0.18 * e }, stroke: WET.line, width: 0.3 * e }));
     // 바다: 틀 사각형과 육지(시군구 경계, 해안선을 따름) 고리를 짝홀 규칙으로 한 번에 칠해 육지 밖만 칠함
     if (eco && land && fig.eco.sea) {
       const p = 5, rect = [[F.x - p, F.y - p], [F.x + F.w + p, F.y - p], [F.x + F.w + p, F.y + F.h + p], [F.x - p, F.y + F.h + p]];
@@ -2343,7 +2362,8 @@
         const r = [[sx, cy - sh / 2], [sx + sym, cy - sh / 2], [sx + sym, cy + sh / 2], [sx, cy + sh / 2]];
         if (it.type === "outline") pen.path([r], { closed: true, stroke: it.color, width: 0.7 * e, join: "miter" });
         if (it.type === "box") pen.path([r], { closed: true, fill: "#ffffff", stroke: "#8a8a8a", width: 0.25 * e, join: "miter" });
-        if (it.type === "fill") pen.path([r], { closed: true, fill: it.color, fillOpacity: Math.min(1, (it.opacity || 1) + 0.1) });
+        if (it.type === "fill") pen.path([r], it.hatch ? { closed: true, fill: it.color, fillOpacity: Math.min(1, (it.opacity || 1) + 0.1), hatch: it.hatch, stroke: it.stroke, width: 0.35 * e, join: "miter" }
+          : { closed: true, fill: it.color, fillOpacity: Math.min(1, (it.opacity || 1) + 0.1) });
         if (it.type === "hatch") pen.path([r], { closed: true, hatch: { color: it.color, angle: it.angle, gap: 1.2 * e, width: 0.3 * e }, stroke: it.color, width: 0.45 * e, join: "miter" });
         if (it.type === "line") pen.path([[[sx, cy], [sx + sym, cy]]], { stroke: it.color, width: 0.95 * e });
         if (it.type === "point") pen.path([Array.from({ length: 25 }, (_, k) => [sx + sym / 2 + 1.4 * e * Math.cos((k / 24) * 2 * Math.PI), cy + 1.4 * e * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: it.color });
@@ -2388,6 +2408,7 @@
       if (lit && fig.lit.imported) src.push("문헌 위치: BioGrid EIA");
       if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
       if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}` : `식물상 지역: ${cls.source}`);
+      if (wetParts.length) src.push("내륙습지: 국립생태원 내륙습지 공간데이터(2022)");
       if (fld && (fig.fieldRoutes || []).length) src.push("조사경로: 현지조사 GPS 기록");
       if (occ && occRecs.length) src.push("출현 기록: 현지조사", ...(fig.listSource ? [fig.listSource] : []));
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");

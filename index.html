@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f7d3b'/%3E%3Cpath d='M6 22c5-9 9-12 20-14-6 4-9 8-11 15' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M5 26h22' stroke='%237fd3ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/style.css?v=20261114b">
+<link rel="stylesheet" href="css/style.css?v=20261114d">
 </head>
 <body>
 <header class="top">
@@ -149,8 +149,12 @@
         <div class="checks">
           <label><input type="checkbox" id="v-inset" checked> 사업지 확대 그림</label>
         </div>
-        <p class="hint" data-figpane="veg" hidden>CHELSA 월평균기온(1981–2010)으로 계산한 온량지수(WI)·한랭지수(CI)로 나눕니다.</p>
-        <p class="hint" data-figpane="flo" hidden>Jung &amp; Cho(2020) 식물상 지역(약 12 km 격자).</p>
+        <p class="hint" data-figpane="veg" hidden>국립수목원(2020) 한국 식생기후 분포도(KNA 2020) 원본 자료(250 m 격자)를 그대로 그립니다.</p>
+        <p class="hint" data-figpane="flo" hidden>국립수목원(2020) 한국 식물상 지역(KNA 2020) 원본 자료(약 12 km 격자)를 그대로 그립니다.</p>
+      </div>
+
+      <div class="checks" data-figpane="lit sp pa" hidden>
+        <label title="국립생태원 내륙습지 공간데이터(2022, 2,704곳)를 바탕에 깔아 그림 — 범례에 「내륙습지」"><input type="checkbox" id="o-wet" checked> 내륙습지 바탕</label>
       </div>
 
       <div data-figpane="pa" hidden>
@@ -385,11 +389,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="js/config.js"></script>
-<script src="js/util.js?v=20261114b"></script>
-<script src="js/input.js?v=20261114b"></script>
-<script src="js/render.js?v=20261114b"></script>
-<script src="js/section.js?v=20261114b"></script>
-<script src="js/field.js?v=20261114b"></script>
-<script src="js/app.js?v=20261114b"></script>
+<script src="js/util.js?v=20261114d"></script>
+<script src="js/input.js?v=20261114d"></script>
+<script src="js/render.js?v=20261114d"></script>
+<script src="js/section.js?v=20261114d"></script>
+<script src="js/field.js?v=20261114d"></script>
+<script src="js/app.js?v=20261114d"></script>
 </body>
 </html>
