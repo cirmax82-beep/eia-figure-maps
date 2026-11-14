@@ -26,7 +26,7 @@
   // 둔치 높이: 수위(수심)에 맞춰 잠기게·안 잠기게. 「수위보다 조금 위」는 고른 수심의 물높이 바로 위(제방 끝 가까이 물이면 그래도 잠김)
   const BERMHS = [["water", "수면과 거의 같게"], ["water2", "수면보다 약간 높게"], ["low", "낮게(물에 잘 잠김)"], ["mid", "보통(수면 조금 위)"], ["wl", "수위보다 조금 위(안 잠기게)"], ["high", "높게(제방 높이 절반쯤)"], ["xhigh", "더 높게(제방 높이 2/3쯤)"]];
   // 물가: 소하천은 물가가 거의 없거나 좁고 낮아 수폭이 하폭과 거의 같음
-  const EDGES = [["natural", "자연(흙·모래)"], ["low", "좁고 낮게"], ["none", "없음(물이 호안까지)"], ["riprap", "사석·자갈"]];
+  const EDGES = [["natural", "자연(흙·모래)"], ["low", "좁고 낮게"], ["none", "없음(물이 호안까지)"], ["riprap", "사석·자갈"], ["wall", "직각 콘크리트(옹벽)"]];
   const WIDTHS = [["xnarrow", "아주 좁게"], ["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
   // 하폭(양쪽 둑마루 안쪽 끝 사이) : 제방 높이(하상~둑마루). 자동은 고른 수폭·사면·둔치대로 틀 폭을 채움
   const RATIOS = [["auto", "자동(고른 값대로)"], ["0.5", "1 : 2"], ["0.75", "1 : 1.5"], ["1", "1 : 1"], ["1.5", "1.5 : 1"], ["2", "2 : 1"], ["3", "3 : 1"], ["5", "5 : 1"], ["8", "8 : 1"], ["12", "12 : 1"], ["20", "20 : 1"]];
@@ -316,13 +316,14 @@
   // 한쪽 기슭(바깥 끝 0에서 물 쪽으로 [거리, 높이]): 제내지 → 둑마루 → 제방 사면(호안) → 둔치 → 물가 → 물속 기슭
   const half = (P, wl, bedU, wlTop = wl) => {
     // 물가 높이(수면 위)·폭: 자연 0.38·3.2, 좁고 낮게 0.15·1.3, 없음 0.04·0.15(물속 기슭도 가파르게), 사석 0.38·2
-    const edgeUp = { low: 0.15, none: 0.04 }[P.edge] ?? 0.38;
+    // 직각 콘크리트(옹벽): 물가에서 하상까지 거의 수직(둔치가 있으면 둔치 끝에서 바로)
+    const wallE = P.edge === "wall", edgeUp = { low: 0.15, none: 0.04, wall: 0.3 }[P.edge] ?? 0.38;
     const crest = BANK[P.bank] || BANK.mid, low = wl + edgeUp, berm = (BERM[P.berm] || 0) + (P.bermExtra || 0);
     // 둔치 높이(수면 위 물가보다): 보통 0.2, 낮게 0.05, 수위보다 조금 위 = 그린 물높이 + 0.18, 높게·더 높게 = 제방 높이의 0.5·0.68. 둑마루보다는 낮게
     const hb = P.bermH, bermY = Math.min(crest - 0.3, hb === "water" ? Math.max(wl + 0.02, wlTop + 0.04) : hb === "water2" ? Math.max(wl + 0.1, wlTop + 0.14) : hb === "low" ? low + 0.05 : hb === "wl" ? Math.max(low + 0.2, wlTop + 0.18)
       : hb === "high" ? Math.max(low + 0.2, crest * 0.5) : hb === "xhigh" ? Math.max(low + 0.2, crest * 0.68) : low + 0.2), foot = berm ? bermY : low;
     const run = VERT.has(P.rev) ? 0.12 : Math.max(0.4, (crest - foot) * (SLOPE[P.slope] || SLOPE.mid));
-    const edgeRun = { riprap: 2, low: 1.3, none: 0.15 }[P.edge] ?? 3.2, uw = P.edge === "none" ? (bedU ? 0.9 : 0.35) : bedU ? 2.6 : 1.4, pts = [], z = {};
+    const edgeRun = { riprap: 2, low: 1.3, none: 0.15, wall: 0.12 }[P.edge] ?? 3.2, uw = wallE ? 0.15 : P.edge === "none" ? (bedU ? 0.9 : 0.35) : bedU ? 2.6 : 1.4, pts = [], z = {};
     let d = LANDW[P.landW] || LANDW.mid;
     // 산림(산지 경사): 둑마루에서 바깥으로 산처럼 오르는 비탈
     const hill = P.land === "mountain" ? 0.85 : 0;
@@ -332,13 +333,18 @@
     z.crest = [d, d + CRESTW]; d += CRESTW; pts.push([d, crest]);
     z.slope = [d, d + run]; d += run; pts.push([d, foot]);
     // 둔치가 물가보다 낮으면(수면과 거의 같게) 물가는 둔치 높이에서 수면으로 이어짐
-    if (berm) { const eTop = Math.min(low, bermY); z.berm = [d, d + berm]; d += berm; pts.push([d, bermY]); d += Math.max(0.7, (bermY - eTop) * 2); pts.push([d, eTop]); }
+    if (berm) {
+      const eTop = Math.min(low, bermY);
+      z.berm = [d, d + berm]; d += berm; pts.push([d, bermY]);
+      if (!wallE) { d += Math.max(0.7, (bermY - eTop) * 2); pts.push([d, eTop]); }
+    }
+    const w0 = d, wTop = berm ? bermY : foot;
     z.edge = [d, d + edgeRun]; d += edgeRun; pts.push([d, wl]);
     const we = d;
-    if (bedU) pts.push([d + uw * 0.35, wl * 0.45], [d + uw * 0.7, wl * 0.1]);
+    if (bedU && !wallE) pts.push([d + uw * 0.35, wl * 0.45], [d + uw * 0.7, wl * 0.1]);
     d += uw;
     pts.push([d, 0]);
-    return { pts, z, we, end: d, crest, top: crest + hill };
+    return { pts, z, we, end: d, crest, top: crest + hill, wall: wallE ? { x0: w0, y0: wTop, x1: d } : null };
   };
   const geom = (st, F, needBar) => {
     // 건천은 물을 그리지 않고 지형만 얕은 물 높이로 잡음
@@ -399,6 +405,10 @@
     const pts = up.map(([u, v]) => [X(u), Y(v)]);
     const zmm = Object.fromEntries(Object.entries(zones).map(([k, [a, b]]) => [k, [X(a), X(b)]]));
     const wlY = Y(wlDraw);
+    // 물가 콘크리트 옹벽 면(위·아래, 용지 mm)
+    const walls = {};
+    if (L.wall) walls.L = [[X(L.wall.x0), Y(L.wall.y0)], [X(L.wall.x1), Y(0)]];
+    if (Rt.wall) walls.R = [[X(total - Rt.wall.x0), Y(Rt.wall.y0)], [X(total - Rt.wall.x1), Y(0)]];
     // 물에 잠긴 구간(수면 아래 땅)
     const runs = [];
     let run = null;
@@ -416,7 +426,7 @@
     if (dry) runs.length = 0;
     const wide = runs.reduce((b, r) => (!b || r[r.length - 1][0] - r[0][0] > b[b.length - 1][0] - b[0][0] ? r : b), null);
     if (wide) { const a = wide[0][0], b = wide[wide.length - 1][0]; zmm.surface = [a + (b - a) * 0.28, b - (b - a) * 0.28]; }
-    return { pts, zones: zmm, wlY, runs, wide, dry, need, side, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
+    return { pts, zones: zmm, wlY, runs, wide, dry, need, side, walls, slopeL: [X(zones["L-slope"][0]), X(zones["L-slope"][1])], slopeR: [X(zones["R-slope"][0]), X(zones["R-slope"][1])] };
   };
   // x(mm)에서 땅 높이(y mm). 직립 호안처럼 같은 x가 둘이면 위쪽
   const groundY = (pts, x) => {
@@ -644,6 +654,12 @@
       } else if (P.rev === "wall") {
         const t = 1.6 * s;
         pen.path([[top, foot, [foot[0] + inx * t, foot[1] + iny * t + 0.6 * s], [top[0] + inx * t, top[1] + iny * t]]], mono ? { closed: true, fill: "#ffffff", stroke: ink, width: 0.25, hatch: { color: "#777777", angle: 45, gap: 0.9 * s, width: 0.12 } }
+          : { closed: true, fill: "#d3d3d3", stroke: "#444444", width: 0.25, hatch: { color: "#9a9a9a", angle: 45, gap: 0.9 * s, width: 0.12 } });
+      }
+      // 물가 콘크리트 옹벽: 거의 수직인 면에서 땅 쪽으로 두께만큼 회색 빗금 블록
+      if (P.edge === "wall" && g.walls[sd]) {
+        const [tp, bt] = g.walls[sd], t = 1.3 * s, k = sd === "L" ? -1 : 1;
+        pen.path([[tp, bt, [bt[0] + k * t, bt[1]], [tp[0] + k * t, tp[1]]]], mono ? { closed: true, fill: "#ffffff", stroke: ink, width: 0.25, hatch: { color: "#777777", angle: 45, gap: 0.9 * s, width: 0.12 } }
           : { closed: true, fill: "#d3d3d3", stroke: "#444444", width: 0.25, hatch: { color: "#9a9a9a", angle: 45, gap: 0.9 * s, width: 0.12 } });
       }
       if (P.edge === "riprap") {
