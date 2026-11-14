@@ -2751,6 +2751,77 @@
       toast(err.message || "작업 파일을 불러오지 못했습니다.", 5000);
     }
   });
+  // ---------- 마지막 설정 자동 저장: 이 컴퓨터 브라우저(localStorage)에만, 서버에는 보내지 않음 ----------
+  // 도면마다 고른 설정(용지·축척·바탕·켜고 끈 것·제목·보호구역 종류·현지조사 범위 등)과 하천식생단면도 입력값을 바뀔 때마다 저장하고 다음에 열면 그대로 둠.
+  // 사업마다 다른 자료(경계·옮긴 위치·축 화살표·고친 이름표·드론 지점·불러온 문헌·9격자·경로·조사지점·출현 기록)는 넣지 않음 — 그건 「작업 저장」 파일로
+  const PREFS_KEY = "eia-figure-maps/prefs";
+  const PREF_SKIP = new Set(["kind", "offset", "arrows", "labelHide", "labelText", "drone"]);
+  const PREF_SUB_SKIP = { lit: ["grid", "gridKey", "imported", "xls", "sp", "picked", "manual", "seq", "hide", "text", "colors"], field: ["tracks", "tseq", "edits", "redo", "points", "pseq", "stats"], occ: ["recs", "seq", "syms", "symSeq"] };
+  const PREF_UI = { "o-dpi": "300", "file-crs": "5186", crs: "4326" };
+  const FIG_KEYS = Object.fromEntries(Object.keys(TITLES).map((k) => [k, Object.keys(newFig(k))]));
+  const prefsOf = (k, f) => enc(Object.fromEntries(FIG_KEYS[k].filter((x) => !PREF_SKIP.has(x) && !(k === "sp" && x === "lit")).map((x) => {
+    const skip = PREF_SUB_SKIP[x];
+    return [x, skip && f[x] && typeof f[x] === "object" ? Object.fromEntries(Object.entries(f[x]).filter(([y]) => !skip.includes(y))) : f[x]];
+  })));
+  // 「설정 초기화」 바로 뒤(그 단추 누름)에는 처음 값을 다시 저장하지 않음 — 다음에 열 때 「지난번 설정」 알림이 뜨지 않게
+  let prefsHold = 0;
+  const savePrefs = () => {
+    if (Date.now() < prefsHold) return;
+    try {
+      const figs = Object.fromEntries(Object.keys(TITLES).map((k) => [k, prefsOf(k, S.figs[k])]));
+      const ui = Object.fromEntries(Object.keys(PREF_UI).map((id) => [id, $(`#${id}`) ? $(`#${id}`).value : ""]));
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ version: 1, saved: new Date().toISOString(), cur: S.cur, figs, ui }));
+    } catch (_) { /* 저장 못 함(사생활 보호 모드·용량 등) — 지금 작업에는 지장 없음 */ }
+  };
+  const savePrefsSoon = debounce(savePrefs, 600);
+  const loadPrefs = () => {
+    let d;
+    try { d = JSON.parse(localStorage.getItem(PREFS_KEY) || "null"); } catch (_) { return false; }
+    if (!d || typeof d !== "object" || !d.figs || typeof d.figs !== "object") return false;
+    Object.keys(TITLES).forEach((k) => {
+      const v = d.figs[k];
+      if (!v || typeof v !== "object" || Array.isArray(v)) return;
+      try {
+        const f = fit(S.figs[k], v);
+        f.kind = k;
+        // 인증키가 없어 못 쓰는 바탕이면 기본 바탕
+        const b = Carto.BASES[f.basemap];
+        if (!b || (b.key && !Carto.hasVworld)) f.basemap = baseOf(k);
+        S.figs[k] = f;
+      } catch (_) { /* 이 도면은 기본값 */ }
+    });
+    S.figs.sp.lit = S.figs.lit.lit;
+    const sec = S.figs.sec.sec;
+    if (!sec || !Array.isArray(sec.list) || !sec.list.length) S.figs.sec.sec = Section.newSec();
+    if (TITLES[d.cur]) S.cur = d.cur;
+    if (d.ui && typeof d.ui === "object") Object.keys(PREF_UI).forEach((id) => { const el = $(`#${id}`), v = d.ui[id]; if (el && typeof v === "string" && [...el.options].some((o) => o.value === v)) el.value = v; });
+    return true;
+  };
+  const prefsLoaded = loadPrefs();
+  ["change", "input", "click"].forEach((t) => document.addEventListener(t, savePrefsSoon));
+  window.addEventListener("pagehide", savePrefs);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") savePrefs(); });
+  $("#prefs-reset").addEventListener("click", () => {
+    if (!confirm("모든 도면의 설정과 하천식생단면도 입력값을 처음 값으로 돌리고, 이 컴퓨터에 저장된 마지막 설정을 지웁니다.\n사업지구 경계·찍은 것·불러온 자료는 그대로 둡니다. 계속할까요?")) return;
+    stopArrow();
+    Object.keys(TITLES).forEach((k) => {
+      const cur = S.figs[k], d = newFig(k);
+      PREF_SKIP.forEach((x) => { if (x in cur) d[x] = cur[x]; });
+      Object.entries(PREF_SUB_SKIP).forEach(([g, xs]) => { if (cur[g] && d[g]) xs.forEach((x) => { if (x in cur[g]) d[g][x] = cur[g][x]; }); });
+      S.figs[k] = d;
+    });
+    S.figs.sp.lit = S.figs.lit.lit;
+    Object.entries(PREF_UI).forEach(([id, v]) => { if ($(`#${id}`)) $(`#${id}`).value = v; });
+    try { localStorage.removeItem(PREFS_KEY); } catch (_) { /* 없음 */ }
+    prefsHold = Date.now() + 1500;
+    FR.key = "";
+    renderPaLayers();
+    renderLitList();
+    renderSpList();
+    syncControls();
+    renderPreview();
+    toast("설정을 처음 값으로 돌렸습니다.");
+  });
   // 출현위치도 설정 칸은 같은 꼴이라 여기서 만듦(syncControls 전에)
   Object.keys(OCC).forEach((k) => { $(`#${k}-pane`).innerHTML = occPaneHtml(k); });
   syncControls();
@@ -2803,5 +2874,10 @@
     if (e.key === "Enter") finishArrow();
     if (e.key === "Escape") stopArrow();
   });
+  // 지난번 설정을 불러왔으면 알림(하천식생단면도였으면 경계 없이도 단면도 미리보기로)
+  if (prefsLoaded) {
+    if (S.cur === "sec") setView("preview");
+    toast("이 컴퓨터에 저장된 지난번 설정으로 열었습니다(맨 위 「설정 초기화」로 처음 값).", 4000);
+  }
   window.App = { S, renderPreview, exportFig, ecoKey };
 })();
