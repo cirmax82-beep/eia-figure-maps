@@ -284,7 +284,7 @@
       S.last = { view: null, layout: Lo, cssW, cssH, k, fig: f };
       drawArrowTemp();
       const st = Section.cur(f.sec);
-      status(`${st.name || "지점"} · ${Lo.W}×${Lo.H} mm · 지점 ${f.sec.list.length}곳`);
+      status(`${st.name || "지점"} · ${Math.round(Lo.W)}×${Math.round(Lo.H)} mm · 지점 ${f.sec.list.length}곳`);
     } catch (err) {
       console.error(err);
       if (my === gen) status(err.message || "단면도를 그리지 못했습니다.");
@@ -2515,6 +2515,7 @@
         ${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${(st.L.berm || "none") !== "none" || (st.R.berm || "none") !== "none" || (st.water.pos || "center") !== "center" ? both("bermH", "둔치 높이", X.BERMHS) : ""}${both("edge", "물가", X.EDGES)}
       </div>
       <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림 · 📍를 누르고 단면도를 누르면 그 자리에 직접 넣음</span></b>
+      <label class="row" title="자동은 지형 세로 배율에 맞춘 크기. 배수를 고르면 교목 높이가 제방 높이 × 배수(다른 식물은 같은 비율) — 소하천은 나무가 제방보다 높은 일이 많음">나무 높이(제방 대비) <select class="input" data-sk="treeRef">${secOpts(X.TREEREFS, st.treeRef || "auto")}</select></label>
       <div class="sec-veg">${st.veg.map((v, i) => { const np = X.pinsOf(v).length; return `
         <div class="sec-vrow" data-vi="${i}">
           <input class="input" data-vk="name" value="${esc(v.name)}" placeholder="식물 이름" list="sec-species">
