@@ -262,6 +262,8 @@
           : { closed: true, fill: c, fillOpacity: 0.35, stroke: c, width: 0.35 * e, join: "miter" });
         if (g && g.kind === "line") pen.path([[[cx, my0], [cx + s, my0]]], { stroke: c, width: 1 * e });
         if (g && g.kind === "point") pen.path([Array.from({ length: 25 }, (_, k) => [cx + s / 2 + r0 * Math.cos((k / 24) * 2 * Math.PI), my0 + r0 * Math.sin((k / 24) * 2 * Math.PI)])], { closed: true, fill: c });
+        // 전국자연환경조사 도엽(격자) 문헌: 9격자 칸 선처럼 검은 테두리만
+        if (!g && it.r.cat === "전국자연환경조사") pen.path([[[cx, my0 - r0], [cx + s, my0 - r0], [cx + s, my0 + r0], [cx, my0 + r0]]], { closed: true, stroke: "#1f1f1f", width: 0.45 * e, join: "miter" });
         it.lines.forEach((ln, li) => pen.text(ln, cx + T.sym, cy + T.lh * (li + 0.5), { size: T.fs, align: "left", base: "middle", color: "#1f1f1f" }));
         cy += it.lines.length * T.lh;
       });
