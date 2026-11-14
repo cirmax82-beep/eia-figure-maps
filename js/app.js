@@ -2556,7 +2556,7 @@
         ${sel("o.size", X.SIZES, Q.size, "크기")}${sel("o.label", X.LABELS, Q.label, "식물 표기")}
         ${sel("o.style", X.STYLES, Q.style, "그림")}${sel("o.ground", X.GROUNDS, Q.ground, "땅")}
         ${sel("o.water", X.WATERS, Q.water, "물")}${sel("o.psize", X.PSIZES, Q.psize || "m", "식물 크기")}
-        ${sel("o.iconSize", X.ICONSZS, Q.iconSize || "m", "제내지 그림 크기")}<span></span>
+        ${sel("o.landStyle", X.LANDSTYLES, Q.landStyle || "band", "제내지 표현")}${(Q.landStyle || "band") === "icon" ? sel("o.iconSize", X.ICONSZS, Q.iconSize || "m", "제내지 그림 크기") : "<span></span>"}
       </div>
       <div class="checks">
         <label><input type="checkbox" data-sk="o.sides" ${Q.sides ? "checked" : ""}> 좌안·우안 글자</label>
@@ -2603,7 +2603,7 @@
         const W = Section.cur(SF()).water;
         if (t.dataset.sk === "water.n") { if (t.value === "2") Object.assign(W, { bar: W.bar === "none" ? "center" : W.bar, barH: "high", barW: "wide" }); else W.bar = "none"; }
         if (t.dataset.sk === "water.bar" && t.value === "none") W.n = "1";
-        if (/\.berm$|^water\.(n|bar|pos)$|^mode$/.test(t.dataset.sk)) renderSecPane();
+        if (/\.berm$|^water\.(n|bar|pos)$|^mode$|^o\.landStyle$/.test(t.dataset.sk)) renderSecPane();
         renderPreview();
         return;
       }

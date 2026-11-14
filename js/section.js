@@ -66,6 +66,9 @@
   // 제내지 그림(집·건물·도로·농경지·산림 등) 크기
   const ICONSZS = [["s", "작게"], ["m", "보통"], ["l", "크게"], ["xl", "아주 크게"]];
   const ICONSZ = { s: 0.7, m: 1, l: 1.4, xl: 1.8 };
+  // 제내지 표현: 바닥 색 띠 + 글자(기본) / 그림(집·건물·자전거 등). 띠 색은 이용별
+  const LANDSTYLES = [["band", "바닥 색 + 글자"], ["icon", "그림(아이콘)"]];
+  const LANDCOL = { farm: "#9c7a4c", house: "#b5523b", building: "#7d828a", road: "#55585e", bike: "#b0705a", forest: "#4e7a2e", mountain: "#4e7a2e", park: "#6aa84f" };
   // 나무 높이(제방 대비): 자동은 지형 세로 배율에 맞춘 크기, 배수를 고르면 교목 높이 = 제방 높이 × 배수(다른 생활형은 같은 비율) — 소하천은 나무가 제방보다 높은 일이 많음
   const TREEREFS = [["auto", "자동(지형 배율)"], ["0.6", "제방 높이의 0.6배"], ["0.8", "제방 높이의 0.8배"], ["1", "제방과 비슷하게"], ["1.3", "제방보다 조금 높게(1.3배)"], ["1.6", "제방보다 높게(1.6배)"], ["2", "제방의 2배"]];
   const SIZES = [["180x80", "가로 180×80 mm"], ["180x100", "가로 180×100 mm"], ["160x120", "가로 160×120 mm"], ["a4", "A4 가로(297×210 mm)"]];
@@ -539,23 +542,13 @@
     // 가로: 단면(제내지 빼고)이 그림 폭을 채움(제내지는 고른 mm). 세로: 가로와 같은 배율(실제 비율) — 식물까지 틀에 안 들면 그림 높이를 늘리고, 그래도 넘치면 줄이고 남는 폭은 제내지로
     const refH = F.refH || F.h, maxY = Math.max(L.top, Rt.top), inner = total - 2, kk = refH / 80, LMM = { narrow: 10, mid: 22, wide: 36 };
     const mL = (LMM[st.L.landW] || LMM.mid) * kk, mR = (LMM[st.R.landW] || LMM.mid) * kk;
-    // 그릴 것 가운데 가장 높은 곳(m): 지형과 식물 꼭대기(자리의 땅 높이 + 실제 키 × 식물 크기)
-    const hAt = (u) => { let b = 0; for (let i = 1; i < up.length; i++) { const [x0, y0] = up[i - 1], [x1, y1] = up[i]; if (u < Math.min(x0, x1) || u > Math.max(x0, x1)) continue; const y = x1 === x0 ? Math.max(y0, y1) : y0 + ((y1 - y0) * (u - x0)) / (x1 - x0); if (y > b) b = y; } return b; };
-    const zAt = (z) => zones[z] || (z.endsWith("-berm") ? zones[z.replace("-berm", "-edge")] : null);
-    let topM = maxY;
-    usedVeg(st).forEach((v) => {
-      const h = realH(v, num(R.treeH, 0)) * (F.psize || 1) * (PSZ[v.size] || 1), ps = pinsOf(v);
-      (ps.length ? ps.map((p) => { const r = zAt(p.z); return r ? r[0] + (r[1] - r[0]) * p.t : null; }) : [zAt(v.zone) ? (zAt(v.zone)[0] + zAt(v.zone)[1]) / 2 : null])
-        .forEach((u) => { if (u !== null) topM = Math.max(topM, hAt(u) + h); });
-    });
-    // 가로·세로는 늘 같은 비율(실제 비율, 세로 과장 없음)
+    // 가로·세로는 늘 같은 비율(실제 비율, 세로 과장 없음). 단면은 지형(둑마루)에만 맞춰 그림 폭을 채움 — 높은 나무는 틀 위에서 잘림
     let hs = Math.max(0.01, (F.w - mL - mR) / inner);
     const vx = 1;
-    // 틀 안에서 그림이 쓸 세로(아래 14%는 하상 밑, 위 10%는 이름표)
-    const avail = (fh) => fh - 0.24 * refH;
+    // 지형이 들어갈 세로: 틀에서 아래 14%(하상 밑)·위 22%(풀·이름표)를 뺀 만큼. 모자라면 쪽 배치에 높이를 늘리게 하고, 그래도 넘치면 줄이고 남는 폭은 제내지로
+    const avail = (fh) => fh - 0.36 * refH;
     let vs = hs * vx, needH = null;
-    // 그래도 넘치면 쪽 배치에 필요한 틀 높이를 알리고(늘림), 그래도 넘치면 줄이고 남는 폭은 제내지로
-    if (vs * topM > avail(F.h)) { needH = vs * topM + 0.24 * refH; vs = avail(F.h) / topM; hs = vs / vx; }
+    if (vs * maxY > avail(F.h)) { needH = (vs * maxY) / 0.64; vs = avail(F.h) / maxY; hs = vs / vx; }
     const spare = F.w - hs * inner, landL = (spare * mL) / (mL + mR) / hs, landR = (spare * mR) / (mL + mR) / hs;
     const rx = (u) => (u <= 1 ? u * landL : u >= total - 1 ? landL + inner + (u - (total - 1)) * landR : u - 1 + landL);
     const y0 = F.y + F.h - 0.14 * refH, X = (u) => F.x + rx(u) * hs, Y = (v) => y0 - v * vs;
@@ -692,7 +685,7 @@
     const pad = ((fig.sec.sides ? 8.5 : 3.5) + ((st.water.hText || "").trim() ? 6 : 0)) * Lo.e;
     const F = Lo.frame, cut = Number.isFinite(top) ? Math.min(top - F.y - pad, F.h - 30 * Lo.e0) : 0;
     if (cut > 1) Lo = baseLayout(fig, F.h - cut, F.refH);
-    else if (cut < -1) Lo = baseLayout(fig, Math.min(F.h - cut, capFh(Lo)), F.refH);
+    else if (cut < -1 && st.mode !== "real") Lo = baseLayout(fig, Math.min(F.h - cut, capFh(Lo)), F.refH);
     LC = { key, val: Lo };
     return Lo;
   };
@@ -872,7 +865,15 @@
       const IZ = ICONSZ[S.iconSize] || 1, ks = Math.min(real ? (7 * g.vs) / 8.6 : s, (x1 - x0) / 9.5) * IZ;
       const fillOr = (c) => (mono ? "#ffffff" : c);
       let top = y - 3 * ks;
-      if (P.land === "house") {
+      if ((S.landStyle || "band") === "band") {
+        // 바닥 색 + 글자: 제내지 땅 표면을 따라 이용별 색 띠(높이로 그리지 않음), 이름은 그 위 가운데
+        const [la, lb] = g.zones[`${sd}-land`], ba = Math.max(F.x, la), bb = Math.min(F.x + F.w, lb), t = 1.5 * e;
+        const surf = slice(g.pts, ba, bb), col = mono ? "#6b6b6b" : LANDCOL[P.land] || "#8d6748";
+        pen.path([[...surf, ...surf.map(([x, yy]) => [x, yy + t]).reverse()]], { closed: true, fill: col, stroke: mono ? ink : col, width: 0.15 * e });
+        if (P.land === "road" || P.land === "bike") pen.path([surf.map(([x, yy]) => [x, yy + t / 2])], { stroke: "#ffffff", width: 0.18 * e, dash: [0.9 * e, 0.7 * e] });
+        cx = (ba + bb) / 2;
+        top = groundY(g.pts, cx) - 0.8 * e;
+      } else if (P.land === "house") {
         const w = 8 * ks, h = 5 * ks;
         pen.path([[[cx - w / 2, y], [cx - w / 2, y - h], [cx + w / 2, y - h], [cx + w / 2, y]]], shape(fillOr("#efe2cf"), ink, 0.22));
         pen.path([[[cx - w * 0.62, y - h], [cx, y - h - 3.6 * ks], [cx + w * 0.62, y - h]]], shape(fillOr("#b5523b"), ink, 0.22));
@@ -1061,6 +1062,6 @@
   // x(mm)의 땅 높이(그림 틀 밖이면 null)
   const groundAt = (fig, px) => { const { F, g } = pinGeom(fig); return px < F.x || px > F.x + F.w ? null : groundY(g.pts, px); };
 
-  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, BERMHS, EDGES, BARHS, BARWS, NCHS, POSS, PSIZES, TREEREFS, ICONSZS, MODES, VXS, NS, REALDEF, realH, realOf, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, BERMHS, EDGES, BARHS, BARWS, NCHS, POSS, PSIZES, TREEREFS, ICONSZS, LANDSTYLES, MODES, VXS, NS, REALDEF, realH, realOf, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();
