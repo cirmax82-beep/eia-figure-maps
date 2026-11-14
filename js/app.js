@@ -2526,7 +2526,7 @@
       <b class="small sec-h">좌안 · 우안</b>
       <div class="grid2">
         ${both("land", "제내지", X.LAND)}${both("landW", "제내지 폭", X.LANDWS)}
-        ${both("landPos", "제내지 이용 자리", X.LANDPOSS)}
+        ${sel("L.landPos", X.LANDPOSS, st.L.landPos === "crest" ? "100" : st.L.landPos || "out", "좌안 제내지 이용 자리")}${sel("R.landPos", X.LANDPOSS, st.R.landPos === "crest" ? "100" : st.R.landPos || "out", "우안 제내지 이용 자리")}
         ${txt("L.landText", st.L.landText, "좌안 제내지 글자", "비우면 종류 이름")}${txt("R.landText", st.R.landText, "우안 제내지 글자", "비우면 종류 이름")}
         ${real ? `${nin("HL", RV.HL, "좌안 제방 높이(하상→둑마루)")}${nin("HR", RV.HR, "우안 제방 높이(하상→둑마루)")}
         ${both("rev", "호안", X.REV)}${sel("real.nL", X.NS, String(RV.nL), "좌안 사면 경사")}${sel("real.nR", X.NS, String(RV.nR), "우안 사면 경사")}
