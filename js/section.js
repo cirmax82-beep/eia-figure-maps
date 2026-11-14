@@ -68,6 +68,7 @@
   const ICONSZ = { s: 0.7, m: 1, l: 1.4, xl: 1.8 };
   // 제내지 표현: 바닥 색 띠 + 글자(기본) / 그림(집·건물·자전거 등). 띠 색은 이용별
   const LANDSTYLES = [["band", "바닥 색 + 글자"], ["icon", "그림(아이콘)"]];
+  const LANDPOSS = [["out", "제방 밖(제내지)"], ["crest", "둑마루까지(하천 쪽 바로 옆)"]];
   const LANDCOL = { farm: "#9c7a4c", house: "#b5523b", building: "#7d828a", road: "#55585e", bike: "#b0705a", forest: "#4e7a2e", mountain: "#4e7a2e", park: "#6aa84f" };
   // 나무 높이(제방 대비): 자동은 지형 세로 배율에 맞춘 크기, 배수를 고르면 교목 높이 = 제방 높이 × 배수(다른 생활형은 같은 비율) — 소하천은 나무가 제방보다 높은 일이 많음
   const TREEREFS = [["auto", "자동(지형 배율)"], ["0.6", "제방 높이의 0.6배"], ["0.8", "제방 높이의 0.8배"], ["1", "제방과 비슷하게"], ["1.3", "제방보다 조금 높게(1.3배)"], ["1.6", "제방보다 높게(1.6배)"], ["2", "제방의 2배"]];
@@ -862,7 +863,11 @@
     const landIcon = (sd) => {
       const P = st[sd];
       if (P.land === "none") return;
-      const [a, b] = g.zones[`${sd}-land`], full = P.landW === "narrow" || P.land === "mountain", x0 = sd === "L" || full ? a : a + (b - a) * 0.5, x1 = sd === "L" && !full ? a + (b - a) * 0.5 : b, y = groundY(g.pts, (x0 + x1) / 2);
+      // 제내지 이용 자리: 둑마루까지면 하천 쪽 둑마루 끝 바로 옆까지(제방 위 자전거도로, 제방에 붙은 주거지 등)
+      let [a, b] = g.zones[`${sd}-land`];
+      const onCrest = P.landPos === "crest" && g.zones[`${sd}-crest`];
+      if (onCrest) { const c = g.zones[`${sd}-crest`]; if (sd === "L") b = c[1]; else a = c[0]; }
+      const full = onCrest || P.landW === "narrow" || P.land === "mountain", x0 = sd === "L" || full ? a : a + (b - a) * 0.5, x1 = sd === "L" && !full ? a + (b - a) * 0.5 : b, y = groundY(g.pts, (x0 + x1) / 2);
       let cx = (x0 + x1) / 2;
       // 좁은 제내지는 그림을 줄이고(실측은 집 높이 약 7 m 기준), 「제내지 그림 크기」를 곱함
       const IZ = ICONSZ[S.iconSize] || 1, ks = Math.min(real ? (7 * g.vs) / 8.6 : s, (x1 - x0) / 9.5) * IZ;
@@ -870,7 +875,7 @@
       let top = y - 3 * ks;
       if ((S.landStyle || "band") === "band") {
         // 바닥 색 + 글자: 제내지 땅 표면을 따라 이용별 색 띠(높이로 그리지 않음), 이름은 그 위 가운데
-        const [la, lb] = g.zones[`${sd}-land`], ba = Math.max(F.x, la), bb = Math.min(F.x + F.w, lb), t = 1.5 * e;
+        const ba = Math.max(F.x, a), bb = Math.min(F.x + F.w, b), t = 1.5 * e;
         const surf = slice(g.pts, ba, bb), col = mono ? "#6b6b6b" : LANDCOL[P.land] || "#8d6748";
         pen.path([[...surf, ...surf.map(([x, yy]) => [x, yy + t]).reverse()]], { closed: true, fill: col, stroke: mono ? ink : col, width: 0.15 * e });
         if (P.land === "road" || P.land === "bike") pen.path([surf.map(([x, yy]) => [x, yy + t / 2])], { stroke: "#ffffff", width: 0.18 * e, dash: [0.9 * e, 0.7 * e] });
@@ -1065,6 +1070,6 @@
   // x(mm)의 땅 높이(그림 틀 밖이면 null)
   const groundAt = (fig, px) => { const { F, g } = pinGeom(fig); return px < F.x || px > F.x + F.w ? null : groundY(g.pts, px); };
 
-  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, BERMHS, EDGES, BARHS, BARWS, NCHS, POSS, PSIZES, TREEREFS, ICONSZS, LANDSTYLES, MODES, VXS, NS, REALDEF, realH, realOf, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
+  window.Section = { pinsOf, pinAt, pinPoints, groundAt, RATIOS, PRESETS, applyPreset, FORMS, ZONES, AMT, LAND, LANDWS, MATS, REV, BANKS, SLOPES, BERMS, BERMHS, EDGES, BARHS, BARWS, NCHS, POSS, PSIZES, TREEREFS, ICONSZS, LANDSTYLES, LANDPOSS, MODES, VXS, NS, REALDEF, realH, realOf, WIDTHS, DEPTHS, BEDS, BARS, SIZES, LABELS, STYLES, GROUNDS, WATERS, SPECIES,
     formOf, newSec, newStation, cur, layout, render };
 })();

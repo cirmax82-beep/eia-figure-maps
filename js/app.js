@@ -2491,7 +2491,7 @@
     const sel = (key, list, v, label) => `<label>${label} <select class="input" data-sk="${key}">${secOpts(list, v)}</select></label>`;
     const txt = (key, v, label, ph = "") => `<label>${label} <input class="input" data-sk="${key}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
     // 예전 지점에 값이 없을 때 보일 기본값(둔치 높이는 「보통」 — 목록 맨 앞이 「수면과 거의 같게」라)
-    const DEF = { bermH: "mid", bank: "mid" }, dv = (k, list) => DEF[k] || list[Math.min(1, list.length - 1)][0];
+    const DEF = { bermH: "mid", bank: "mid", landPos: "out" }, dv = (k, list) => DEF[k] || list[Math.min(1, list.length - 1)][0];
     const both = (k, label, list) => sel(`L.${k}`, list, st.L[k] || dv(k, list), `좌안 ${label}`) + sel(`R.${k}`, list, st.R[k] || dv(k, list), `우안 ${label}`);
     // 실측 방식 입력(m)
     const real = st.mode === "real", RV = X.realOf(st);
@@ -2526,6 +2526,7 @@
       <b class="small sec-h">좌안 · 우안</b>
       <div class="grid2">
         ${both("land", "제내지", X.LAND)}${both("landW", "제내지 폭", X.LANDWS)}
+        ${both("landPos", "제내지 이용 자리", X.LANDPOSS)}
         ${txt("L.landText", st.L.landText, "좌안 제내지 글자", "비우면 종류 이름")}${txt("R.landText", st.R.landText, "우안 제내지 글자", "비우면 종류 이름")}
         ${real ? `${nin("HL", RV.HL, "좌안 제방 높이(하상→둑마루)")}${nin("HR", RV.HR, "우안 제방 높이(하상→둑마루)")}
         ${both("rev", "호안", X.REV)}${sel("real.nL", X.NS, String(RV.nL), "좌안 사면 경사")}${sel("real.nR", X.NS, String(RV.nR), "우안 사면 경사")}
