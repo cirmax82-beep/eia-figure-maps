@@ -859,7 +859,8 @@
         const polys = [];
         rings.forEach((r, k) => { if (k && inRing(r[0], rings[0])) polys[0].push(r); else polys.push([r]); });
         const ha = polys.reduce((t, p) => t + ringHa(p[0]) - p.slice(1).reduce((h, r) => h + ringHa(r), 0), 0);
-        areas.push({ id: `census-${i}`, order: ord, layer: "census", layerName: "조류센서스지역", color: "#0b7285", law: "",
+        // 색: 연보라(사용자 지정) — 백두대간(#7048e8)·생태·경관보전지역(#ae3ec9)과 구별, 문헌조사 위치도의 조류센서스(보라)와 같은 계열
+        areas.push({ id: `census-${i}`, order: ord, layer: "census", layerName: "조류센서스지역", color: "#9775fa", law: "",
           name: `${nm} 조류센서스지역`, sub: "겨울철 조류 동시센서스 조사지역", sido: "", sigg: "", notice: "", ha: Math.round(ha * 100) / 100, rings, polys });
       });
     }
