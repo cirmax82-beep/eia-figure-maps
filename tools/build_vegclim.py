@@ -1,13 +1,13 @@
-"""CHELSA V2.1 월평균기온(1981–2010)으로 온량지수(WI)·한랭지수(CI)를 계산해 한국 식생기후대 분류 그림을 만듭니다.
+"""국립수목원 「한국 식생기후 분포도 (KNA 2020)」 원본 래스터를 도면용 경위도 격자 그림으로 옮깁니다(값은 그대로).
 
-    python tools/build_vegclim.py "../보호구역 종합포털/work/raw/admin-sigg.geojson" data/vegclim
+    python tools/build_vegclim.py "한국 식생기후 분포도 (KNA 2020).tif" data/vegclim
 
-- 월평균기온 12장(30초, 약 1 km)에서 한반도 범위만 원격으로 읽습니다(파일 전체를 받지 않음).
-- WI = Σ(월평균기온 − 5, 5℃ 넘는 달), CI = −Σ(5 − 월평균기온, 5℃ 밑도는 달)
-- 식생기후대(한국의 숲 Ⅵ, 국립수목원 2020 범례):
-    1 온대북부 침·활엽수 혼효림(WI < 45), 2 온대북부 낙엽활엽수림(WI 45~85), 3 온대중부 낙엽활엽수림(WI 85~100),
-    4 온대남부 낙엽활엽수림(WI > 100), 5 온대남부 상록·낙엽활엽수 혼효림(CI > −10, 앞의 구분보다 먼저)
-- CHELSA는 바다에도 값이 있어 시군구 경계(남한 육지) 밖은 0으로 지웁니다.
+- 원본: 국립수목원(2020) 한국의 숲 Ⅵ 한국의 식물상 지역과 식생 기후 — GIS 파일(250 m 격자, 값 1~5, 0 = 자료 없음).
+  좌표계는 함께 온 안내대로 EPSG:5174(Korean 1985 / Modified Central Belt). 파일 안 좌표계(베셀 TM, 기준 경도 127°)보다
+  해안선이 잘 맞음(시군구 경계와 겹침 96.8%, 밀림 없음).
+- 값 1 온대북부 침·활엽수 혼합림(WI < 45), 2 온대북부 낙엽활엽수림(WI 45~85), 3 온대중부 낙엽활엽수림(WI 85~100),
+  4 온대남부 낙엽활엽수림(WI > 100), 5 온대남부 상록·낙엽활엽수 혼합림(CI > −10) — 이름은 원본 범례 파일, 색은 원본 그림 범례 색.
+- 경위도 0.0025°(약 230 m) 격자로 가장 가까운 칸 값을 옮김(구분을 섞지 않음). 자료가 있는 범위만 남김.
 - 결과: data/vegclim/classes.png(회색조, 값 = 구분 번호, 0 = 바다·자료 없음), data/vegclim/index.json(경위도 범위·범례)
 필요한 패키지: rasterio, numpy, pillow
 """
@@ -18,58 +18,43 @@ from datetime import date
 
 import numpy as np
 import rasterio
-from rasterio.features import rasterize
 from PIL import Image
-from rasterio.windows import from_bounds
+from rasterio.crs import CRS
+from rasterio.transform import from_origin
+from rasterio.warp import Resampling, reproject
 
-URL = "/vsicurl/https://os.zhdk.cloud.switch.ch/chelsav2/GLOBAL/climatologies/1981-2010/tas/CHELSA_tas_{m:02d}_1981-2010_V.2.1.tif"
-BOUNDS = (124.0, 33.0, 132.0, 39.0)   # 서·남·동·북(경위도)
+STEP = 0.0025
+AREA = (124.0, 32.9, 132.2, 39.0)   # 서·남·동·북(경위도) — 울릉도·독도까지
 CLASSES = [
-    {"v": 1, "name": "온대북부 침·활엽수 혼효림(WI < 45)", "color": "#9fd3e6"},
-    {"v": 2, "name": "온대북부 낙엽활엽수림(WI 45~85)", "color": "#1f9e74"},
-    {"v": 3, "name": "온대중부 낙엽활엽수림(WI 85~100)", "color": "#7cc653"},
-    {"v": 4, "name": "온대남부 낙엽활엽수림(WI > 100)", "color": "#eef07a"},
-    {"v": 5, "name": "온대남부 상록·낙엽활엽수 혼효림(CI > −10)", "color": "#f4a582"},
+    {"v": 1, "name": "온대북부 침·활엽수 혼합림(WI < 45)", "color": "#97dbf2"},
+    {"v": 2, "name": "온대북부 낙엽활엽수림(WI 45~85)", "color": "#00a884"},
+    {"v": 3, "name": "온대중부 낙엽활엽수림(WI 85~100)", "color": "#89cd66"},
+    {"v": 4, "name": "온대남부 낙엽활엽수림(WI > 100)", "color": "#feff73"},
+    {"v": 5, "name": "온대남부 상록·낙엽활엽수 혼합림(CI > −10)", "color": "#f5a27a"},
 ]
 
 
-def main(admin, out):
+def main(tif, out):
     sys.stdout.reconfigure(encoding="utf-8")
-    os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
-    temps = []
-    for m in range(1, 13):
-        with rasterio.open(URL.format(m=m)) as src:
-            win = from_bounds(*BOUNDS, transform=src.transform).round_offsets().round_lengths()
-            a = src.read(1, window=win, masked=True).astype("float32")
-            scale, offset = (src.scales[0] or 1), (src.offsets[0] or 0)
-            # CHELSA V2.1 tas: 값 × 0.1 − 273.15 = ℃ (파일 척도가 비어 있으면 직접 적용)
-            t = a * scale + offset if (scale != 1 or offset != 0) else a * 0.1 - 273.15
-            temps.append(t)
-            tr = src.window_transform(win)
-        print(f"  {m}월: {t.min():.1f} ~ {t.max():.1f} ℃", flush=True)
-    T = np.ma.stack(temps)
-    wi = np.where(T > 5, T - 5, 0).sum(axis=0)
-    ci = -np.where(T < 5, 5 - T, 0).sum(axis=0)
-    cls = np.zeros(wi.shape, dtype=np.uint8)
-    cls[wi < 45] = 1
-    cls[(wi >= 45) & (wi < 85)] = 2
-    cls[(wi >= 85) & (wi < 100)] = 3
-    cls[wi >= 100] = 4
-    cls[ci > -10] = 5
-    cls[np.ma.getmaskarray(T).any(axis=0)] = 0
-    with open(admin, encoding="utf-8") as fh:
-        shapes = [f["geometry"] for f in json.load(fh)["features"]]
-    land = rasterize(((g, 1) for g in shapes), out_shape=cls.shape, transform=tr, fill=0, all_touched=True, dtype="uint8")
-    cls[land == 0] = 0
+    w0, s0, e0, n0 = AREA
+    w, h = round((e0 - w0) / STEP), round((n0 - s0) / STEP)
+    grid = np.zeros((h, w), np.uint8)
+    with rasterio.open(tif) as src:
+        reproject(src.read(1), grid, src_transform=src.transform, src_crs=CRS.from_epsg(5174), src_nodata=0,
+                  dst_transform=from_origin(w0, n0, STEP, STEP), dst_crs="EPSG:4326", dst_nodata=0, resampling=Resampling.nearest)
+    grid[grid > 5] = 0
+    rows, cols = np.nonzero(grid.any(1))[0], np.nonzero(grid.any(0))[0]
+    r0, r1, c0, c1 = max(0, rows[0] - 1), min(h, rows[-1] + 2), max(0, cols[0] - 1), min(w, cols[-1] + 2)
+    cls = grid[r0:r1, c0:c1]
     os.makedirs(out, exist_ok=True)
     Image.fromarray(cls, mode="L").save(os.path.join(out, "classes.png"), optimize=True)
-    h, w = cls.shape
-    west, north = tr.c, tr.f
-    index = {"bounds": [west, north + tr.e * h, west + tr.a * w, north], "width": w, "height": h, "classes": CLASSES,
-             "source": "CHELSA V2.1 월평균기온 1981–2010으로 계산한 온량·한랭지수", "built": date.today().isoformat()}
+    hh, ww = cls.shape
+    west, north = w0 + c0 * STEP, n0 - r0 * STEP
+    index = {"bounds": [west, north - hh * STEP, west + ww * STEP, north], "width": ww, "height": hh, "classes": CLASSES,
+             "source": "국립수목원(2020) 한국의 숲 Ⅵ 한국 식생기후 분포도(KNA 2020)", "built": date.today().isoformat()}
     with open(os.path.join(out, "index.json"), "w", encoding="utf-8") as fh:
         json.dump(index, fh, ensure_ascii=False, separators=(",", ":"))
-    print("구분별 칸 수", {c["v"]: int((cls == c["v"]).sum()) for c in CLASSES}, f"{w}×{h}")
+    print("구분별 칸 수", {c["v"]: int((cls == c["v"]).sum()) for c in CLASSES}, f"{ww}×{hh}", index["bounds"])
 
 
 if __name__ == "__main__":

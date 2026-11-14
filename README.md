@@ -38,7 +38,7 @@
 | 해안선(바다) | 국토교통부 브이월드 시군구 경계(LT_C_ADSIGG_INFO) | `tools/build_land.py`로 합쳐 5 m로 줄인 육지 면을 `data/land` 조각에 담고, 틀 안 육지 밖을 바다로 칠함(휴전선·북방한계선 북쪽 제외) |
 | 생태·자연도 | 기후에너지환경부 2026년 생태·자연도 정기고시(제2026-128호) GDB | `tools/build_ecnat.py`로 1·2등급·별도관리지역을 0.1도 조각마다 합쳐 `data/ecnat`에 담음(환경영향평가용이라 단순화하지 않음 — 1 cm 안쪽 겹친 꼭짓점만 뺌, 약 490 MB) |
 | 백지도 | 국토교통부 브이월드 WMTS(white) | 인증키는 저장소에 넣지 않고 배포할 때 비밀값 `VWORLD_KEY`로 `js/config.js`를 만듦 |
-| 식생기후대 | CHELSA V2.1 월평균기온 1981–2010 | `tools/build_vegclim.py`로 온량지수(WI)·한랭지수(CI)를 계산해 구분(한국의 숲 Ⅵ, 국립수목원 2020 범례), 남한 육지만 `data/vegclim` |
+| 식생기후대 | 국립수목원(2020) 한국의 숲 Ⅵ 「한국 식생기후 분포도(KNA 2020)」 GIS 래스터(250 m, EPSG:5174) | `tools/build_vegclim.py`로 경위도 0.0025° 격자에 값 그대로(가까운 칸) 옮김, 색은 원본 그림 범례 색, `data/vegclim` |
 | 보호구역 위치도 | 보호구역 종합포털(protect.biogrideia.com) — 국토교통부 브이월드 2D 데이터 API·한국보호지역 통합DB(KDPA) | 이 사이트에 복사하지 않고 그릴 때 포털의 `data/index.json`과 9격자에 걸치는 구역의 `data/area/<구역 id>.json`만 받음 |
 | 문헌조사 위치도 도엽·격자 | BioGrid EIA 기준 1:25,000 도엽(국토지리정보원 INDEX_25000을 사용자가 고친 것, 경위도 2.5′ 칸) | `tools/build_lit.py`로 도엽 896장의 번호·이름·범위를 `data/lit/sheets.json`에(칸은 화면에서 3×3으로 나눔) |
 | 문헌조사 위치도 문헌 위치 | BioGrid EIA 원자료 폴더의 2025-2026 겨울철 조류 동시 센서스 조사지역 200곳, 국립생태원 내륙습지 2,704곳, 물환경정보 생물측정망 지점 3,722곳, 전국자연환경조사 육수 표준유역 850곳 | 같은 도구로 `data/lit/census.json`·`wetlands.json`·`stations.json`·`basins/<유역코드>.json`(조사지역·습지 2 m, 유역 15 m로 줄임) |
@@ -57,7 +57,7 @@
 ## 생태·자연도·식생기후대·식물상 지역 갱신
 
 - 생태·자연도: 새 정기고시 GDB를 받아 `python tools/build_ecnat.py "<GDB 경로>" data/ecnat` (약 20분)
-- 식생기후대: `python tools/build_vegclim.py "../보호구역 종합포털/work/raw/admin-sigg.geojson" data/vegclim` (CHELSA 한반도 범위만 원격으로 읽음)
+- 식생기후대: `python tools/build_vegclim.py "한국 식생기후 분포도 (KNA 2020).tif" data/vegclim` (국립수목원 제공 GIS 파일, 좌표계 EPSG:5174 — 원본은 저장소에 넣지 않음). 자료를 바꾸면 `js/render.js`의 `VEG_V`도 바꿈
 - 식물상 지역: Dryad에서 `floristic_zones_and_ecoregions.zip`을 받아 `python tools/build_flora.py <zip> data/flora`
 
 ## 문헌조사 위치도 자료 갱신

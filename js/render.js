@@ -730,11 +730,13 @@
     got.forEach((d) => Object.keys(d).forEach((c) => { (out[c] || (out[c] = [])).push(...d[c]); }));
     return out;
   };
-  // 식생기후대(data/vegclim, tools/build_vegclim.py): 회색조 그림 값 = 구분 번호 → 색 그림 → 메르카토르 세로로 펴 둠(어느 축척에서도 그대로 씀)
+  // 식생기후대(data/vegclim, tools/build_vegclim.py — 국립수목원 KNA 2020 원본 래스터): 회색조 그림 값 = 구분 번호 → 색 그림 → 메르카토르 세로로 펴 둠(어느 축척에서도 그대로 씀).
+  // 자료를 바꾸면 VEG_V를 바꿈(브라우저에 남은 옛 그림·범위가 섞이지 않게)
   let VEG = null;
+  const VEG_V = "kna2020";
   const vegLayer = () => VEG || (VEG = (async () => {
-    const idx = await fetch("data/vegclim/index.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
-    const vals = await decodeGray("data/vegclim/classes.png");
+    const idx = await fetch(`data/vegclim/index.json?v=${VEG_V}`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const vals = await decodeGray(`data/vegclim/classes.png?v=${VEG_V}`);
     const { width: w, height: h } = idx;
     const src = document.createElement("canvas");
     src.width = w; src.height = h;
@@ -2383,7 +2385,7 @@
       if (pa && D.pa && D.pa.areas.some((A) => A.layer === "census")) src.push("조류센서스지역: 2025–2026 겨울철 조류 동시센서스 조사지역(국립생물자원관)");
       if (lit && fig.lit.imported) src.push("문헌 위치: BioGrid EIA");
       if (natOn && nd && nd.source) src.push(nd.source.replace(/^생태·자연도 /, "생태·자연도: "));
-      if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}(구분: 한국의 숲 Ⅵ, 국립수목원 2020)` : `식물상 지역: ${cls.source}`);
+      if (natl && cls) src.push(fig.kind === "veg" ? `식생기후대: ${cls.source}` : `식물상 지역: ${cls.source}`);
       if (fld && (fig.fieldRoutes || []).length) src.push("조사경로: 현지조사 GPS 기록");
       if (occ && occRecs.length) src.push("출현 기록: 현지조사", ...(fig.listSource ? [fig.listSource] : []));
       if (eco && lc) src.push("토지피복: 환경부 세분류 토지피복지도(2025)");
