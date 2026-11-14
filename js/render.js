@@ -1300,10 +1300,10 @@
     // 내륙습지: 틀 안에 하나라도 있을 때만 범례에
     const wetParts = [];
     if (D.wet && WET_KINDS.includes(fig.kind) && fig.wet) {
-      D.wet.forEach(([, , rings]) => {
+      D.wet.forEach(([name, , rings]) => {
         const ps = rings.map((r) => r.map(([lon, lat]) => P(lon, lat))).filter((p) => p.length > 2);
         const xs = ps.flat().map((q) => q[0]), ys = ps.flat().map((q) => q[1]);
-        if (ps.length && Math.max(...xs) >= F.x && Math.min(...xs) <= F.x + F.w && Math.max(...ys) >= F.y && Math.min(...ys) <= F.y + F.h) wetParts.push(ps);
+        if (ps.length && Math.max(...xs) >= F.x && Math.min(...xs) <= F.x + F.w && Math.max(...ys) >= F.y && Math.min(...ys) <= F.y + F.h) wetParts.push({ name: String(name || "").trim(), ps });
       });
     }
     if (wetParts.length) legend.push({ type: "fill", color: WET.fill, opacity: WET.op, hatch: { color: WET.line, angle: 0, gap: 1 * e, width: 0.18 * e }, stroke: WET.line, label: "내륙습지" });
@@ -1383,7 +1383,7 @@
       return out;
     };
     // 내륙습지 바탕색(연한 물빛): 생태·자연도 아래에 깜
-    wetParts.forEach((ps) => pen.path(ps, { closed: true, fill: WET.fill, fillOpacity: WET.op }));
+    wetParts.forEach((W) => pen.path(W.ps, { closed: true, fill: WET.fill, fillOpacity: WET.op }));
     // 생태·자연도: 2등급 → 1등급 → 별도관리지역(등급 위에 겹쳐 있음) 순으로. 흑백 바탕이면 불투명하게 칠한 뒤 바탕 선·지명을 위에 다시 얹음
     if (natOn && nd) {
       if (natOn.g2) pen.path(polyParts(nd[2], 0.3), { closed: true, fill: NAT.g2, fillOpacity: natOp });
@@ -1393,7 +1393,7 @@
     if (natSolid && base) pen.image(base.lines, F.x, F.y, F.w, F.h, { png: true, opacity: 1 - Math.min(1, fig.base || 0) });
     if (labels && natSolid) pen.image(labels.canvas, F.x, F.y, F.w, F.h, { png: true });
     // 내륙습지 빗금(습지 표시)·테두리: 생태·자연도 위(등급 색은 보이고 습지 범위도 보이게), 보호구역·문헌 위치 아래. 습지마다 따로(겹친 습지가 지워지지 않게)
-    wetParts.forEach((ps) => pen.path(ps, { closed: true, hatch: { color: WET.line, angle: 0, gap: 1 * e, width: 0.18 * e }, stroke: WET.line, width: 0.3 * e }));
+    wetParts.forEach((W) => pen.path(W.ps, { closed: true, hatch: { color: WET.line, angle: 0, gap: 1 * e, width: 0.18 * e }, stroke: WET.line, width: 0.3 * e }));
     // 바다: 틀 사각형과 육지(시군구 경계, 해안선을 따름) 고리를 짝홀 규칙으로 한 번에 칠해 육지 밖만 칠함
     if (eco && land && fig.eco.sea) {
       const p = 5, rect = [[F.x - p, F.y - p], [F.x + F.w + p, F.y - p], [F.x + F.w + p, F.y + F.h + p], [F.x - p, F.y + F.h + p]];
@@ -1615,14 +1615,15 @@
           nameJobs.push({ text: GENERIC[A.layer], rings: p.polys.flat(), size: p.bb.reduce((n, b) => n + ((b[2] - b[0]) * (b[3] - b[1])) / 1e4, 0), color: A.color }));
       });
       occupied.push(...paSmall);
-      nameJobs.sort((a, b) => a.size - b.size).forEach((J) => {
+      // 이름 하나 자리 잡기(J.rings 경위도 또는 J.pp 용지 좌표 고리). draw(fn)로 그리는 때를 정함(지금 또는 나중)
+      const placeName = (J, draw) => {
         let at = null, bb = null;
-        J.rings.forEach((r) => {
-          const pts = clipRing(r.map(([lon, lat]) => P(lon, lat))), c = labelPt(pts);
+        (J.pp || J.rings.map((r) => r.map(([lon, lat]) => P(lon, lat)))).forEach((r) => {
+          const pts = clipRing(r), c = labelPt(pts);
           if (c && (!at || c[2] > at[2])) { at = c; bb = [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))]; }
         });
         if (!at) return;
-        const fs = 6.8 * e, w = textW(J.text, fs, 700) + 1, h = fs * PT + 0.8;
+        const fs = (J.fs || 6.8) * e, wt = J.weight || 700, w = textW(J.text, fs, wt) + 1, h = fs * PT + 0.8;
         // 구역이 이름표보다 작으면(가로나 세로) 가운데에 쓰면 구역이 가려져, 구역 바로 위(막히면 아래·오른쪽·왼쪽)에 붙여 씀. 점을 찍은 아주 작은 조각은 점 둘레로
         if (Math.max(bb[2] - bb[0], bb[3] - bb[1]) < 1.5) { const r = 1.1 * e + 0.2; bb = [at[0] - r, at[1] - r, at[0] + r, at[1] + r]; }
         const cands = bb[2] - bb[0] < w || bb[3] - bb[1] < 2 * h
@@ -1635,8 +1636,9 @@
         }
         if (!box) return;
         occupied.push(box);
-        litLater.push(() => pen.text(J.text, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: 700, align: "center", base: "middle", color: inkOf(J.color), halo: "#ffffff", haloWidth: 0.6 * e }));
-      });
+        draw(() => pen.text(J.text, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, { size: fs, weight: wt, align: "center", base: "middle", color: J.ink || inkOf(J.color), halo: "#ffffff", haloWidth: 0.6 * e }));
+      };
+      nameJobs.sort((a, b) => a.size - b.size).forEach((J) => placeName(J, (fn) => litLater.push(fn)));
       // 문헌 번호표: 위치 가운데(점은 오른쪽), 다른 글자와 겹치면 위·아래·옆으로 비켜 봄
       marks.forEach((m) => litLater.push(() => {
         const t = `문헌${m.nums.join("·")}`, fs = 7.2 * e, w = textW(t, fs, 700) + 2.4 * e, h = fs * PT + 1.6 * e;
@@ -1735,6 +1737,10 @@
           }
         }));
       }
+      // 내륙습지 이름(켰을 때): 9격자 안에 든 습지만, 문헌 번호표·종 상자·보호구역 이름이 자리를 잡은 뒤 남은 자리에(작은 것부터, 막히면 뺌)
+      if (wetParts.length && fig.wetName) litLater.push(() => wetParts.filter((W) => W.name)
+        .map((W) => ({ text: W.name, pp: W.ps, size: Math.abs(ringArea(W.ps[0])), fs: 6.2, weight: 600, ink: WET.line }))
+        .sort((a, b) => a.size - b.size).forEach((J) => placeName(J, (fn) => fn())));
     }
 
     // 좌표 격자 선
