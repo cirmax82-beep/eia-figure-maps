@@ -459,7 +459,7 @@
   const REALDEF = { B: 40, W: 10, D: 0.6, cw: 3, vx: "auto", HL: 4, HR: 4, nL: "2", nR: "2", bL: 6, bR: 8, hbL: 0.8, hbR: 0.8, barW: 4, barH: 0.3, dry: false };
   const MODES = [["real", "실측 값으로(하폭·수폭·수심·제방 높이 m)"], ["concept", "개념도(단계 고르기)"]];
   const VXS = [["auto", "자동(보기 좋게)"], ["1", "실제 비율(1배)"], ["2", "2배"], ["3", "3배"], ["5", "5배"], ["10", "10배"], ["20", "20배"]];
-  const NS = [["0.3", "1 : 0.3(거의 직립)"], ["0.5", "1 : 0.5"], ["1", "1 : 1"], ["1.5", "1 : 1.5"], ["2", "1 : 2"], ["3", "1 : 3"], ["4", "1 : 4"], ["5", "1 : 5"]];
+  const NS = [["0", "1 : 0(직립·직각)"], ["0.3", "1 : 0.3(거의 직립)"], ["0.5", "1 : 0.5"], ["1", "1 : 1"], ["1.5", "1 : 1.5"], ["2", "1 : 2"], ["3", "1 : 3"], ["4", "1 : 4"], ["5", "1 : 5"]];
   const NICE = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50];
   const num = (v, d) => { const x = parseFloat(v); return Number.isFinite(x) ? x : d; };
   const fmt1 = (x) => String(Math.round(x * 10) / 10);
@@ -485,7 +485,7 @@
     ["L", "R"].forEach((sd) => {
       const H = Math.max(D + 0.2, num(R[`H${sd}`], 4)), edge = side[sd].edge || "natural";
       P[sd] = { H, edge, vert: VERT.has(side[sd].rev), Lb: Math.max(0, num(R[`b${sd}`], 0)), hb: Math.min(Math.max(0.02, num(R[`hb${sd}`], 0.8)), H - D - 0.1),
-        hE: Math.min({ low: 0.1, none: 0.02, wall: 0.3 }[edge] ?? 0.3, H - D - 0.05), n: Math.max(0.05, num(R[`n${sd}`], 2)) };
+        hE: Math.min({ low: 0.1, none: 0.02, wall: 0.3 }[edge] ?? 0.3, H - D - 0.05), n: Math.max(0, num(R[`n${sd}`], 2)) };
     });
     const foot = (p) => D + (p.Lb > 0 ? p.hb : p.hE);
     // 사면 가로 길이: 직립 호안(돌쌓기·옹벽)은 수직(0), 나머지는 높이 × n
@@ -516,9 +516,10 @@
     ["L", "R"].forEach((sd) => {
       const p = P[sd];
       if (p.Lb > 1e-6 || p.edge === "wall" || p.hE < 0.05 || p.e >= p.hE * 0.5) return;
-      const span = run(p) + (p.vert ? 0 : p.e);
+      // 직립(직립 호안·사면 1:0)은 수직 그대로 수면까지 세우고 물가 폭은 남김
+      const upright = p.vert || p.n < 0.02, span = run(p) + (upright ? 0 : p.e);
       p.hE = 0;
-      if (!p.vert) { p.n = span / (p.H - D); p.e = 0; }
+      if (!upright) { p.n = span / (p.H - D); p.e = 0; }
     });
     // 물속 기슭: 둥근 바닥은 수심의 3배·평평하면 1.5배(수폭의 30%까지), 옹벽은 수직
     const uw = (p) => (sheer(p) ? 0.02 : Math.min(Wd * 0.3, D * (bedU ? 3 : 1.5)));
@@ -759,7 +760,15 @@
       a += pad; b -= pad;
       list.forEach((v, k) => {
         const a1 = a + ((b - a) * k) / list.length, b1 = a + ((b - a) * (k + 1)) / list.length, R = rng(hash(`${st.id}|${v.i}|${v.name}`));
-        if (v.form === "vine") { plants.push({ v, form: "vine", pts: slice(g.pts, a1, b1), R }); return; }
+        if (v.form === "vine") {
+          // 제방 사면의 덩굴은 사면 선(꼭대기~발치)을 나눠 따라감 — 직립(1:0) 사면도 벽을 타고 내려옴
+          const sl = z.endsWith("-slope") && g.slopes && g.slopes[sd];
+          if (sl) {
+            const [p0, p1] = sd === "L" ? sl : [sl[1], sl[0]], at = (t) => [p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t];
+            plants.push({ v, form: "vine", pts: [at(0.04 + (0.92 * k) / list.length), at(0.04 + (0.92 * (k + 1)) / list.length)], R });
+          } else plants.push({ v, form: "vine", pts: slice(g.pts, a1, b1), R });
+          return;
+        }
         const w = WIDE[v.form] * sfv(v) * fz(v), n0 = ["tree", "conifer", "shrub"].includes(v.form) ? { few: 1, mid: 2, many: 3 }[v.amt] || 2 : COUNT[v.amt] || 3;
         const n = Math.max(1, Math.min(n0, Math.floor((b1 - a1) / (w * 0.5))));
         const narrow = z.endsWith("-slope") && b1 - a1 < 3;   // 직립 호안: 위(둑 가장자리)와 발치에 번갈아
