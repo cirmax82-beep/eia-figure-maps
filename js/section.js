@@ -24,7 +24,7 @@
   const SLOPES = [["gentle", "완만하게"], ["mid", "보통"], ["steep", "급하게"], ["vsteep", "아주 급하게"]];
   const BERMS = [["none", "없음"], ["narrow", "좁게"], ["wide", "넓게"]];
   // 둔치 높이: 수위(수심)에 맞춰 잠기게·안 잠기게. 「수위보다 조금 위」는 고른 수심의 물높이 바로 위(제방 끝 가까이 물이면 그래도 잠김)
-  const BERMHS = [["water", "수면과 거의 같게"], ["low", "낮게(물에 잘 잠김)"], ["mid", "보통(수면 조금 위)"], ["wl", "수위보다 조금 위(안 잠기게)"], ["high", "높게(제방 높이 절반쯤)"], ["xhigh", "더 높게(제방 높이 2/3쯤)"]];
+  const BERMHS = [["water", "수면과 거의 같게"], ["water2", "수면보다 약간 높게"], ["low", "낮게(물에 잘 잠김)"], ["mid", "보통(수면 조금 위)"], ["wl", "수위보다 조금 위(안 잠기게)"], ["high", "높게(제방 높이 절반쯤)"], ["xhigh", "더 높게(제방 높이 2/3쯤)"]];
   // 물가: 소하천은 물가가 거의 없거나 좁고 낮아 수폭이 하폭과 거의 같음
   const EDGES = [["natural", "자연(흙·모래)"], ["low", "좁고 낮게"], ["none", "없음(물이 호안까지)"], ["riprap", "사석·자갈"]];
   const WIDTHS = [["xnarrow", "아주 좁게"], ["narrow", "좁게"], ["mid", "보통"], ["wide", "넓게"]];
@@ -319,7 +319,7 @@
     const edgeUp = { low: 0.15, none: 0.04 }[P.edge] ?? 0.38;
     const crest = BANK[P.bank] || BANK.mid, low = wl + edgeUp, berm = (BERM[P.berm] || 0) + (P.bermExtra || 0);
     // 둔치 높이(수면 위 물가보다): 보통 0.2, 낮게 0.05, 수위보다 조금 위 = 그린 물높이 + 0.18, 높게·더 높게 = 제방 높이의 0.5·0.68. 둑마루보다는 낮게
-    const hb = P.bermH, bermY = Math.min(crest - 0.3, hb === "water" ? Math.max(wl + 0.02, wlTop + 0.04) : hb === "low" ? low + 0.05 : hb === "wl" ? Math.max(low + 0.2, wlTop + 0.18)
+    const hb = P.bermH, bermY = Math.min(crest - 0.3, hb === "water" ? Math.max(wl + 0.02, wlTop + 0.04) : hb === "water2" ? Math.max(wl + 0.1, wlTop + 0.14) : hb === "low" ? low + 0.05 : hb === "wl" ? Math.max(low + 0.2, wlTop + 0.18)
       : hb === "high" ? Math.max(low + 0.2, crest * 0.5) : hb === "xhigh" ? Math.max(low + 0.2, crest * 0.68) : low + 0.2), foot = berm ? bermY : low;
     const run = VERT.has(P.rev) ? 0.12 : Math.max(0.4, (crest - foot) * (SLOPE[P.slope] || SLOPE.mid));
     const edgeRun = { riprap: 2, low: 1.3, none: 0.15 }[P.edge] ?? 3.2, uw = P.edge === "none" ? (bedU ? 0.9 : 0.35) : bedU ? 2.6 : 1.4, pts = [], z = {};
