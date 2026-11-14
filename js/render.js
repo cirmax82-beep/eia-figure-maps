@@ -758,8 +758,10 @@
     }
     return { idx, warped, classes: idx.classes, source: idx.source };
   })().catch((err) => { VEG = null; throw err; }));
+  // 식물상 지역(data/flora, tools/build_flora.py — 국립수목원 KNA 2020 원본 SHP). 자료를 바꾸면 FLO_V를 바꿈
   let FLO = null;
-  const floLayer = () => FLO || (FLO = fetch("data/flora/zones.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  const FLO_V = "kna2020";
+  const floLayer = () => FLO || (FLO = fetch(`data/flora/zones.json?v=${FLO_V}`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then((d) => ({ classes: d.zones, cells: d.cells.map(([v, ring]) => [v, ring.map(([lon, lat]) => [mx(lon), my(lat)])]), source: d.source }))
     .catch((err) => { FLO = null; throw err; }));
   const waterLayer = binLayer("data/water"), landLayer = binLayer("data/land"), natLayer = binLayer("data/ecnat", decodeLayers, mergeLayers);

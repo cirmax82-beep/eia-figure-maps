@@ -45,7 +45,7 @@
 | 문헌조사 위치도 전국자연환경조사 문헌 | BioGrid EIA 원자료 폴더의 제5·6차 전국자연환경조사 파일 이름(「제6차 전국자연환경조사 가례(358094), 2025, 기후에너지환경부」) | 같은 도구로 도엽번호별 문헌 표기만 `data/lit/nes.json`에(파일 내용은 읽지 않음) |
 | 법정보호종 목록 | 멸종위기 야생생물 종목록(2023 고시)·천연기념물 — BioGrid EIA 정리 목록(`legal_protected_species.xlsx`) | `tools/build_legal.py`로 293종의 등급(Ⅰ·Ⅱ급)·천연기념물·분류군을 `data/legal_species.json`에(분류군은 목록 차례로 나눔, 두 등급에 다 적힌 그물공말·삼나무말은 Ⅱ급, 천연기념물 까막딱따구리 → 까막딱다구리, 점박이물범 → 물범으로 합침) |
 | 생태계교란 생물 목록 | 교란생물 종합관리(invasive.biogrideia.com)의 정리 목록(`js/data-species.js`) — 지정 고시로 확인 필요 | `tools/build_invasive.py`로 39종의 국명·분류군·학명을 `data/invasive_species.json`에(블루길 → 파랑볼우럭, 붉은귀거북 → 붉은귀거북속 전종) |
-| 식물상 지역 | Jung & Cho (2020) Ecology and Evolution 10(20), Dryad doi:10.5061/dryad.3tx95x6cr (CC0) | `tools/build_flora.py`로 격자 867칸을 `data/flora/zones.json`에 |
+| 식물상 지역 | 국립수목원(2020) 한국의 숲 Ⅵ 「한국 식물상 지역(KNA 2020)」 GIS SHP(EPSG:5186, 칸 나누기는 Jung & Cho 2020) | `tools/build_flora.py`로 격자 867칸을 구분·모양 그대로 `data/flora/zones.json`에, 색은 원본 그림 범례 색 |
 | 산·저수지·하천 이름, 하천 선 | © OpenStreetMap 기여자 (ODbL) | Geofabrik 한국 추출본에서 뽑아 둔 `data/osm` 조각. 하천 선의 점 순서가 흐르는 방향 |
 
 토지피복 면은 10 m 화소를 살짝 흐리게 한 뒤 등치선으로 바꾼 것이라 폭 10 m보다 좁은 개천은 빠지므로, 실폭하천·호수/저수지(지정 안 된 하천·수로·작은 저수지 포함)와 하천구역·소하천구역 면을 함께 칠합니다. 두 자료에도 빠진 물길(지정 구간 밖 상류 등)은 ‘하천 선(빈 곳 잇기)’이 OSM 하천 선으로 이어 칠합니다. 수계는 출처가 겹치므로 불투명하게 칠합니다. 접경지역 등 토지피복 ‘분류 없음’ 지역은 산림·수계가 빠지며, 이때 미리보기에 알림이 뜹니다.
@@ -58,7 +58,7 @@
 
 - 생태·자연도: 새 정기고시 GDB를 받아 `python tools/build_ecnat.py "<GDB 경로>" data/ecnat` (약 20분)
 - 식생기후대: `python tools/build_vegclim.py "한국 식생기후 분포도 (KNA 2020).tif" data/vegclim` (국립수목원 제공 GIS 파일, 좌표계 EPSG:5174 — 원본은 저장소에 넣지 않음). 자료를 바꾸면 `js/render.js`의 `VEG_V`도 바꿈
-- 식물상 지역: Dryad에서 `floristic_zones_and_ecoregions.zip`을 받아 `python tools/build_flora.py <zip> data/flora`
+- 식물상 지역: `python tools/build_flora.py "한국 식물상 지역 (KNA 2020) (utf-8).shp" data/flora` (국립수목원 제공 GIS 파일 — 원본은 저장소에 넣지 않음). 자료를 바꾸면 `js/render.js`의 `FLO_V`도 바꿈
 
 ## 문헌조사 위치도 자료 갱신
 
