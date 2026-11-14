@@ -459,7 +459,7 @@
   const REALH = { tallgrass: 2.2, emergent: 1.5, cattail: 1.8, sedge: 0.9, grass: 0.5, forb: 1.0, flower: 0.9, lowherb: 0.4, shrub: 2.0, tree: 8, conifer: 10, floating: 0.05, vine: 0.6 };
   const SPH = { 버드나무: 9, 왕버들: 10, 선버들: 6, 능수버들: 10, 수양버들: 10, 아까시나무: 12, 느티나무: 15, 오리나무: 12, 물오리나무: 10, 팽나무: 12, 가중나무: 12, 신나무: 7,
     갯버들: 2, 키버들: 2.5, 찔레꽃: 1.5, 찔레: 1.5, 국수나무: 1.5, 족제비싸리: 3, 갈대: 2.5, 달뿌리풀: 2, 억새: 1.8, 물억새: 1.8, 갈풀: 1.5, 줄: 1.5, 창포: 0.8, 부들: 1.8, 애기부들: 1.5, 큰부들: 2,
-    고마리: 0.5, 여뀌: 0.6, 쑥: 1.0, 개망초: 0.8, 소리쟁이: 1.0, 돼지풀: 1.2, 단풍잎돼지풀: 2.5, 코스모스: 1.2, 금계국: 0.7, 큰금계국: 0.8, 달맞이꽃: 1.0, 강아지풀: 0.5, 바랭이: 0.5,
+    고마리: 0.5, 여뀌: 0.6, 쑥: 0.5, 개망초: 0.8, 소리쟁이: 1.0, 돼지풀: 1.2, 단풍잎돼지풀: 2.5, 코스모스: 1.2, 금계국: 0.7, 큰금계국: 0.8, 달맞이꽃: 1.0, 강아지풀: 0.5, 바랭이: 0.5,
     소나무: 12, 곰솔: 12, 리기다소나무: 12, 잣나무: 15, 낙엽송: 18, 메타세쿼이아: 20 };
   // tH: 「교목 키(m)」(실측 방식) — 키를 따로 적지 않은 교목·침엽수에
   const realH = (v, tH = 0) => {
@@ -726,7 +726,9 @@
     const real = st.mode === "real", tr = +st.treeRef;
     const s = real ? (REALH.forb * g.vs) / SIZE.forb : (g.vs / VS_STD) * ((fig.el && fig.el.size) || 1), sTree = !real && tr > 0 ? (tr * g.bankMM) / SIZE.tree : s;
     const sf = (form) => (form === "tree" || form === "conifer" ? sTree : s);
-    const tH = num(realOf(st).treeH, 0), sfv = (v) => (real ? (realH(v, tH) * g.vs) / SIZE[v.form] : sf(v.form));
+    // 개념도: 같은 생활형이라도 낮게 자라는 종은 작게(쑥은 둑마루·둔치에 낮게 깔림)
+    const SPF = { 쑥: 0.55 }, spf = (v) => SPF[String(v.name || "").replace(/\s/g, "")] || 1;
+    const tH = num(realOf(st).treeH, 0), sfv = (v) => (real ? (realH(v, tH) * g.vs) / SIZE[v.form] : sf(v.form) * spf(v));
     const GROUND = { soil: { fill: "#d9bb8f", line: "#6b4f2a" }, line: { fill: "#ffffff", line: ink }, hatch: { fill: "#ffffff", line: ink, hatch: true } }[S.ground] || { fill: "#d9bb8f", line: "#6b4f2a" };
     const occupied = [];
     const hit = (b) => occupied.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
