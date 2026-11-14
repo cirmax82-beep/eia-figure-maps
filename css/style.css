@@ -34,6 +34,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sec-vrow [data-vk="amt"] { grid-area: amt; }
 .sec-vrow [data-vk="form"] { grid-area: form; }
 .sec-vrow [data-vk="size"] { grid-area: size; }
+.sec-vrow [data-vk="hm"] { grid-area: size; }
+.nin { display: flex; align-items: center; gap: 3px; }
+.nin .input { flex: 1; min-width: 0; }
+.nin i { font-style: normal; font-size: 12px; color: var(--muted, #868e96); }
 .sec-vrow [data-sa="vdel"] { grid-area: del; padding: 4px 0; }
 .sec-vrow [data-sa="vpin"] { grid-area: pin; padding: 4px 0; }
 .sec-vrow .sec-pinned { grid-area: zone; padding: 4px 5px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d9480f; border-color: #ffc078; }
