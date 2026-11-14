@@ -2532,6 +2532,7 @@
         ${both("rev", "호안", X.REV)}${sel("real.nL", X.NS, String(RV.nL), "좌안 사면 경사")}${sel("real.nR", X.NS, String(RV.nR), "우안 사면 경사")}
         ${nin("bL", RV.bL, "좌안 둔치 길이(호안 끝에서)")}${nin("bR", RV.bR, "우안 둔치 길이(호안 끝에서)")}
         ${nin("hbL", RV.hbL, "좌안 둔치 높이(수면 위)")}${nin("hbR", RV.hbR, "우안 둔치 높이(수면 위)")}
+        ${sel("real.mL", X.MS, String(RV.mL ?? "auto"), "좌안 둔치 가장자리 경사")}${sel("real.mR", X.MS, String(RV.mR ?? "auto"), "우안 둔치 가장자리 경사")}
         ${both("edge", "물가", X.EDGES)}
         <p class="hint sec-applied" id="sec-applied" title="하폭·수폭이 먼저: 하폭 − 수폭 안에 사면·둔치가 들지 않으면 둔치를 줄이고, 그래도 안 되면 사면을 가파르게 맞춤. 남는 폭은 물가"></p>`
     : `${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${(st.L.berm || "none") !== "none" || (st.R.berm || "none") !== "none" || (st.water.pos || "center") !== "center" ? both("bermH", "둔치 높이", X.BERMHS) : ""}${both("edge", "물가", X.EDGES)}`}
