@@ -2537,7 +2537,7 @@
     : `${both("bank", "제방 높이", X.BANKS)}${both("rev", "호안", X.REV)}${both("slope", "사면 경사", X.SLOPES)}${both("berm", "둔치", X.BERMS)}${(st.L.berm || "none") !== "none" || (st.R.berm || "none") !== "none" || (st.water.pos || "center") !== "center" ? both("bermH", "둔치 높이", X.BERMHS) : ""}${both("edge", "물가", X.EDGES)}`}
       </div>
       <b class="small sec-h">식생 <span class="hint">이름을 적으면 생활형(그림 모양)을 맞춰 줌 · 같은 자리는 적은 차례로 나눠 그림 · 📍를 누르고 단면도를 누르면 그 자리에 직접 넣음</span></b>
-      ${real ? `<p class="hint">식물은 종·생활형별 실제 키(버드나무 9 m, 갈대 2.5 m, 쑥 0.5 m 등)로 그립니다. 줄마다 키(m)를 적으면 그 값으로, 「교목 키」를 적으면 키를 따로 적지 않은 교목·침엽수 모두 그 키로. 전체를 줄이려면 모양의 「식물 크기」.</p>
+      ${real ? `<p class="hint">식물은 종·생활형별 기본 키(갈대·갯버들 1.5 m, 달뿌리풀·부들류 1 m, 줄 0.9 m, 키 큰 풀·고랭이류 0.5 m, 꽃 피는 풀 0.4 m, 낮은 벼과 0.3 m, 낮은 풀 0.1 m, 교목 5 m 등)로 그립니다. 줄마다 키(m)를 적으면 그 값으로, 「교목 키」를 적으면 키를 따로 적지 않은 교목·침엽수 모두 그 키로. 전체를 줄이려면 모양의 「식물 크기」.</p>
       <label class="row" title="키를 따로 적지 않은 교목·침엽수의 키(m). 비우면 종 기본(버드나무 9 m, 왕버들 10 m, 소나무 12 m 등)">교목 키 <span class="nin"><input class="input" type="number" step="0.5" min="0" data-sk="real.treeH" value="${esc(String(RV.treeH ?? ""))}" placeholder="비우면 종 기본(버드나무 9 m 등)"><i>m</i></span></label>` : `<label class="row" title="자동은 지형 세로 배율에 맞춘 크기. 배수를 고르면 교목 높이가 제방 높이 × 배수(다른 식물은 같은 비율) — 소하천은 나무가 제방보다 높은 일이 많음">나무 높이(제방 대비) <select class="input" data-sk="treeRef">${secOpts(X.TREEREFS, st.treeRef || "auto")}</select></label>`}
       <div class="sec-veg">${st.veg.map((v, i) => { const np = X.pinsOf(v).length; return `
         <div class="sec-vrow" data-vi="${i}">
