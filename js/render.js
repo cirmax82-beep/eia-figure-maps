@@ -1323,7 +1323,8 @@
     if (drones.length) legend.push({ type: "drone", label: "드론촬영지점" });
     // 현지조사 위치도: 조사범위 → 조사경로 → 조사지점. 현지조사시 법정보호종 출현위치도: 조사범위 → (조사경로) → 종마다 기호
     if (fld) {
-      if (rings) (fig.fieldRings || []).forEach((r, i) => legend.push({ type: "ring", color: FIELD.rings[i % FIELD.rings.length], label: r.label }));
+      // 출현위치도에서 「선만(범례에서 뺌)」을 고른 조사범위는 범례에 안 넣음
+      if (rings) (fig.fieldRings || []).forEach((r, i) => { if (!r.noLegend) legend.push({ type: "ring", color: FIELD.rings[i % FIELD.rings.length], label: r.label }); });
       (fig.fieldRoutes || []).forEach((r) => legend.push({ type: "route", color: r.color, label: r.name }));
       if (!occ) Object.entries(FIELD_PT_NAME).forEach(([k, name]) => { if ((fig.field.points || []).some((q) => q.kind === k)) legend.push({ type: "fpt", kind: k, label: name }); });
       if (occ) (fig.occSpecies || []).forEach((q) => legend.push({ type: "occ", sym: q.sym, kinds: q.kinds, label: q.label }));

@@ -40,7 +40,8 @@
     field: { type: "auto", ranges: null, rangesEdited: false, tracks: [], tseq: 0, tol: 15, car: true, soft: 12, far: 2000, byGroup: false, edits: [], redo: [], points: [], pseq: 0, stats: null },
     // 현지조사 출현위치도(법정보호종·생태계교란생물): 조사범위(m, 0이면 현지조사 위치도의 가장 큰 범위), 범위 밖 기록(all·m), 이름표, 조사경로 겹치기,
     // 출현 기록([{id, name, kind: point·line·area, pts, note}]), 종별 기호
-    occ: { ring: 0, out: "all", label: "name", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
+    // show: 조사범위 표시 — all 선 + 범례, line 선만(범례에서 뺌), none 그리지 않음(범위 밖 기록 거르기·엑셀 「범위 안/밖」에는 그대로 씀)
+    occ: { ring: 0, show: "all", out: "all", label: "name", routes: false, recs: [], seq: 0, syms: {}, symSeq: 0 },
     arrows: [], labelHide: new Set(), labelText: new Map(),
     // 현지조사 위치도·출현위치도: 생태·자연도 1등급·별도관리지역 겹치기(따로)
     natBase: false, natSep: false,
@@ -1286,7 +1287,8 @@
     const k = f.kind, C = OCC[k], Q = f.occ;
     const auto = maxRange(), m = Q.ring > 0 ? Q.ring : auto;
     f.occAuto = auto;
-    f.fieldRings = [{ m, label: `현지조사 범위(${fmt(m)} m)` }];
+    f.occRange = m;
+    f.fieldRings = Q.show === "none" ? [] : [{ m, label: `현지조사 범위(${fmt(m)} m)`, noLegend: Q.show === "line" }];
     if (Q.routes) { prepField(S.figs.field); f.fieldRoutes = S.figs.field.fieldRoutes; } else f.fieldRoutes = [];
     // 종마다 처음 본 차례로 기호를 정해 둠(종을 지워도 다른 종 기호는 그대로)
     Q.recs.forEach((r) => { if (!Q.syms[r.name]) Q.syms[r.name] = Carto.symOf(Q.symSeq++); });
@@ -1388,6 +1390,7 @@
     const C = OCC[k], p = C.pre;
     return `<div class="grid2">
           <label title="분류군과 상관없이 가장 큰 조사범위 하나. 비우면 현지조사 위치도에서 켠 조사범위 중 가장 큰 거리">조사범위(m) <input id="${p}-ring" class="input" type="number" min="10" max="5000" step="10" placeholder="자동"></label>
+          <label title="도면에 조사범위 선과 범례를 넣을지. 그리지 않아도 「범위 밖 기록」 거르기와 엑셀의 범위 안/밖은 이 조사범위로 셈">조사범위 표시 <select id="${p}-show" class="input"><option value="all">선 + 범례</option><option value="line">선만(범례에서 뺌)</option><option value="none">그리지 않음</option></select></label>
           <label title="범위를 조금 벗어난 출현 기록도 넣을 때">범위 밖 기록 <select id="${p}-out" class="input">
             <option value="all">모두 그림</option><option value="500">범위 밖 500 m까지</option><option value="200">범위 밖 200 m까지</option><option value="100">범위 밖 100 m까지</option><option value="0">범위 안만</option>
           </select></label>
@@ -1422,13 +1425,14 @@
     const Q = OF(k);
     $o(k, "ring").value = Q.ring > 0 ? String(Q.ring) : "";
     $o(k, "ring").placeholder = `자동(${fmt(maxRange())} m)`;
+    $o(k, "show").value = Q.show || "all";
     $o(k, "out").value = Q.out;
     $o(k, "label").value = Q.label;
     $o(k, "routes").checked = Q.routes;
     renderOccList(k);
   };
   const renderOccList = (k) => {
-    const C = OCC[k], Q = OF(k), m = (S.figs[k].fieldRings || [{ m: 0 }])[0].m;
+    const C = OCC[k], Q = OF(k), m = S.figs[k].occRange || 0;
     const tag = (r) => (r.d == null ? "" : r.d <= m ? "범위 안" : `범위 밖 ${fmt(Math.round(r.d - m))} m${r.vis ? "" : " · 도면에서 뺌"}`);
     $o(k, "list").innerHTML = occOrder(k, Q.recs).map((n) => {
       const rs = Q.recs.filter((r) => r.name === n), M = occOf(k, n), st = C.status(M);
@@ -1444,7 +1448,7 @@
     if (!Q.recs.length) { toast("저장할 출현 기록이 없습니다."); return; }
     const name = $("#site-name").value.trim();
     const data = { type: C.file, version: 2, saved: new Date().toISOString(), project: name, siteText: siteText(), site: site() ? site().features : null,
-      options: { ring: Q.ring, out: Q.out, label: Q.label, routes: Q.routes }, recs: Q.recs.map(({ id, name: n, kind, pts, note }) => ({ id, name: n, kind, pts, note })), syms: Q.syms, symSeq: Q.symSeq };
+      options: { ring: Q.ring, show: Q.show, out: Q.out, label: Q.label, routes: Q.routes }, recs: Q.recs.map(({ id, name: n, kind, pts, note }) => ({ id, name: n, kind, pts, note })), syms: Q.syms, symSeq: Q.symSeq };
     saveBlob(new Blob([JSON.stringify(data)], { type: "application/json" }), `${safeName([name, C.save].filter(Boolean).join("_"))}.json`);
     toast(`출현 기록 ${Q.recs.length}건을 파일로 저장했습니다.`);
   };
@@ -1457,6 +1461,7 @@
     if (!site() && Array.isArray(d.site) && d.site.length && Input.setSite(d.site, "출현 기록 파일의 경계")) note = " 파일에 있던 경계도 넣었습니다.";
     const Q = OF(k), o = d.options || {}, isPt = (p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]);
     if (Number.isFinite(o.ring)) Q.ring = o.ring;
+    if (["all", "line", "none"].includes(o.show)) Q.show = o.show;
     if (["all", "500", "200", "100", "0"].includes(o.out)) Q.out = o.out;
     if (["none", "name"].includes(o.label)) Q.label = o.label;
     if (typeof o.routes === "boolean") Q.routes = o.routes;
@@ -1476,7 +1481,7 @@
     await occList(k).catch(() => null);
     prepOcc(f);
     await loadScript(LIB.xlsx, "XLSX");
-    const T = tm5186(), name = $("#site-name").value.trim(), m = f.fieldRings[0].m, order = occOrder(k, Q.recs);
+    const T = tm5186(), name = $("#site-name").value.trim(), m = f.occRange, order = occOrder(k, Q.recs);
     const colVal = (M) => (C.col === "학명" ? (M && M.sci) || "" : C.status(M));
     const recs = order.flatMap((n) => Q.recs.filter((r) => r.name === n));
     const rows = recs.map((r, i) => {
@@ -1510,6 +1515,7 @@
     const C = OCC[k], pane = $(`#${k}-pane`);
     occList(k).then((L) => { $o(k, "names").innerHTML = L.names.map((n) => `<option value="${esc(n)}">`).join(""); }).catch((err) => console.warn(err));
     $o(k, "ring").addEventListener("input", (e) => { OF(k).ring = Math.max(0, Math.min(5000, Math.round(+e.target.value || 0))); scaleOptions(); rerender(); });
+    $o(k, "show").addEventListener("change", (e) => { OF(k).show = e.target.value; scaleOptions(); renderPreview(); });
     $o(k, "out").addEventListener("change", (e) => { OF(k).out = e.target.value; scaleOptions(); renderPreview(); });
     $o(k, "label").addEventListener("change", (e) => { OF(k).label = e.target.value; renderPreview(); });
     $o(k, "routes").addEventListener("change", (e) => { OF(k).routes = e.target.checked; renderPreview(); });
